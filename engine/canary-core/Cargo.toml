@@ -1,0 +1,15 @@
+[package]
+name = "canary-core"
+description = "Canary Engine core runtime: App bootstrap, subsystem registry, logging."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = "2.0.19"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }

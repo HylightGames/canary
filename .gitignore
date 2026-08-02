@@ -1,0 +1,81 @@
+# ==============================================================================
+# Canary Engine — .gitignore
+#
+# Canary is explicitly multi-language (see docs/decisions/architecture-decision-
+# records/0002-primary-language-selection.md). This file ignores build output
+# for the host language (Rust) as well as the language ecosystems that plugins,
+# tooling, and bindings are expected to touch over the project's lifetime.
+# ==============================================================================
+
+# --- Rust ---------------------------------------------------------------
+/target/
+**/target/
+Cargo.lock.bak
+*.pdb
+
+# --- Build / packaging outputs -------------------------------------------
+/build/
+/dist/
+/out/
+/.cache/
+*.cwasm
+
+# --- WebAssembly plugin/mod artifacts -------------------------------------
+*.wasm
+!/docs/**/*.wasm
+
+# --- Native plugin artifacts (C ABI tier, see plugin-system.md) -----------
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exp
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+
+# --- C/C++ third-party vendoring (used by native subsystem bindings) -----
+/vendor/**/build/
+
+# --- Node.js (editor tooling, docs site, future bindings) -----------------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# --- Python (asset pipeline tooling scripts, future bindings) -------------
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+
+# --- Editors / IDEs --------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS junk ---------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Logs, local env, secrets ----------------------------------------------
+*.log
+.env
+.env.local
+.env.*.local
+
+# --- Asset pipeline cook cache (see docs/architecture/asset-system.md) ----
+/.canary-cache/
+*.cooked
+
+# Note: Cargo.lock is intentionally tracked (Canary ships binaries/examples),
+# per docs/development/build-system.md.

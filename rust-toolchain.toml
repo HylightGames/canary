@@ -1,0 +1,16 @@
+# If you use rustup, this file pins the toolchain used across the workspace so
+# every contributor and CI runner builds with the same compiler and components.
+# We track `stable` rather than a hand-picked version number so the project
+# never has to remember to bump this file on a schedule — see
+# docs/decisions/architecture-decision-records/0002-primary-language-selection.md
+# for why Rust was chosen and how we intend to manage its upgrade cadence.
+#
+# This session's sandbox validated the workspace against the Ubuntu-packaged
+# rustc 1.75 toolchain (apt), since rustup's download host is not reachable in
+# this environment. That is a floor, not the target: real development and CI
+# should use current `stable`, which by mid-2026 is considerably newer.
+
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy", "rust-src"]
+targets = ["wasm32-wasip2"]

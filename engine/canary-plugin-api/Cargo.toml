@@ -1,0 +1,21 @@
+[package]
+name = "canary-plugin-api"
+description = "Canary Engine plugin trait surface and native (Tier B) plugin loader."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = "2.0.19"
+# Pinned below latest for this sandbox's validation build: libloading's own
+# latest release (0.9.0) has raised its MSRV to rustc 1.88, newer than the
+# apt-installed rustc 1.75 available here (see
+# docs/development/build-system.md and the analogous note in
+# engine/canary-ecs/Cargo.toml). 0.8.6 is the newest release still
+# compatible with 1.75. Bump once building against a current `stable`
+# toolchain.
+libloading = "=0.8.6"

@@ -1,0 +1,7 @@
+# Workspace-wide Clippy configuration.
+# CI runs `cargo clippy --workspace --all-targets -- -D warnings`
+# (see .github/workflows/ci.yml and docs/development/coding-standards.md).
+
+msrv = "1.85.0"
+too-many-arguments-threshold = 8
+type-complexity-threshold = 300

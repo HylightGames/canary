@@ -1,0 +1,19 @@
+[package]
+name = "canary-runtime"
+description = "Canary Engine headless boot-harness binary: exercises core/platform/ecs/plugin-api together."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-core = { path = "../canary-core" }
+canary-platform = { path = "../canary-platform" }
+canary-ecs = { path = "../canary-ecs" }
+canary-plugin-api = { path = "../canary-plugin-api" }
+anyhow = "1.0.104"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }

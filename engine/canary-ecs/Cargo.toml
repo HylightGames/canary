@@ -1,0 +1,28 @@
+[package]
+name = "canary-ecs"
+description = "Canary Engine ECS: entities, components, and the World (v0.0.1-pre1 minimal implementation)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = "2.0.19"
+
+[dev-dependencies]
+# Pinned below the workspace-wide latest resolution, specifically to build
+# against this sandbox's apt-installed Cargo/rustc 1.75 (rust-toolchain.toml
+# targets current `stable` for real development; this is a validation-only
+# floor — see docs/development/build-system.md). Two independent issues
+# showed up here, both worth recording so a future bump doesn't have to
+# rediscover them: (1) proptest's own latest release (1.11.0) has itself
+# raised its MSRV to rustc 1.85; (2) even proptest 1.4.0's transitive
+# `tempfile` dependency, if left unpinned, resolves to a `tempfile` release
+# whose own `getrandom` dependency requires Cargo's `edition2024` feature,
+# which 1.75 doesn't support either. Bump both once building against a
+# current `stable` toolchain.
+proptest = "=1.4.0"
+tempfile = "=3.10.1"

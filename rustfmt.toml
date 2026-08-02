@@ -1,0 +1,12 @@
+# Formatting rules for the Rust portions of Canary Engine.
+# Kept close to rustfmt defaults deliberately — see
+# docs/development/coding-standards.md for the reasoning: a foundation this
+# long-lived should not fight the ecosystem's default tooling.
+edition = "2021"
+max_width = 100
+use_small_heuristics = "Default"
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+reorder_modules = true
+newline_style = "Unix"
