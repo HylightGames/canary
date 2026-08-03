@@ -97,3 +97,26 @@ Per [ADR 0005](../decisions/architecture-decision-records/0005-build-system-and-
 (`canary-runtime` today; the editor and game templates later), and
 reproducible builds across contributors and CI matter more here than the
 flexibility an uncommitted lockfile would give a pure library.
+
+## Known limitations (added by the August 2026 architecture review)
+
+- **CI previously set a blanket `RUSTFLAGS: "-D warnings"`**, which
+  applies to every `rustc` invocation Cargo makes, including third-party
+  dependencies — meaning a new compiler release could fail CI over a
+  warning in code this project doesn't own. This was fixed as part of
+  that review (see [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml));
+  the workspace `[lints]` table plus `cargo clippy -- -D warnings`
+  (correctly scoped to workspace members only) now carry the enforcement
+  instead. See
+  [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
+  Finding 2.1, and risk register R-02.
+- **`xtask check` currently skips `clippy`** (documented reason: the
+  component isn't guaranteed installed locally), which means it can pass
+  locally while CI's separate clippy gate still fails on the same push.
+  Not yet fixed — a small code change, tracked as a follow-up rather than
+  made during that review (which scoped itself to no major implementation
+  code). See the review, Finding 8.2, and risk register R-18.
+- **No CI build-cache strategy exists.** Not urgent at the current crate
+  count and contributor count; worth planning for before CI cost/latency
+  becomes a visible problem rather than after. See the review, Finding
+  8.3, and risk register R-28.

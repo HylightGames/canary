@@ -147,3 +147,27 @@ would likely need redesigning anyway once those declarations land.
 
 See [`docs/development/coding-standards.md`](../development/coding-standards.md)
 for the enforced version of these conventions.
+
+## Known limitations (added by the August 2026 architecture review)
+
+- **Component storage currently has no `Send + Sync` bound**, which
+  contradicts the job-system target design described above. Cheap to fix
+  before any component types exist outside this workspace, increasingly
+  expensive after. See
+  [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
+  Finding 2.2, and risk register R-05.
+- **Change detection** (needed by networking replication, hot reload, and
+  editor tooling alike) is named as a requirement here and elsewhere but
+  designed nowhere yet. It should be designed *as part of* the archetype
+  migration, not after it, since storage layout and change-tracking
+  tend to be deeply coupled. See the review, Finding 4.3, and risk
+  register R-13.
+- **Component identity relies on `std::any::TypeId`**, which does not
+  survive the Rust/WASM or cross-language boundary at all — see
+  [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
+  and the review, Finding 4.1, before extending this design to support
+  Tier A plugins.
+- **Entity generation counters (`u32`) wrap silently** via `wrapping_add`.
+  Low probability over normal timescales, but a real, currently
+  undocumented risk for long-lived server processes. See the review,
+  Finding 4.2, and risk register R-12.

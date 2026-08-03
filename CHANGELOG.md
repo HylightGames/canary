@@ -36,3 +36,39 @@ For milestone-level (rather than change-level) progress, see
   end to end.
 
 [v0.0.1-pre1]: https://github.com/notthecloudy/canary/releases/tag/v0.0.1-pre1
+
+## [Unreleased] — Senior architecture review (still within v0.0.1-pre1)
+
+### Added
+
+- A senior architecture review (`docs/reviews/2026-08-senior-architecture-review.md`)
+  and a living risk register (`docs/reviews/risk-register.md`) tracking
+  30 findings across repository structure, Rust architecture, plugin ABI,
+  ECS strategy, language independence, scripting, marketplace
+  architecture, build system, and versioning.
+- Three new ADRs: workspace crate versioning (lockstep), plugin ABI
+  versioning and extensibility, and component identity across the
+  language boundary (`Proposed`).
+- `GOVERNANCE.md`, addressing succession/bus-factor planning and
+  decision-making process — previously entirely absent.
+- A minimal `.github/CODEOWNERS`.
+- A DCO (Developer Certificate of Origin) requirement in `CONTRIBUTING.md`.
+
+### Changed
+
+- CI no longer sets a blanket `RUSTFLAGS: "-D warnings"`, which could
+  fail builds over warnings in dependency code outside this project's
+  control; lint enforcement is now correctly scoped via the workspace
+  `[lints]` table and `cargo clippy -- -D warnings`.
+- `rustfmt.toml` no longer specifies nightly-only options that silently
+  didn't apply on this project's pinned `stable` toolchain; the
+  already-committed code (which didn't pass its own format check) was
+  reformatted accordingly. Whitespace-only; rebuild and full test pass
+  confirmed.
+
+### Not changed
+
+- No Rust source code was modified — see the review's own stated scope.
+  Two small, recommended code changes (`Send + Sync` bounds on ECS
+  component storage; the plugin ABI version field) are documented as
+  follow-ups for the next development session.

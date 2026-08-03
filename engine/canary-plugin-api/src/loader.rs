@@ -118,11 +118,10 @@ impl NativePluginLoader {
         // a library runs arbitrary initializer code — which is exactly
         // the trust boundary Tier B is defined around (see the doc
         // comment above and `docs/architecture/plugin-system.md#tier-b--trusted-native-c-abi`).
-        let library = unsafe { Library::new(path) }
-            .map_err(|source| PluginError::Load {
-                path: path.to_path_buf(),
-                source,
-            })?;
+        let library = unsafe { Library::new(path) }.map_err(|source| PluginError::Load {
+            path: path.to_path_buf(),
+            source,
+        })?;
 
         // SAFETY: `ENTRY_SYMBOL` is the documented, required export name
         // for a Tier B plugin (see `crate::abi`); if this symbol is
@@ -131,9 +130,11 @@ impl NativePluginLoader {
         // outlives `entry` here (it isn't dropped until the end of this
         // function, well after `entry` is last used).
         let entry: Symbol<PluginEntryFn> =
-            unsafe { library.get(ENTRY_SYMBOL) }.map_err(|source| PluginError::MissingEntryPoint {
-                path: path.to_path_buf(),
-                source,
+            unsafe { library.get(ENTRY_SYMBOL) }.map_err(|source| {
+                PluginError::MissingEntryPoint {
+                    path: path.to_path_buf(),
+                    source,
+                }
             })?;
 
         let mut handle = MaybeUninit::<PluginHandle>::uninit();

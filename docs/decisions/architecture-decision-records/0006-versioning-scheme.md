@@ -1,6 +1,9 @@
 # 0006. Versioning scheme: `v0.0.1-preN` → `v0.0.1` → ... → `v1.0.0`
 
-**Status:** Accepted
+**Status:** Accepted. See also [ADR 0008](0008-workspace-crate-versioning-lockstep.md),
+which composes with this one: this ADR defines what the version numbers
+mean; ADR 0008 defines that the workspace has exactly one of them at a
+time (lockstep across crates), not a separate or conflicting scheme.
 
 ## Context
 

@@ -1,0 +1,16 @@
+# CODEOWNERS
+#
+# Identified as missing in docs/reviews/2026-08-senior-architecture-review.md
+# (Finding 1.5) and docs/GOVERNANCE.md. This file is deliberately minimal
+# and honest: there is currently one maintainer, so there is one owner,
+# for everything. It is not padded out with subsystem-specific entries
+# that would imply a delegation structure that doesn't exist yet.
+#
+# Update this file as real path-based delegation happens (see
+# GOVERNANCE.md's "path-based ownership" section) -- e.g., once someone
+# is trusted with the rendering subsystem specifically, add a line like:
+#   /engine/canary-render/  @their-github-handle
+# A stale CODEOWNERS that still says "one person owns everything" long
+# after that's stopped being true is worse than none at all.
+
+*   @notthecloudy

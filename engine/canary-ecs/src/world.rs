@@ -209,10 +209,16 @@ mod tests {
         assert!(world.get::<Position>(entity).is_none());
 
         world.insert(entity, Position { x: 1.0, y: 2.0 }).unwrap();
-        assert_eq!(world.get::<Position>(entity), Some(&Position { x: 1.0, y: 2.0 }));
+        assert_eq!(
+            world.get::<Position>(entity),
+            Some(&Position { x: 1.0, y: 2.0 })
+        );
 
         world.get_mut::<Position>(entity).unwrap().x = 5.0;
-        assert_eq!(world.get::<Position>(entity), Some(&Position { x: 5.0, y: 2.0 }));
+        assert_eq!(
+            world.get::<Position>(entity),
+            Some(&Position { x: 5.0, y: 2.0 })
+        );
 
         let removed = world.remove::<Position>(entity);
         assert_eq!(removed, Some(Position { x: 5.0, y: 2.0 }));
@@ -224,10 +230,14 @@ mod tests {
         let mut world = World::new();
 
         let with_position = world.spawn();
-        world.insert(with_position, Position { x: 0.0, y: 0.0 }).unwrap();
+        world
+            .insert(with_position, Position { x: 0.0, y: 0.0 })
+            .unwrap();
 
         let without_position = world.spawn();
-        world.insert(without_position, Velocity { dx: 1.0, dy: 1.0 }).unwrap();
+        world
+            .insert(without_position, Velocity { dx: 1.0, dy: 1.0 })
+            .unwrap();
 
         let despawned_with_position = world.spawn();
         world

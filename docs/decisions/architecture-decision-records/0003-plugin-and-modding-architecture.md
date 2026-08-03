@@ -1,6 +1,9 @@
 # 0003. Two-tier plugin architecture: sandboxed WASM components + trusted native C ABI
 
-**Status:** Accepted
+**Status:** Accepted. Amended by [ADR 0009](0009-plugin-abi-versioning-and-extensibility.md)
+(Tier B ABI versioning/extensibility) and [ADR 0010](0010-component-identity-across-language-boundary.md)
+(component identity across the language boundary) — both add detail this
+ADR's original text didn't cover; neither reverses anything decided here.
 
 ## Context
 

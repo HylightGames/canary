@@ -50,6 +50,8 @@ and [`docs/vision/design-philosophy.md`](docs/vision/design-philosophy.md).
 | [`docs/development/`](docs/development/) | Build system, coding standards, repo layout |
 | [`docs/ui/`](docs/ui/) | Target design for the (not-yet-built) editor |
 | [`docs/research/`](docs/research/) | Sourced comparisons/evaluations behind the decisions above |
+| [`docs/reviews/`](docs/reviews/) | Periodic critical self-audits, plus a living risk register |
+| [`GOVERNANCE.md`](GOVERNANCE.md) | How decisions get made, succession/bus-factor plan |
 | [`engine/`](engine/) | The engine crates themselves |
 | [`tools/xtask/`](tools/xtask/) | Build orchestration (see [ADR 0005](docs/decisions/architecture-decision-records/0005-build-system-and-tooling.md)) |
 | [`examples/`](examples/), [`tests/`](tests/), [`scripts/`](scripts/) | Currently near-empty; see each directory's README for why |
@@ -96,8 +98,15 @@ and [`docs/roadmap/milestones.md`](docs/roadmap/milestones.md).
 ## Contributing
 
 Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) and the
-[Code of Conduct](CODE_OF_CONDUCT.md). Security issues: see
-[`SECURITY.md`](SECURITY.md), not a public issue.
+[Code of Conduct](CODE_OF_CONDUCT.md). See [`GOVERNANCE.md`](GOVERNANCE.md)
+for how decisions get made and how that's expected to change as more
+maintainers join. Security issues: see [`SECURITY.md`](SECURITY.md), not
+a public issue.
+
+See [`docs/reviews/`](docs/reviews/) for periodic critical self-audits of
+this project's own architecture — including
+[the one conducted right after this foundation was built](docs/reviews/2026-08-senior-architecture-review.md),
+which surfaced several of the ADRs and this very `GOVERNANCE.md` file.
 
 ## License
 

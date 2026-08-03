@@ -100,3 +100,19 @@ and [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md). This
 document exists so that when that work starts, it starts from an already-
 reasoned design rather than being figured out from scratch under
 implementation pressure.
+
+## Known limitations (added by the August 2026 architecture review)
+
+- **Hot reload's "serialization contract" has no actual design** yet —
+  what state migration looks like when a script's own state *shape*
+  changes across a reload is unaddressed, and is a well-known hard
+  problem other engines have gotten wrong. See
+  [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
+  Finding 6.1, and risk register R-16.
+- **Unifying visual scripting under the WASM target may conflict with
+  the "immediate feedback" UX principle** in
+  [`docs/ui/ux-principles.md`](../ui/ux-principles.md#feedback-should-be-immediate-wherever-technically-possible) —
+  if compiling a graph edit to WASM takes more than a fraction of a
+  second, that's a real problem for exactly the audience least likely to
+  tolerate it, and nothing currently reconciles the two commitments. See
+  the review, Finding 6.2, and risk register R-17.

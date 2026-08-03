@@ -12,7 +12,16 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
+  # Deliberately NOT setting a blanket RUSTFLAGS="-D warnings" here.
+  # RUSTFLAGS applies to every rustc invocation Cargo makes, including
+  # third-party dependencies -- a new compiler release can add a lint
+  # that fires inside a dependency's own code (which this project
+  # doesn't own and can't fix), turning that into a CI failure this
+  # project didn't cause. The workspace [lints] table in Cargo.toml is
+  # correctly scoped to workspace members only, and `cargo clippy
+  # --workspace -- -D warnings` below is likewise scoped to this
+  # project's own crates. See docs/reviews/2026-08-senior-architecture-review.md,
+  # Finding 2.1, and docs/reviews/risk-register.md, R-02.
 
 jobs:
   fmt:

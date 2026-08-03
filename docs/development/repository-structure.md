@@ -89,3 +89,22 @@ around, cross-subsystem integration to test, or a recurring dev task worth
 scripting, none of which exist yet in this foundation. Each directory has
 its own `README.md` explaining this rather than being silently empty with
 no explanation.
+
+## Known limitations (added by the August 2026 architecture review)
+
+- **The flat `engine/*` layout has no stated scaling plan.** Fine at six
+  crates; a mature engine plausibly has dozens (multiple render/physics
+  backends, one crate per asset-format importer, editor-panel crates).
+  Cheap to reorganize now, expensive later — worth a named decision
+  point in the roadmap rather than something 30 crates decide by
+  accident. See
+  [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
+  Finding 1.6, and risk register R-22.
+- **`canary` and `canary-rs` are already taken on crates.io** by
+  unrelated projects, verified during that review — meaning a future
+  "one dependency, get the whole engine" meta-crate can't use the bare
+  `canary` name. `canary-engine`'s availability wasn't confirmed either
+  way. See the review, Finding 1.3, and risk register R-07 — this is
+  time-sensitive in a way most other findings in this document aren't,
+  since crates.io names are first-come-first-served with no reservation
+  system.

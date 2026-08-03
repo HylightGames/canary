@@ -95,11 +95,30 @@ a change to the plugin ABI, a new default backend) get an ADR in
 [`0001-record-format.md`](docs/decisions/architecture-decision-records/0001-record-format.md)
 for the template and the bar for "does this need an ADR."
 
-## Licensing
+## Licensing and provenance
 
 By contributing, you agree that your contributions are licensed under the
 project's [MIT License](LICENSE). If you're contributing on behalf of an
 employer, please make sure you're authorized to do so.
+
+**Sign off your commits (DCO).** Every commit must include a
+`Signed-off-by` trailer, certifying you wrote it or otherwise have the
+right to submit it under this project's license (the standard
+[Developer Certificate of Origin](https://developercertificate.org/)).
+Add it automatically with `git commit -s`, or by hand:
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+This is a lightweight, no-paperwork alternative to a Contributor License
+Agreement — it doesn't require a legal entity to hold copyright, just an
+honest statement of provenance attached to the commit itself. It's cheap
+to require from the first commit onward and effectively impossible to
+add retroactively across thousands of historical commits later, which is
+why it's required now rather than deferred until it feels necessary —
+see [`docs/reviews/2026-08-senior-architecture-review.md`](docs/reviews/2026-08-senior-architecture-review.md),
+Finding 1.2.
 
 ## Multi-language contributions
 

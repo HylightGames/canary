@@ -46,7 +46,10 @@ fn print_usage() {
 /// given contributor's local setup.
 fn run_check() -> ExitCode {
     let steps: &[(&str, &[&str])] = &[
-        ("cargo fmt --all -- --check", &["fmt", "--all", "--", "--check"]),
+        (
+            "cargo fmt --all -- --check",
+            &["fmt", "--all", "--", "--check"],
+        ),
         ("cargo test --workspace", &["test", "--workspace"]),
     ];
 

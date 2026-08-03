@@ -147,3 +147,27 @@ deliberate dogfooding decision: if the plugin API isn't good enough to build
 the editor's own panels, it isn't good enough for third-party mods either,
 and the project will find that out from its own tooling instead of from a
 frustrated modder.
+
+## Known limitations (added by the August 2026 architecture review)
+
+- **The Tier B vtable has no ABI version field or extension mechanism.**
+  This is the most consequential technical finding of that review — see
+  [ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md),
+  which should be implemented before this plugin system's implementation
+  work continues.
+- **Component identity doesn't yet have a language-agnostic form** for
+  Tier A plugins to declare capabilities against — see
+  [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md).
+- **No plugin manifest format exists yet** (metadata: author, version,
+  engine-compatibility range, declared capabilities as data). Needed
+  before marketplace tooling (Era 6) can exist without executing a
+  plugin just to learn its name. See the review,
+  [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
+  Finding 3.2, and risk register R-08.
+- **"Trusted" (Tier B) currently has no verification mechanism** —
+  signing, checksums, or provenance are all unaddressed. Fine for a
+  solo-architect foundation; a real supply-chain risk the moment Tier B
+  plugins are distributed beyond the person who compiled them. See the
+  review, Finding 3.3, and risk register R-09.
+- **No engine/plugin compatibility-range declaration mechanism** exists.
+  See the review, Finding 3.4, and risk register R-19.

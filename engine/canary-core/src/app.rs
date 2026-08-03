@@ -152,7 +152,13 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                "a:init", "b:init", "a:tick", "b:tick", "a:tick", "b:tick", "b:shutdown",
+                "a:init",
+                "b:init",
+                "a:tick",
+                "b:tick",
+                "a:tick",
+                "b:tick",
+                "b:shutdown",
                 "a:shutdown",
             ]
         );

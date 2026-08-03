@@ -1,12 +1,17 @@
 # Formatting rules for the Rust portions of Canary Engine.
-# Kept close to rustfmt defaults deliberately — see
+# Kept close to rustfmt defaults deliberately -- see
 # docs/development/coding-standards.md for the reasoning: a foundation this
 # long-lived should not fight the ecosystem's default tooling.
+#
+# Deliberately stable-channel-only: rust-toolchain.toml pins `channel =
+# "stable"`, and several rustfmt options (import grouping/granularity
+# controls in particular) remain nightly-only years after their
+# introduction. Setting them here anyway would silently do nothing on the
+# toolchain this project actually targets, which is worse than not setting
+# them at all -- caught during the August 2026 architecture review by
+# actually running `cargo fmt -- --check` rather than assuming the config
+# was correct; see docs/reviews/2026-08-senior-architecture-review.md.
 edition = "2021"
 max_width = 100
 use_small_heuristics = "Default"
-imports_granularity = "Crate"
-group_imports = "StdExternalCrate"
-reorder_imports = true
-reorder_modules = true
 newline_style = "Unix"

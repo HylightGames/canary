@@ -36,7 +36,10 @@ impl Subsystem for EcsSubsystem {
     }
 
     fn shutdown(&mut self) {
-        tracing::info!(entities = self.world.entity_count(), "ecs subsystem shutting down");
+        tracing::info!(
+            entities = self.world.entity_count(),
+            "ecs subsystem shutting down"
+        );
     }
 }
 
@@ -61,7 +64,13 @@ fn main() -> anyhow::Result<()> {
     let mut world = World::new();
     for i in 0..3 {
         let entity = world.spawn();
-        world.insert(entity, Position { x: i as f32, y: 0.0 })?;
+        world.insert(
+            entity,
+            Position {
+                x: i as f32,
+                y: 0.0,
+            },
+        )?;
     }
     tracing::info!(entities = world.entity_count(), "spawned demo entities");
     for (entity, position) in world.query::<Position>() {
