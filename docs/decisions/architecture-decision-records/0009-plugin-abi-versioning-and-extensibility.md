@@ -1,9 +1,13 @@
 # 0009. Plugin ABI versioning and forward-extensibility for the Tier B vtable
 
-**Status:** Accepted (decision accepted; not yet implemented in code —
-see `docs/reviews/2026-08-senior-architecture-review.md`, Finding 3.1,
-which this ADR resolves at the decision level, and the risk register,
-R-03, for implementation tracking)
+**Status:** Accepted and implemented (`engine/canary-plugin-api/src/abi.rs`,
+`error.rs`, `loader.rs`; validated by
+`engine/canary-plugin-api/tests/native_loader.rs`'s
+`rejects_a_plugin_declaring_an_unsupported_abi_version` test, which
+compiles a real C plugin declaring a wrong version and confirms the
+loader rejects it — not just that the check compiles). Originally
+recorded as a decision without an implementation; both landed together as
+part of completing `v0.0.1` — see `docs/roadmap/milestones.md`.
 
 ## Context
 
@@ -89,13 +93,10 @@ plugin.
 
 ## Consequences
 
-- A small, mechanical implementation task (add one field, add one
-  function pointer, add one loader check) — not "major implementation
-  code" by any reasonable measure — but not yet done as of this ADR;
-  tracked in `docs/reviews/risk-register.md` (R-03) as the top
-  recommended action before plugin-system work continues.
-- `PluginError` gains a new variant (`UnsupportedAbiVersion`), which is
-  itself a small, additive change to `engine/canary-plugin-api/src/error.rs`.
+- Implemented as a small, mechanical change (one new field, one new
+  function pointer, one new loader check) — as expected, not "major
+  implementation code" by any reasonable measure.
+- `PluginError` gained the `UnsupportedAbiVersion` variant.
 - Every future Tier B ABI addition should be evaluated against this ADR:
   "is this additive (goes through `get_extension`) or breaking (bumps
   `abi_version` and, if necessary, the entry-symbol name)?" — that

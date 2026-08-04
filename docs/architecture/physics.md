@@ -63,6 +63,6 @@ described in [core-runtime.md](core-runtime.md) exists to build it against.
 ## Status in this foundation
 
 Entirely architectural. No `canary-physics` crate exists yet; the
-`PhysicsBackend` trait itself isn't implemented in v0.0.1-pre1's code. This
+`PhysicsBackend` trait itself isn't implemented in v0.0.1's code. This
 is intentional scope discipline — see
 [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).

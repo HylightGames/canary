@@ -82,7 +82,7 @@ so the reasoning survives contributor turnover — see
   [ADR 0006](../decisions/architecture-decision-records/0006-versioning-scheme.md)
   applies to it.
 - **No pretending a milestone is done when it's a stub.** Where this
-  foundation ships a deliberately minimal placeholder (the v0.0.1-pre1 ECS,
+  foundation ships a deliberately minimal placeholder (the v0.0.1 ECS,
   for instance), the docs say so explicitly rather than describing aspiration
   as fact. See [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).
 

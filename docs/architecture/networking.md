@@ -107,6 +107,6 @@ in [rendering.md](rendering.md) for the RHI.
 ## Status in this foundation
 
 Entirely architectural. No `canary-net` crate, no `quinn` dependency, and no
-replication marker types exist in v0.0.1-pre1's code — tracked explicitly in
+replication marker types exist in v0.0.1's code — tracked explicitly in
 [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md) as later-era
 work, seeded by ECS design decisions made now.

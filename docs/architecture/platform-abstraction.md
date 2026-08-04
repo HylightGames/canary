@@ -54,7 +54,7 @@ RHI backend. This is a planned decision, not yet implemented — see below.
 
 ## Status in this foundation
 
-v0.0.1-pre1 ships only the **trait definitions** (`Window`, `InputSource`)
+v0.0.1 ships only the **trait definitions** (`Window`, `InputSource`)
 plus a `NullWindow`/headless implementation used by
 `canary-runtime` and by tests. It deliberately does **not** add `winit` (or
 any real windowing/graphics dependency) yet, for a concrete, practical

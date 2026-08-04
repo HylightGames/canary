@@ -71,5 +71,5 @@ that might run inside a shipped game.
 ## Status in this foundation
 
 Entirely architectural. No `canary-assets` crate, no cook/import pipeline,
-and no content-addressed cache exist in v0.0.1-pre1's code — see
+and no content-addressed cache exist in v0.0.1's code — see
 [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).

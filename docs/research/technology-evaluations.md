@@ -118,14 +118,51 @@ onto the mixed reliable/unreliable traffic patterns typical of games.
 **Implication for Canary:** supports the transport choice in
 [ADR 0007](../decisions/architecture-decision-records/0007-networking-and-multiplayer-model.md).
 
-## Editor UI toolkit (evaluated, not yet decided)
+## Editor UI toolkit (evaluated, first backend chosen)
 
 `egui` (immediate-mode, pure Rust) is a credible, low-friction option for
-early tooling and dev UIs, with native `wgpu` integration precedent already
-established in the ecosystem. It is explicitly **not** chosen as the final
-editor toolkit in this foundation — see
-[`docs/ui/editor-design.md`](../ui/editor-design.md#ui-toolkit-an-open-question-not-a-decision)
-for why that decision is deferred rather than made speculatively now.
+early tooling and dev UIs, with native `wgpu` integration precedent
+already established in the ecosystem. Chosen as `CanaryUI`'s first
+backend — see
+[ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md)
+and [`docs/architecture/ui-toolkit.md`](../architecture/ui-toolkit.md) —
+specifically *because* the abstraction layer means this isn't a
+permanent, unquestionable choice, the same posture already taken toward
+`wgpu` for rendering.
+
+## Local-first, collaborative state (CRDTs)
+
+Evaluated as candidate backends for the long-term, genuinely-open
+"real-time collaborative editing" direction named in
+[`docs/architecture/state-and-versioning.md`](../architecture/state-and-versioning.md)
+and [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md) —
+**not adopted or implemented; evaluated only.**
+
+- **Automerge** — a pure-Rust-core CRDT library (JSON-like documents:
+  maps, lists, text) from Ink & Switch, MIT-licensed, explicitly designed
+  for "local-first" software, with a built-in sync protocol and a
+  Git-like change-history model — a strong conceptual match for this
+  project's own version-control-friendliness goals. Exposed to
+  JavaScript via WebAssembly and to other languages via a C API; the
+  Rust API itself is described by the project as lower-level and less
+  polished than its JS wrapper, since the codebase is currently oriented
+  around serving that wrapper.
+- **Loro** — a newer, Rust-native (not just Rust-with-a-JS-wrapper) CRDT
+  library implementing the Fugue algorithm, benchmarked as the fastest of
+  the actively-compared options as of this research, with a more
+  compact encoding than Automerge or Yjs. Less ecosystem maturity as a
+  tradeoff for being newer.
+- **Yjs** — the most widely adopted CRDT library overall (by a wide
+  margin in download/star counts), but JavaScript-native with no
+  first-party Rust bindings, making it a weaker fit for this project's
+  Rust-first core ([ADR 0002](../decisions/architecture-decision-records/0002-primary-language-selection.md))
+  than the two Rust options above.
+
+**Implication for Canary:** if the CRDT-based direction is ever chosen
+over server-authoritative operation broadcast for real-time collaborative
+editing, Automerge or Loro are the credible pure-Rust starting points —
+consistent with this project's consistent preference for depending on
+mature existing libraries (`wgpu`, Rapier) over reinventing them.
 
 ## References
 
@@ -138,6 +175,9 @@ documentation, changelog, and crates.io listing; multiple 2026
 WebAssembly/WASI status write-ups (Bytecode Alliance-adjacent and
 independent); Dimforge's own 2025-review/2026-goals blog post for Rapier;
 the Jolt Physics GitHub repository and Godot's own documentation for Jolt
-integration; and `quinn`'s own repository and crates.io listing. As with
-the engine comparisons document, treat version numbers and adoption
-figures here as a mid-2026 snapshot.
+integration; `quinn`'s own repository and crates.io listing; and, for the
+CRDT evaluation, Automerge's own documentation and GitHub repository
+(automerge/automerge), the `crdt.tech` implementations index, and
+multiple independent 2026 CRDT-library comparison write-ups (Yjs vs.
+Automerge vs. Loro). As with the engine comparisons document, treat
+version numbers and adoption figures here as a mid-2026 snapshot.

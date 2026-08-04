@@ -109,22 +109,27 @@ its real trust model instead of splitting the difference.
 ## The plugin trait surface (`canary-plugin-api`)
 
 Both tiers are exposed to engine code through the same conceptual `Plugin`
-trait — a set of lifecycle hooks (`register`, `on_load`, `on_unload`) and a
-capability-declaration mechanism — so that "load a plugin" is one concept in
+trait — lifecycle hooks (`name`, `on_load`, `on_unload`) implemented
+identically regardless of tier — so that "load a plugin" is one concept in
 the engine's public API even though the two tiers are implemented very
-differently underneath. v0.0.1-pre1 ships:
+differently underneath. v0.0.1 ships:
 
-- The `Plugin` trait definition and the capability-declaration types.
-- A working native (Tier B) loader using `libloading`, because it requires
-  no async runtime and no WASM toolchain to prove the loader mechanism end
-  to end.
+- The `Plugin` trait and the `Capability` declaration type (currently
+  advisory-only — see [`Capability`](../../engine/canary-plugin-api/src/capability.rs)'s
+  own docs for why).
+- A working, versioned native (Tier B) loader using `libloading` and a
+  hand-rolled, `#[repr(C)]` vtable ABI with an explicit version field and
+  forward-extension hook (see [ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md)) —
+  chosen for this milestone because it requires no async runtime and no
+  WASM toolchain to prove the loader mechanism, and the trust/ABI-safety
+  boundary, end to end.
 - **Not yet implemented:** the Wasmtime-backed Tier A loader. The interface
   types are designed to accommodate it (see doc comments in
   `engine/canary-plugin-api/src/lib.rs`), but wiring in an async WASM
   runtime, a capability-grant UX, and WIT interface definitions is
-  substantial scope on its own — tracked explicitly in
-  [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md) as
-  follow-up work rather than rushed into this session.
+  substantial scope on its own — deliberately deferred to `v0.0.2`+ rather
+  than rushed; see
+  [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).
 
 ## Marketplace and the security model
 
@@ -148,26 +153,37 @@ the editor's own panels, it isn't good enough for third-party mods either,
 and the project will find that out from its own tooling instead of from a
 frustrated modder.
 
-## Known limitations (added by the August 2026 architecture review)
+## Known limitations
 
-- **The Tier B vtable has no ABI version field or extension mechanism.**
-  This is the most consequential technical finding of that review — see
-  [ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md),
-  which should be implemented before this plugin system's implementation
-  work continues.
 - **Component identity doesn't yet have a language-agnostic form** for
   Tier A plugins to declare capabilities against — see
-  [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md).
+  [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
+  (`Proposed`). Deferred to `v0.0.2`+ alongside the archetype ECS
+  migration and the Tier A loader itself.
 - **No plugin manifest format exists yet** (metadata: author, version,
   engine-compatibility range, declared capabilities as data). Needed
   before marketplace tooling (Era 6) can exist without executing a
-  plugin just to learn its name. See the review,
+  plugin just to learn its name. See
   [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
-  Finding 3.2, and risk register R-08.
+  Finding 3.2, and risk register R-08. Correctly out of scope for
+  `v0.0.1` — there is no marketplace to serve yet.
 - **"Trusted" (Tier B) currently has no verification mechanism** —
   signing, checksums, or provenance are all unaddressed. Fine for a
   solo-architect foundation; a real supply-chain risk the moment Tier B
   plugins are distributed beyond the person who compiled them. See the
   review, Finding 3.3, and risk register R-09.
-- **No engine/plugin compatibility-range declaration mechanism** exists.
-  See the review, Finding 3.4, and risk register R-19.
+- **No engine/plugin compatibility-range declaration mechanism** exists
+  beyond the ABI version check below. See the review, Finding 3.4, and
+  risk register R-19.
+
+Resolved since the August 2026 review, for `v0.0.1`: the Tier B vtable
+now carries an explicit `abi_version` and a `get_extension` hook for
+future growth (`engine/canary-plugin-api/src/abi.rs`), and
+`NativePluginLoader::load` rejects a version mismatch outright rather
+than risking a silent, incompatible read — see
+[ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md),
+which was the single most consequential technical finding of that
+review. Validated by a test
+(`engine/canary-plugin-api/tests/native_loader.rs`) that compiles a real
+C plugin declaring a wrong version and confirms the loader actually
+rejects it, not merely that the check compiles.

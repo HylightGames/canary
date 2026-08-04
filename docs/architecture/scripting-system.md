@@ -92,7 +92,7 @@ disciplined case.
 
 ## Status in this foundation
 
-Nothing in this document is implemented in v0.0.1-pre1. It depends entirely
+Nothing in this document is implemented in v0.0.1. It depends entirely
 on the Tier A plugin loader (WASM/Wasmtime integration), which is itself
 explicitly deferred past this session — see
 [plugin-system.md](plugin-system.md#the-plugin-trait-surface-canary-plugin-api)

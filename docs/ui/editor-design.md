@@ -69,36 +69,31 @@ to maintain in parallel.
 ## Collaboration tools
 
 Real-time multi-user editing (Figma-style concurrent scene editing) is
-aspirational and explicitly not scoped for any near-term era — it's
-mentioned here because it was part of the founding brief's UI/UX
-considerations, and because it has one concrete near-term implication worth
-recording now: scene/asset data formats should prefer being diffable and
-mergeable (structured text where practical, rather than opaque binary
-blobs) specifically so that *even without* real-time collaborative editing,
-version-control-based collaboration (multiple people editing scenes on
-branches, then merging) stays tractable. This is a preference to keep in
-mind when the asset/scene format is actually designed
-([`docs/architecture/asset-system.md`](../architecture/asset-system.md)),
-not a commitment being made in this document.
+aspirational and explicitly not scoped for any near-term era. This
+section originally recorded one near-term implication in passing (prefer
+diffable, mergeable scene/asset formats); that idea has since grown into
+a full architectural principle and design of its own — see
+[`docs/architecture/state-and-versioning.md`](../architecture/state-and-versioning.md)
+and [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md),
+which supersede this section for anything beyond "the editor should keep
+this in mind."
 
-## UI toolkit: an open question, not a decision
+## UI toolkit: decided at the architecture level, not yet built
 
-Unlike the engine subsystems in `docs/architecture/`, this document
-deliberately does **not** pick a UI toolkit yet. Two real options surfaced
-during research for this foundation:
+Originally left open in this document pending real editor-building
+experience. Since resolved, at the architecture level, as
+[ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md):
+a `CanaryUI` abstraction (`canary-ui-core`) exists from the start, with
+`egui` — immediate-mode, pure Rust, already integrating naturally with
+`wgpu` per [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md) —
+as the first concrete backend, shared between the editor and game-facing
+UI rather than built twice. See
+[`docs/architecture/ui-toolkit.md`](../architecture/ui-toolkit.md) for the
+full design.
 
-- **`egui`** (immediate-mode, pure Rust, already integrates naturally with
-  `wgpu`) — fast to prototype with, well-suited to the tool-panel-heavy
-  style common in game engine editors, but immediate-mode GUIs generally
-  trade away some of the polish/customization ceiling of a retained-mode
-  UI.
-- **A custom retained-mode UI**, giving full control over styling,
-  animation, and accessibility, at significantly higher implementation
-  cost.
-
-A reasonable path — bootstrap tooling and internal dev UIs with `egui`
-early, while treating the shipping editor's final UI toolkit as a decision
-made once there's actual editor-building experience to inform it — is
-plausible but is **not** being locked in here as an ADR, specifically
-because there's no editor-building experience yet to test that assumption
-against. This will become an ADR once Era 5 actually starts.
+What remains genuinely open, and *is* deferred until there's real
+editor-building experience to inform it: whether a fully custom,
+`canary-render`-backed retained-mode toolkit ever replaces the `egui`
+backend, and if so when. `ADR 0011` deliberately doesn't answer that —
+only that the abstraction exists now so the question can be answered
+later without a rewrite of every panel built in the meantime.

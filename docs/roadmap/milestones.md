@@ -78,21 +78,63 @@ in [ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-version
 are documented as the top recommended follow-ups for the next
 development session, not yet implemented.
 
-## `v0.0.1-pre2` — planned, not started
+## `v0.0.1-pre2` — skipped
 
-Expected focus (see [`future-roadmap.md`](future-roadmap.md) for the
-dependency graph this is drawn from): the Tier A WASM plugin loader
-(Wasmtime integration) and/or the archetype ECS migration. Which comes
-first is an open sequencing question for whoever picks this up next — both
-are independent of each other, so this is a legitimate place for a future
-session (or a new contributor) to make a real, owned decision rather than
-one being dictated here in advance.
+Not used. The original plan for `-pre2` was the Tier A WASM plugin loader
+and/or the archetype ECS migration. Both were instead formally deferred
+to `v0.0.2` as part of revising `v0.0.1`'s own definition of done (see
+below) — there was no remaining gap between what `-pre1` plus the review
+fixes delivered and the (deliberately narrowed) bar for unqualified
+`v0.0.1`, so no intermediate `-pre2` was needed.
 
-## `v0.0.1` (unqualified) — not yet scoped in detail
+## `v0.0.1` (unqualified) — **Released**
 
-Will be scoped once enough `-preN` progress exists to know realistically
-what's left. See the "definition of done" in
-[`v0.0.1-roadmap.md`](v0.0.1-roadmap.md#definition-of-done-for-the-unqualified-v001).
+**Status:** Complete.
+
+Completed by revising this milestone's own definition of done (see
+[`v0.0.1-roadmap.md`](v0.0.1-roadmap.md#definition-of-done-for-the-unqualified-v001--revised)
+for the full reasoning) and then closing every item that revised
+definition actually required:
+
+- **Hardened the two highest-severity findings from the architecture
+  review**, both landed with tests proving they work, not just that they
+  compile: the Tier B plugin ABI gained an explicit version field and a
+  forward-extension hook ([ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md)),
+  validated by a test that compiles a real C plugin declaring a wrong
+  version and confirms it's rejected; and ECS component storage gained
+  `Send + Sync` bounds, validated by a compile-time guard test.
+- **Fixed the entity-generation wraparound risk** (widened `u32` → `u64`,
+  moving it from "plausible over years of real uptime" to "not reachable
+  by any realistic runtime").
+- **Closed the local/CI tooling gap**: `xtask check` now detects and runs
+  `clippy` when available instead of unconditionally skipping it.
+- **Audited every ADR and every architecture document against the actual
+  implementation**, correcting drift found along the way — including a
+  pre-existing doc/code mismatch in `plugin-system.md` (a `register`
+  lifecycle hook that was never real) caught only by actually reading the
+  trait definition against its own documentation.
+- **Revised this milestone's own scope**: archetype ECS storage, the
+  parallel job scheduler, the Tier A WASM loader, real windowing, and
+  change detection were formally moved to `v0.0.2`+, with the reasoning
+  recorded rather than silently applied.
+- **Recorded two more foundational architectural commitments**, held to
+  the same "document the hard cross-cutting decisions before code
+  accumulates around an unexamined assumption" standard as rendering,
+  physics, and networking: `CanaryUI` (a native UI abstraction,
+  bootstrapped on `egui`, shared between the editor and game UI —
+  [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md))
+  and explicit, identifiable, versionable project state (a founding
+  principle for Git-friendly collaboration and marketplace packages —
+  [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md),
+  `Proposed`). Neither is implemented; both are architecture only, per
+  this release's own scope discipline.
+- **Prepared the release**: version bumped to `0.0.1` across the
+  workspace, [`CHANGELOG.md`](../../CHANGELOG.md) finalized,
+  [`RELEASE_NOTES_v0.0.1.md`](../../RELEASE_NOTES_v0.0.1.md) written, and
+  a [release checklist](RELEASE_CHECKLIST.md) completed and checked
+  against reality rather than assumed.
+
+Full detail: [`RELEASE_NOTES_v0.0.1.md`](../../RELEASE_NOTES_v0.0.1.md).
 
 ## Beyond `v0.0.1`
 

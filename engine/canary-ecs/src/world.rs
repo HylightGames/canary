@@ -6,9 +6,12 @@ use crate::error::EcsError;
 
 /// Per-slot bookkeeping: whether it's currently occupied, and the
 /// generation to stamp on the next entity that occupies it.
+///
+/// `generation` is `u64` -- see the type-level docs on
+/// [`crate::Entity`] for why.
 #[derive(Default)]
 struct Slot {
-    generation: u32,
+    generation: u64,
     alive: bool,
 }
 
@@ -21,11 +24,19 @@ struct Slot {
 /// `docs/architecture/core-runtime.md#ecs-architecture` for the target
 /// design and why this scope was chosen for the first buildable
 /// milestone.
+///
+/// Component storage requires `T: Send + Sync` (see [`World::insert`]),
+/// which makes `World` itself automatically `Send + Sync` -- required by
+/// the target parallel job-system design in
+/// `docs/architecture/core-runtime.md#threading--the-job-system`, and
+/// cheap to require now, before any component types exist outside this
+/// workspace, versus a breaking change later. See
+/// `docs/reviews/2026-08-senior-architecture-review.md`, Finding 2.2.
 #[derive(Default)]
 pub struct World {
     slots: Vec<Slot>,
     free_indices: Vec<u32>,
-    components: HashMap<TypeId, HashMap<u32, Box<dyn Any>>>,
+    components: HashMap<TypeId, HashMap<u32, Box<dyn Any + Send + Sync>>>,
 }
 
 impl World {
@@ -73,6 +84,10 @@ impl World {
 
         let slot = &mut self.slots[entity.index as usize];
         slot.alive = false;
+        // `wrapping_add` on a `u64` is defense in depth, not a real
+        // expectation of ever wrapping -- see the type-level docs on
+        // `crate::Entity` for why `u64` (rather than the original `u32`)
+        // makes that distinction meaningful instead of theoretical.
         slot.generation = slot.generation.wrapping_add(1);
         self.free_indices.push(entity.index);
 
@@ -106,9 +121,14 @@ impl World {
 
     /// Inserts (or replaces) a component of type `T` on `entity`.
     ///
-    /// Returns [`EcsError::StaleOrUnknownEntity`] if `entity` is not
-    /// alive.
-    pub fn insert<T: 'static>(&mut self, entity: Entity, component: T) -> Result<(), EcsError> {
+    /// `T: Send + Sync` is required so `World` itself can be `Send +
+    /// Sync` -- see the type-level docs above. Returns
+    /// [`EcsError::StaleOrUnknownEntity`] if `entity` is not alive.
+    pub fn insert<T: Send + Sync + 'static>(
+        &mut self,
+        entity: Entity,
+        component: T,
+    ) -> Result<(), EcsError> {
         self.check_alive(entity)?;
         self.components
             .entry(TypeId::of::<T>())
@@ -199,6 +219,17 @@ mod tests {
     struct Velocity {
         dx: f32,
         dy: f32,
+    }
+
+    /// `World` must be usable from a future work-stealing job system (see
+    /// `docs/architecture/core-runtime.md#threading--the-job-system`) --
+    /// this is a compile-time guard against ever regressing that, not a
+    /// runtime behavior check. See
+    /// `docs/reviews/2026-08-senior-architecture-review.md`, Finding 2.2.
+    #[test]
+    fn world_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<World>();
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 Empty for now, deliberately. A meaningful example (even "spinning cube")
 needs a renderer and windowing backend, neither of which exist yet in
-`v0.0.1-pre1` — see
+`v0.0.1` — see
 [`docs/architecture/rendering.md`](../docs/architecture/rendering.md) and
 [`docs/architecture/platform-abstraction.md`](../docs/architecture/platform-abstraction.md).
 

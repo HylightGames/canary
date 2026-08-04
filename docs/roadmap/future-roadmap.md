@@ -8,6 +8,13 @@ version number, a date) to work this far out would cost more in false
 confidence than it would deliver in planning value; this document is
 deliberately organized by *dependency* rather than by date.
 
+The one exception: [`v0.0.1-roadmap.md`](v0.0.1-roadmap.md#definition-of-done-for-the-unqualified-v001--revised)
+names the archetype ECS migration, the Wasmtime-backed Tier A plugin
+loader, and a real windowing backend as the concrete `v0.0.2`+ candidates
+— those three are called out by name there because they were explicitly
+scoped *out* of `v0.0.1`, not because their exact version is otherwise
+settled. Everything below remains genuinely unassigned.
+
 ## Blocked on the ECS reaching its target (archetype) design
 
 - Parallel job-stealing scheduler (`docs/architecture/core-runtime.md`)
@@ -30,13 +37,21 @@ deliberately organized by *dependency* rather than by date.
 - `winit`-backed `canary-platform` implementation
 - The `wgpu`-backed RHI (`docs/architecture/rendering.md`)
 - The render graph and materials system
+- The `egui`-backed `CanaryUI` implementation (`docs/architecture/ui-toolkit.md`,
+  [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md)) —
+  the `canary-ui-core` trait layer itself is not blocked on this and could
+  start earlier
 - The editor (`docs/ui/editor-design.md`) — additionally blocked on the
-  plugin system, since the editor is meant to be built as a plugin host
+  plugin system, since the editor is meant to be built as a plugin host,
+  and on `CanaryUI` having a real backend
 
 ## Blocked on the asset pipeline existing
 
 - Hot-reloadable content in editor/dev builds
 - Any real example game beyond programmer-authored test scenes
+- The medium-term scope of `canary-state`
+  (`docs/architecture/state-and-versioning.md`) — persistent identity and
+  authored change tracking need real asset formats to attach to
 
 ## Not blocked on anything specific — genuinely open questions
 
@@ -67,6 +82,16 @@ deliberately organized by *dependency* rather than by date.
   it.
 - **Mobile platform support.** Not explicitly requested in the founding
   brief and not ruled out; revisit once desktop is solid.
+- **Real-time collaborative editing** ("live share"). Named and
+  architecturally scoped in
+  [`docs/architecture/state-and-versioning.md`](../architecture/state-and-versioning.md)
+  and [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md),
+  but the actual mechanism (server-authoritative operation broadcast vs.
+  CRDT-based leaderless merge) is a genuinely open question, deliberately
+  left unresolved until there's a `canary-state` implementation to ground
+  the choice in. Blocked on the medium-term scope of `canary-state`
+  itself, which is in turn blocked on the archetype ECS migration and the
+  asset pipeline (see the dependency sections above).
 
 ## Explicitly not on this list
 

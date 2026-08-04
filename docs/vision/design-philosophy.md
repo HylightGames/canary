@@ -113,6 +113,26 @@ start — component replication is a first-class ECS concept, not a
 side-channel bolted onto an existing single-player simulation loop — even
 though full rollback-netcode support is explicitly out of scope for v0.0.1.
 
+## State is explicit, identifiable, and versionable
+
+A later addition to this list, but the same kind of principle as the two
+above: **all important engine state must be explicitly represented,
+identifiable, serializable, and versionable.** Most engines treat a
+project as a folder of opaque files, which is precisely why team
+collaboration on shared scenes is such a well-known source of friction
+industry-wide — a binary scene file's Git diff tells you it changed, not
+what changed, and a merge conflict in it is unresolvable by reading it.
+Canary holds this as a constraint from the start specifically because it's
+nearly free to hold now and expensive to retrofit once scenes, assets, and
+save data already exist without it — the same "design together from the
+start" logic as the multiplayer/ECS pairing above, applied to the project
+itself rather than to the running simulation. See
+[`docs/architecture/state-and-versioning.md`](../architecture/state-and-versioning.md)
+and [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md)
+for the full design — including the deliberate, explicit distinction
+between the ECS's fast *runtime* entity identity and a project's stable
+*persistent* identity, which this principle depends on not conflating.
+
 ## What "professional-grade" means for a pre-1.0 project
 
 It does not mean "feature complete." It means: a build system that works the

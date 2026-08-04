@@ -46,7 +46,7 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
 name = "canary-core"
-version = "0.0.1-pre1"
+version = "0.0.1"
 dependencies = [
  "thiserror",
  "tracing",
@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "canary-ecs"
-version = "0.0.1-pre1"
+version = "0.0.1"
 dependencies = [
  "proptest",
  "tempfile",
@@ -64,11 +64,11 @@ dependencies = [
 
 [[package]]
 name = "canary-platform"
-version = "0.0.1-pre1"
+version = "0.0.1"
 
 [[package]]
 name = "canary-plugin-api"
-version = "0.0.1-pre1"
+version = "0.0.1"
 dependencies = [
  "libloading",
  "thiserror",
@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "canary-runtime"
-version = "0.0.1-pre1"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "canary-core",
@@ -604,7 +604,7 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "xtask"
-version = "0.0.1-pre1"
+version = "0.0.1"
 
 [[package]]
 name = "zerocopy"

@@ -3,11 +3,13 @@
 **A next-generation, open-source game engine, built from first principles
 rather than as a clone of Unreal, Unity, or Godot.**
 
-> **Status: `v0.0.1-pre1` — Foundation.** This is the very first milestone:
-> repository, documentation, governance, and a minimal, headless, compiling
-> engine skeleton. There is no rendering, no windowing, no physics, no
-> networking, and no editor yet — that's by design, not an oversight. See
-> [what this milestone actually contains](docs/roadmap/v0.0.1-roadmap.md).
+> **Status: `v0.0.1` — Foundation, released.** This is the release that
+> establishes the project's engineering standards and architectural core:
+> repository, documentation, governance, a hardened plugin ABI, and a
+> compiling, tested engine skeleton — deliberately not the release that
+> adds rendering, physics, networking, real windowing, or an editor. See
+> [what `v0.0.1` contains, and why the bar for it was set here](docs/roadmap/v0.0.1-roadmap.md),
+> and [the release notes](RELEASE_NOTES_v0.0.1.md) for the full account.
 
 Everything before `v1.0.0` is explicitly experimental — see the
 [versioning scheme](docs/decisions/architecture-decision-records/0006-versioning-scheme.md).
@@ -35,6 +37,16 @@ organized around a few non-negotiable bets:
   networking model are designed together from the start; the plugin
   sandbox exists specifically to make a community marketplace safe by
   construction, not by review policy.
+- **One native UI system, shared by the editor and every game built with
+  Canary.** `CanaryUI` is a trait-based abstraction from day one,
+  bootstrapped on `egui` — see
+  [ADR 0011](docs/decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md).
+- **The project itself is versionable data, not a folder of opaque
+  files.** Explicit, identifiable, serializable state is a founding
+  principle specifically so Git-friendliness, marketplace packages, and
+  eventual collaborative editing become consequences of the architecture
+  rather than separate features — see
+  [ADR 0012](docs/decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md).
 
 For the full pitch, read [`docs/vision/project-goals.md`](docs/vision/project-goals.md)
 and [`docs/vision/design-philosophy.md`](docs/vision/design-philosophy.md).
@@ -81,14 +93,15 @@ that intentionally run ahead of the code:
 - `canary-core` — an `App`/subsystem bootstrap and structured logging.
 - `canary-platform` — trait definitions for windowing/input, plus a
   headless implementation. No real windowing backend yet.
-- `canary-ecs` — a minimal, generational-index entity/component store with
-  synchronous system execution. **Not** the archetype-based, parallel
-  design described in
-  [`docs/architecture/core-runtime.md`](docs/architecture/core-runtime.md) —
-  that's later work, tracked explicitly in the roadmap.
-- `canary-plugin-api` — the `Plugin` trait and a working native (Tier B,
-  C-ABI) loader. The sandboxed WASM (Tier A) loader is designed but not
-  implemented yet.
+- `canary-ecs` — a minimal, generational-index entity/component store
+  (`Send + Sync`-bounded, 64-bit generation counters), with synchronous
+  system execution. **Not** the archetype-based, parallel design described
+  in [`docs/architecture/core-runtime.md`](docs/architecture/core-runtime.md) —
+  that's `v0.0.2`+ work, tracked explicitly in the roadmap.
+- `canary-plugin-api` — the `Plugin` trait and a working, **versioned**
+  native (Tier B, C-ABI) loader (explicit ABI version field, forward-
+  extension hook — see [ADR 0009](docs/decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md)).
+  The sandboxed WASM (Tier A) loader is designed but not implemented yet.
 - `canary-runtime` — a headless boot harness proving the above compile,
   link, and run together.
 
