@@ -1,0 +1,49 @@
+version: 2
+updates:
+  # Rust dependencies (Cargo.toml / Cargo.lock)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Patch/minor updates are grouped into one low-risk PR per week.
+      # Major-version bumps are deliberately excluded from this group (see
+      # below) and get their own individual PRs instead -- this project
+      # already hit real MSRV/dependency-version friction while building
+      # v0.0.1 (proptest, libloading, and tempfile all needed pinning
+      # below their latest major/minor release; see the comments in
+      # engine/canary-ecs/Cargo.toml and engine/canary-plugin-api/Cargo.toml),
+      # so bundling a major bump in with routine patch updates is a real,
+      # not hypothetical, risk here specifically.
+      rust-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Major-version bumps are intentionally NOT grouped above, so each
+    # lands as its own PR and gets individual review -- exactly the kind
+    # of change most likely to need a version pin adjusted or a
+    # compatibility note added, per this project's own experience.
+    labels:
+      - "type:enhancement"
+      - "topic:core"
+    commit-message:
+      prefix: "deps"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    labels:
+      - "type:enhancement"
+      - "topic:build-system"
+    commit-message:
+      prefix: "ci"

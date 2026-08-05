@@ -66,6 +66,31 @@ interface as textual scripting languages — the editor's job is to be a
 graph-authoring UI over that shared target, not a separate execution engine
 to maintain in parallel.
 
+## CLI and headless operation: one application, not a GUI-only tool
+
+Recorded as a design requirement, not an afterthought: whatever Canary's
+editor/tooling application becomes, **building, launching, and running a
+game must work from the command line, without the GUI running at all** —
+and this must be the *same application*, not a separate tool that
+happens to share a name. Concretely: `canary build`, `canary run`, and
+similar should work identically whether or not the editor window is
+open, the same way `canary-runtime` already proves the engine itself
+runs fully headless today, and the way `xtask` already proves build
+orchestration doesn't require a GUI (see
+[`docs/development/build-system.md`](../development/build-system.md)).
+
+This matters for real, non-hypothetical workflows a professional-grade
+engine needs to support from day one of having an editor at all: CI
+pipelines building a project on every commit, dedicated servers running
+a game with no display attached, and automation scripts that shouldn't
+need to drive a GUI to do something the engine can already do headlessly.
+A tool that only works through its GUI fails all three. Practically, this
+means the editor's own architecture should separate "what building/
+running a project does" from "how the GUI presents that" cleanly enough
+that the CLI path never needs the GUI layer to exist at all — the
+inverse of the more common mistake, where CLI support gets bolted onto a
+GUI-first tool later and ends up incomplete or fragile.
+
 ## Collaboration tools
 
 Real-time multi-user editing (Figma-style concurrent scene editing) is

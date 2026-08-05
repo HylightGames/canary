@@ -164,6 +164,19 @@ editing, Automerge or Loro are the credible pure-Rust starting points —
 consistent with this project's consistent preference for depending on
 mature existing libraries (`wgpu`, Rapier) over reinventing them.
 
+## Localization
+
+**Project Fluent** (`fluent-rs`) — dual MIT/Apache-2.0-licensed, actively
+maintained Rust implementation of Mozilla's Fluent localization system.
+Chosen over flat key-value formats (gettext `.po`, plain JSON tables) for
+[`canary-loc`](../architecture/localization.md) specifically because its
+`.ftl` syntax handles pluralization, grammatical gender, and
+value-interpolation word order natively — the genuinely hard parts of
+correct multilingual UI text, not just string storage. A real supporting
+ecosystem exists beyond the core crates (`fluent-templates`, `i18n-embed`
+for locale loading/fallback), reducing the amount Canary needs to build
+itself.
+
 ## References
 
 Sourcing for this document includes: the Zig Software Foundation's own

@@ -82,4 +82,4 @@ of what that means and why.
 - Already-committed code that didn't pass its own `cargo fmt --check`
   (whitespace-only; confirmed via a full rebuild and test pass).
 
-[v0.0.1]: https://github.com/notthecloudy/canary/releases/tag/v0.0.1
+[v0.0.1]: https://github.com/HylightGames/canary/releases/tag/v0.0.1

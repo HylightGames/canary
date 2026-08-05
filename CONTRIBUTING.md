@@ -30,6 +30,11 @@ of that scope coherent as more people join it. Please also read the
 
 ## Development workflow
 
+Branch from `dev`, not `main` — see
+[`docs/development/git-workflow.md`](docs/development/git-workflow.md)
+for the full model (`main` = stable releases only, `dev` = active
+development, `feature/*` = larger in-progress work).
+
 1. Fork and clone the repository.
 2. Install the pinned toolchain (`rust-toolchain.toml` will pick this up
    automatically if you use `rustup`).
@@ -61,7 +66,8 @@ Canary uses [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 
 Common types: `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`,
-`ci`, `chore`. Example:
+`ci`, `chore`, `deps` (Dependabot's own PRs use this one — see
+[`.github/dependabot.yml`](.github/dependabot.yml)). Example:
 
 ```
 feat(ecs): add generational entity IDs to canary-ecs

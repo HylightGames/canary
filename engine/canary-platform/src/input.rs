@@ -1,3 +1,13 @@
+// ============================================================================
+// Canary Engine
+// https://github.com/HylightGames/canary
+//
+// Copyright (c) 2026-present Canary Engine contributors
+//
+// Licensed under the MIT License.
+// See LICENSE in the project root for details.
+// ============================================================================
+
 /// A normalized input event, independent of any specific OS input API.
 ///
 /// v0.0.1-pre1 note: this is an intentionally small, illustrative set —

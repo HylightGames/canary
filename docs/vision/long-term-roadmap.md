@@ -7,24 +7,55 @@ date; multi-year open-source projects that promise dates tend to either miss
 them or cut corners to hit them; neither serves Canary's stated goal of being
 a strong foundation.
 
-## Era 1 — Foundation (where this session ends)
+## Era 1 — Foundation (complete, `v0.0.1`)
 
 Repository, governance, documentation architecture, ADR process, and a
 headless, compiling skeleton: logging, a minimal ECS, the plugin trait
 surface, and the build/test/CI pipeline. No rendering, no windowing, no
 networking. The deliverable of this era is *a foundation other engineers can
-build on without re-litigating the basics*. Tracked in
-[`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).
+build on without re-litigating the basics*. Delivered as `v0.0.1` — see
+[`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md) and
+[`RELEASE_NOTES_v0.0.1.md`](../../RELEASE_NOTES_v0.0.1.md).
 
-## Era 2 — Core Simulation
+## Era 2 — Core Simulation (in progress)
 
-The ECS grows from the pre1 placeholder into the archetype-based,
+The ECS grows from the placeholder into the archetype-based,
 parallel-scheduled design described in
 [`docs/architecture/core-runtime.md`](../architecture/core-runtime.md).
-Platform abstraction gains a real windowing/input backend. The native-tier
-plugin loader becomes real (dynamic library loading with a versioned C ABI),
-and the WASM component tier lands behind it. This era proves out "language
+Platform abstraction gains a real windowing/input backend. The WASM
+(Tier A) component plugin tier lands. This era proves out "language
 agnostic" and "replaceable subsystems" with working code, not just docs.
+**The native (Tier B) plugin loader — dynamic library loading with a
+versioned C ABI — is already real, shipped in `v0.0.1`**; what's left of
+this era is the archetype ECS and the Tier A WASM tier alongside it. See
+[`docs/roadmap/v0.0.2-roadmap.md`](../roadmap/v0.0.2-roadmap.md) for the
+current, narrower, in-progress slice of this era.
+
+## Release cadence: one focused subsystem per `0.0.x`, target `v0.1.0` as substantially feature-complete
+
+Recorded explicitly after `v0.0.1` shipped, at the project owner's
+request: each `0.0.x` release (per the numbering in
+[ADR 0006](../decisions/architecture-decision-records/0006-versioning-scheme.md))
+should have **one** primary subsystem as its focus — the archetype ECS
+migration, then the Tier A WASM loader, then real windowing, and so on —
+rather than bundling several into one jump. Smaller, single-focus,
+sequential releases are easier to review, test, and course-correct on
+than large ones, and match this project's existing preference for
+"fewer, higher-quality decisions" over batched scope.
+
+The target this cadence is aimed at: **by `v0.1.0`, substantially all of
+the currently-documented architecture (`docs/architecture/`) should be
+implemented**, not just designed — rendering, physics, networking, the
+full plugin system, the UI toolkit, and the near/medium-term slice of
+project-state-and-versioning — such that `v0.1.0` onward is primarily
+maintenance and hardening rather than new major subsystems. This is a
+target, not a promise with a date attached — the same reasoning
+[ADR 0006](../decisions/architecture-decision-records/0006-versioning-scheme.md)
+already gives for not calendar-versioning applies here too — but it's
+useful for every future `0.0.x` release to be scoped against: does this
+slice of work move the project toward "the documented architecture is
+real" as directly as possible, without scope creep into things not yet
+documented at all.
 
 ## Era 3 — Rendering & Content
 

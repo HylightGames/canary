@@ -56,6 +56,8 @@ or through explicit, documented interfaces — never through ad hoc globals.
 | Networking | *(planned: `canary-net`)* | [networking.md](networking.md) |
 | Asset pipeline | *(planned: `canary-assets`)* | [asset-system.md](asset-system.md) |
 | UI toolkit (`CanaryUI`) | *(planned: `canary-ui-core`)* | [ui-toolkit.md](ui-toolkit.md) |
+| Audio (`CanaryAudio`) | *(planned: `canary-audio`)* | [audio.md](audio.md) |
+| Localization (`CanaryLoc`) | *(planned: `canary-loc`)* | [localization.md](localization.md) |
 | Project state & versioning | *(planned: `canary-state`)* | [state-and-versioning.md](state-and-versioning.md) |
 
 "Planned" crates are architected in this document set but not implemented in

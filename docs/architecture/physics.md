@@ -7,23 +7,56 @@ architecture for a later era, reasoned about now.
 
 Physics follows the same "replaceable subsystem" pattern as rendering: a
 `PhysicsBackend` trait covering rigid bodies, colliders, constraints/joints,
-and scene queries (raycasts, sweeps, overlap tests), with a default
-implementation and room for alternatives. Concretely:
+and scene queries (raycasts, sweeps, overlap tests). Engine and gameplay
+code call the trait, never the concrete backend crate — this is the same
+"bind through an interface, never call a third party directly" discipline
+recorded as a project-wide principle in
+[`docs/vision/design-philosophy.md`](../vision/design-philosophy.md#subsystems-bind-through-interfaces-never-call-each-other-or-a-third-party-directly),
+applied here concretely:
 
-- **Default backend: [Rapier](https://rapier.rs/)** — a pure-Rust 2D/3D
-  physics engine, actively maintained, with an explicit 2026 roadmap toward
+```
+Your Engine Physics API
+          |
+   Physics Abstraction Layer (PhysicsBackend trait)
+          |
+  -----------------------
+  |                     |
+Rapier Backend       Jolt Backend
+(2D + 3D, default)   (3D only, built in, opt-in)
+```
+
+Concretely:
+
+- **Default backend: [Rapier](https://rapier.rs/)** — a pure-Rust physics
+  engine, actively maintained, with an explicit 2026 roadmap toward
   GPU-accelerated rigid-body simulation. Choosing a pure-Rust default avoids
   an FFI boundary for the common case and keeps the "batteries included"
-  path dependency-simple.
-- **Documented alternative: [Jolt Physics](https://github.com/jrouwe/JoltPhysics)** —
+  path dependency-simple. Rapier ships **2D and 3D as genuinely separate
+  crates** (`rapier2d`, `rapier3d`, plus `f64`-precision variants of each),
+  sharing a similar API rather than one 3D system 2D games have to route
+  around — a real, concrete instance of
+  [`docs/vision/project-goals.md`](../vision/project-goals.md#2d-and-3d-games-and-beyond)'s
+  "2D is first-class" commitment, not just an assertion. Worth noting for
+  that same document's broader point: Rapier's own official description
+  positions it for "games, **animation, and robotics**" — independent,
+  external confirmation that a physics engine Canary already depends on
+  is itself built for exactly the kind of non-game-exclusive use this
+  project's architecture aims not to foreclose.
+- **Built in, opt-in: [Jolt Physics](https://github.com/jrouwe/JoltPhysics)** —
   a C++ engine built specifically for multithreaded, production game use
   (it ships in Horizon Forbidden West and Death Stranding 2, and Godot added
-  it as a selectable backend in 4.4). Jolt is the reference example for
-  "what a trusted, native (Tier B) subsystem replacement looks like in
-  practice" — see [plugin-system.md](plugin-system.md#tier-b--trusted-native-c-abi).
+  it as a selectable backend in 4.4). Unlike a purely "documented, someone
+  could write this" alternative, Jolt is intended to ship as a first-party-
+  maintained backend alongside Rapier — available without a user having to
+  go integrate it themselves — while Rapier stays the default. It's also
+  the reference example for "what a trusted, native (Tier B) subsystem
+  replacement looks like in practice" — see
+  [plugin-system.md](plugin-system.md#tier-b--trusted-native-c-abi). Jolt
+  is 3D-only; a project needing 2D physics stays on Rapier.
 - **Documented alternative: [Avian](https://github.com/Jondolf/avian)** — a
   younger, ECS-native Rust physics engine built specifically to avoid
-  maintaining a separate physics "world" outside the host ECS. Worth
+  maintaining a separate physics "world" outside the host ECS, also
+  shipped as separate `avian2d`/`avian3d` crates. Worth
   revisiting as it matures; not the default today because Rapier is more
   battle-tested (see
   [`docs/research/technology-evaluations.md`](../research/technology-evaluations.md)

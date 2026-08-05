@@ -77,6 +77,24 @@ possible, describing which shader variant and which parameters apply, so
 that non-programmer contributors and future editor tooling
 (`docs/ui/editor-design.md`) can author materials without touching Rust.
 
+## 2D is a specialization of this architecture, not a separate one
+
+Per [`docs/vision/project-goals.md`](../vision/project-goals.md#2d-and-3d-games-and-beyond),
+Canary is not a 3D engine that 2D games have to work around. Concretely,
+that means the render graph and RHI described above are designed so 2D
+rendering — an orthographic camera, sprite batching, tilemap rendering —
+is a *configuration* of the same pipeline (a render pass reading sprite
+data and an orthographic projection, batched for the same GPU submission
+model everything else uses), not a fork of the renderer or a separate
+code path maintained in parallel. Physics mirrors this precisely at the
+subsystem level: [`docs/architecture/physics.md`](physics.md)'s default
+backend ships genuinely separate 2D and 3D crates rather than one 3D
+system 2D games route around — rendering's approach (one architecture,
+2D as a specialization) and physics's approach (two real
+implementations, one per dimensionality) look different because they're
+solving different problems, but both exist specifically so 2D is never
+the afterthought.
+
 ## What's explicitly out of scope for the foreseeable future
 
 - Software/CPU rendering fallback — not a goal; if hardware acceleration is

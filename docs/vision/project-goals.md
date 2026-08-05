@@ -17,6 +17,43 @@ make different tradeoffs, deliberately, and to write down *why* at every step
 so the reasoning survives contributor turnover — see
 [`docs/decisions/architecture-decision-records/`](../decisions/architecture-decision-records/).
 
+## 2D and 3D, games and beyond
+
+Canary is **branded and marketed as a game engine** — that's its primary
+audience and the framing every document in this project uses — but
+nothing in its architecture is 3D-only or shipping-a-game-only, and that's
+deliberate, not incidental. The precedent this follows explicitly: Unreal
+Engine is branded as a game engine too, and is simultaneously used for
+film and TV virtual production, architectural and product visualization,
+automotive design review, broadcast graphics, and simulation — the brand
+says "game engine," the actual tool is a general-purpose real-time
+content creation platform. Canary aims at the same relationship between
+brand and capability, not at being 3D-only or narrowly scoped to shipped
+games:
+
+- **2D is first-class, not a 3D engine pretending to support 2D.** The
+  physics backend ([`docs/architecture/physics.md`](../architecture/physics.md))
+  is chosen specifically because it ships real, separate 2D and 3D
+  implementations rather than one 3D system 2D games have to work around.
+  The rendering architecture
+  ([`docs/architecture/rendering.md`](../architecture/rendering.md))
+  treats 2D (orthographic, sprite-based) as a first-class specialization
+  of the same render graph, not a bolted-on separate renderer.
+- **Non-game real-time use cases are in scope**, not excluded by
+  assumption: previz and virtual production, architectural/product
+  visualization, simulation, and general real-time 3D or 2D content
+  creation and rendering all fit within the same engine, the same way
+  they do for the engines Canary is learning from. Nothing in Canary's
+  architecture requires "this is a shippable game" as a precondition for
+  being useful.
+
+This isn't a promise to specifically build tooling for any one of those
+adjacent use cases ahead of the core engine — it's a statement about what
+the architecture should never accidentally foreclose. See
+[`docs/architecture/physics.md`](../architecture/physics.md) and
+[`docs/architecture/rendering.md`](../architecture/rendering.md) for
+where this becomes concrete.
+
 ## What problems it solves
 
 1. **Modding and marketplace safety are usually an afterthought.** Native

@@ -10,10 +10,15 @@ deliberately organized by *dependency* rather than by date.
 
 The one exception: [`v0.0.1-roadmap.md`](v0.0.1-roadmap.md#definition-of-done-for-the-unqualified-v001--revised)
 names the archetype ECS migration, the Wasmtime-backed Tier A plugin
-loader, and a real windowing backend as the concrete `v0.0.2`+ candidates
-— those three are called out by name there because they were explicitly
-scoped *out* of `v0.0.1`, not because their exact version is otherwise
-settled. Everything below remains genuinely unassigned.
+loader, and a real windowing backend as the concrete near-term
+candidates that were scoped *out* of `v0.0.1`. Per the release cadence in
+[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
+these now have an explicit order rather than being one undifferentiated
+group: the archetype ECS migration is `v0.0.2` (see
+[`v0.0.2-roadmap.md`](v0.0.2-roadmap.md) for its scope), Tier A WASM
+plugin loading is next (`v0.0.3`), and real windowing follows after that
+— each its own release, not bundled. Everything below remains genuinely
+unassigned.
 
 ## Blocked on the ECS reaching its target (archetype) design
 

@@ -1,8 +1,29 @@
+// ============================================================================
+// Canary Engine
+// https://github.com/HylightGames/canary
+//
+// Copyright (c) 2026-present Canary Engine contributors
+//
+// Licensed under the MIT License.
+// See LICENSE in the project root for details.
+// ============================================================================
+
 use std::path::PathBuf;
 
 use thiserror::Error;
 
 /// Errors from loading a Tier B native plugin.
+///
+/// Per `docs/vision/design-philosophy.md`'s "subsystems bind through
+/// interfaces, never leak a third-party type" principle, this enum
+/// deliberately does **not** expose `libloading::Error` (or any other
+/// third-party type) in its public fields, even though `libloading` is
+/// what actually detects these failures underneath -- callers of this
+/// crate's public API should never need to depend on `libloading`
+/// themselves just to match on why a load failed. The underlying error
+/// is still available via `#[source]` / `std::error::Error::source()`,
+/// which is how `{source}` renders it in the `Display` messages below,
+/// without requiring the field's own type to be a third-party one.
 #[derive(Debug, Error)]
 pub enum PluginError {
     /// The dynamic library at `path` could not be opened (missing file,
@@ -11,9 +32,10 @@ pub enum PluginError {
     Load {
         /// The path that was passed to [`crate::NativePluginLoader::load`].
         path: PathBuf,
-        /// The underlying `libloading` error.
+        /// The underlying loader error, boxed so this crate's public API
+        /// doesn't expose which native-loading library produced it.
         #[source]
-        source: libloading::Error,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     /// The library at `path` opened successfully but doesn't export the
@@ -22,9 +44,10 @@ pub enum PluginError {
     MissingEntryPoint {
         /// The path that was passed to [`crate::NativePluginLoader::load`].
         path: PathBuf,
-        /// The underlying `libloading` symbol-lookup error.
+        /// The underlying symbol-lookup error, boxed for the same reason
+        /// as [`PluginError::Load`]'s `source`.
         #[source]
-        source: libloading::Error,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     /// The plugin at `path` declared an ABI version this host doesn't

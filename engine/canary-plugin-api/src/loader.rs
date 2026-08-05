@@ -1,3 +1,13 @@
+// ============================================================================
+// Canary Engine
+// https://github.com/HylightGames/canary
+//
+// Copyright (c) 2026-present Canary Engine contributors
+//
+// Licensed under the MIT License.
+// See LICENSE in the project root for details.
+// ============================================================================
+
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 use std::path::Path;
@@ -121,7 +131,7 @@ impl NativePluginLoader {
         // comment above and `docs/architecture/plugin-system.md#tier-b--trusted-native-c-abi`).
         let library = unsafe { Library::new(path) }.map_err(|source| PluginError::Load {
             path: path.to_path_buf(),
-            source,
+            source: Box::new(source),
         })?;
 
         // SAFETY: `ENTRY_SYMBOL` is the documented, required export name
@@ -134,7 +144,7 @@ impl NativePluginLoader {
             unsafe { library.get(ENTRY_SYMBOL) }.map_err(|source| {
                 PluginError::MissingEntryPoint {
                     path: path.to_path_buf(),
-                    source,
+                    source: Box::new(source),
                 }
             })?;
 

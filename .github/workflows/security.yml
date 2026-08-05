@@ -1,0 +1,29 @@
+name: Security
+
+# Complements Dependabot (.github/dependabot.yml): Dependabot proposes
+# version bumps; this workflow directly checks the current dependency
+# tree against the RustSec Advisory Database on every push/PR and on a
+# weekly schedule, so a newly-disclosed vulnerability in an existing,
+# unchanged dependency is caught even between Dependabot runs.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  schedule:
+    # Weekly, independent of any code change, since a new advisory can be
+    # published for a dependency this repo hasn't touched in months.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  cargo-audit:
+    name: cargo audit (RustSec advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        run: cargo audit

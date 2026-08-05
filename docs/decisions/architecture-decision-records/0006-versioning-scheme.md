@@ -3,7 +3,13 @@
 **Status:** Accepted. See also [ADR 0008](0008-workspace-crate-versioning-lockstep.md),
 which composes with this one: this ADR defines what the version numbers
 mean; ADR 0008 defines that the workspace has exactly one of them at a
-time (lockstep across crates), not a separate or conflicting scheme.
+time (lockstep across crates), not a separate or conflicting scheme. For
+the *release cadence* this numbering is used at in practice (one focused
+subsystem per `0.0.x` release, targeting `v0.1.0` as substantially
+feature-complete against the documented architecture), see
+[`docs/vision/long-term-roadmap.md`](../../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete) —
+a planning policy, not part of this ADR's own scope, and free to adjust
+without amending this ADR.
 
 ## Context
 

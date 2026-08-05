@@ -1,3 +1,13 @@
+// ============================================================================
+// Canary Engine
+// https://github.com/HylightGames/canary
+//
+// Copyright (c) 2026-present Canary Engine contributors
+//
+// Licensed under the MIT License.
+// See LICENSE in the project root for details.
+// ============================================================================
+
 //! Canary Engine headless boot-harness binary.
 //!
 //! Proves `canary-core`, `canary-platform`, `canary-ecs`, and

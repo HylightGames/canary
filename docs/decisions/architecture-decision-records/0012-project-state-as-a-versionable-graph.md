@@ -1,11 +1,14 @@
 # 0012. Project state as an explicit, identifiable, versionable graph
 
-**Status:** Proposed (records a founding principle and a layered scope
-this project commits to now; the hardest mechanism — real-time
-collaborative merge — is explicitly left an open question, not decided
-here. See [`docs/architecture/state-and-versioning.md`](../../architecture/state-and-versioning.md)
-for the full design and the reasoning behind `Proposed` rather than
-`Accepted`.)
+**Status:** Proposed for identity, package format, and migration rules;
+the real-time collaboration mechanism specifically is now **Accepted** —
+see [ADR 0013](0013-live-collaboration-server-authoritative-topology.md),
+which resolves the topology/authority question this ADR originally left
+open (server-authoritative, not peer-to-peer or CRDT-based as the
+top-level architecture), without changing anything else recorded here.
+See [`docs/architecture/state-and-versioning.md`](../../architecture/state-and-versioning.md)
+for the full design and the reasoning behind the remaining `Proposed`
+scope.
 
 ## Context
 
@@ -42,16 +45,17 @@ Concretely, and layered by how far out each part is (full detail in
   runtime change detection), unknown-schema preservation building on
   [ADR 0010](0010-component-identity-across-language-boundary.md), and a
   real marketplace package format with migration rules.
-- **Long-term, genuinely open**: undo/redo and time-travel debugging as
-  consequences of the above; real-time collaborative editing, for which
-  two credible directions exist (server-authoritative operation
-  broadcast, consistent with [ADR 0007](0007-networking-and-multiplayer-model.md)'s
-  authority model; or CRDT-based leaderless merge, bootstrapped on an
-  existing pure-Rust library — Automerge or Loro were identified as
-  credible candidates, see
-  [`technology-evaluations.md`](../../research/technology-evaluations.md#local-first-collaborative-state-crdts) —
-  rather than a bespoke implementation). **Which of these two Canary
-  eventually wants is not decided by this ADR.**
+- **Long-term**: undo/redo and time-travel debugging as consequences of
+  the above; real-time collaborative editing, now resolved at the
+  topology/authority level as server-authoritative
+  ([ADR 0013](0013-live-collaboration-server-authoritative-topology.md)) —
+  a self-hostable session server is authoritative over which operations
+  are accepted, their ordering, conflict resolution, and permissions;
+  clients submit requests, never force state. CRDT-style merge algorithms
+  (Automerge, Loro — see
+  [`technology-evaluations.md`](../../research/technology-evaluations.md#local-first-collaborative-state-crdts))
+  remain a candidate technique the server could use *internally* to
+  reconcile near-simultaneous operations, not the top-level architecture.
 
 ## Alternatives considered
 
@@ -63,16 +67,23 @@ now on formats and identity schemes that don't exist yet, and expensive
 to impose later on scenes, assets, and save data that already exist
 without it.
 
-**Decide the collaboration mechanism (server-authoritative vs. CRDT) now,
-rather than leaving it open.** Rejected: this is a genuinely hard
-distributed-systems design question with real tradeoffs (coordination
-requirements, offline support, implementation complexity) that this
-project has no implementation experience to ground a confident choice in
-yet. Marking this `Proposed` and naming the two real options, rather than
-picking one from a desk review, is the same discipline
+**Decide the collaboration mechanism (server-authoritative vs. CRDT) from
+a desk review, without implementation experience to ground it in.**
+Originally rejected on exactly that basis: this is a genuinely hard
+distributed-systems design question, and picking a direction without
+either implementation experience or clear product direction would have
+been speculation dressed up as a decision — the same discipline
 [ADR 0010](0010-component-identity-across-language-boundary.md) already
-established for component identity — a decision this consequential
-deserves prototyping, not speculation.
+established for component identity. **This was resolved not by
+implementation experience but by explicit direction from the project
+owner**, which is a legitimate way for an architectural question to move
+from open to decided that this project's process should recognize as
+readily as it recognizes prototyping — see
+[ADR 0013](0013-live-collaboration-server-authoritative-topology.md).
+The underlying caution above still applies to whatever this ADR and
+ADR 0013 *haven't* yet resolved (wire protocol, permission-model
+specifics): those remain open questions this project has no standing to
+decide from a desk review either.
 
 **Build a bespoke CRDT implementation if that direction is eventually
 chosen.** Rejected as a default: mature, pure-Rust, permissively-licensed

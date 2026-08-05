@@ -136,7 +136,16 @@ definition actually required:
 
 Full detail: [`RELEASE_NOTES_v0.0.1.md`](../../RELEASE_NOTES_v0.0.1.md).
 
-## Beyond `v0.0.1`
+## `v0.0.2` — planned, scoped, not started
+
+Single focus, per the release cadence recorded in
+[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete):
+the archetype-based ECS migration. Full scope in
+[`v0.0.2-roadmap.md`](v0.0.2-roadmap.md). Tier A WASM plugin loading and
+real windowing follow as their own, later releases rather than being
+bundled in.
+
+## Beyond `v0.0.2`
 
 See [`future-roadmap.md`](future-roadmap.md) and the era-based narrative in
 [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md).

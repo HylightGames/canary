@@ -133,6 +133,43 @@ for the full design — including the deliberate, explicit distinction
 between the ECS's fast *runtime* entity identity and a project's stable
 *persistent* identity, which this principle depends on not conflating.
 
+## Subsystems bind through interfaces, never call each other — or a third party — directly
+
+Every replaceable-backend pattern in this project (RHI/`wgpu`, physics/
+Rapier, `CanaryUI`/`egui`) is a specific instance of one general rule,
+worth stating on its own: **no Canary crate calls a third-party library,
+or another Canary subsystem's internals, directly.** It goes through a
+trait Canary itself defines. Concretely, two things this actually
+requires, not just implies:
+
+1. **No direct third-party calls.** Engine and gameplay code call
+   `PhysicsBackend`, never `rapier3d` directly; the render graph calls
+   the RHI trait, never `wgpu` directly. This is already how
+   [`rendering.md`](../architecture/rendering.md) and
+   [`physics.md`](../architecture/physics.md) are designed.
+2. **No direct peer-subsystem calls, either — and this is the part
+   that's easy to state and easy to accidentally violate.** Physics
+   should not import `canary-audio` and call a function on it to play an
+   impact sound; the ECS-native pattern is that physics writes state
+   (an impact event/component), and audio observes it — the same
+   "communicate through shared, observable state, not direct function
+   calls" discipline that already makes the render graph work
+   ([`engine-overview.md`](../architecture/engine-overview.md#how-a-frame-is-expected-to-flow-target-design-post-era-2)).
+   Two peer subsystems that import each other's crates directly have
+   quietly created a dependency the architecture was supposed to prevent.
+
+**A trait that leaks a concrete third-party type in its public signature
+has not actually achieved swappability, even if it compiles against
+multiple backends.** If `PhysicsBackend`'s public API takes or returns a
+`rapier3d::RigidBody` anywhere, replacing Rapier with Jolt requires every
+caller of that API to change too — the abstraction didn't abstract
+anything. Canary's own types cross every trait boundary; a third-party
+type is allowed *inside* a backend's implementation of a trait, never in
+the trait's own public signature. This is a concrete, checkable property
+worth reviewing for on every PR that touches a backend-facing trait, not
+just an aspiration — see
+[`docs/development/coding-standards.md`](../development/coding-standards.md).
+
 ## What "professional-grade" means for a pre-1.0 project
 
 It does not mean "feature complete." It means: a build system that works the

@@ -64,6 +64,17 @@ for the full rationale. In short:
   expected failure modes (missing file, failed plugin load, malformed
   input) — those are `Result`s.
 
+## Backend-facing traits never leak third-party types
+
+Per [`docs/vision/design-philosophy.md`](../vision/design-philosophy.md#subsystems-bind-through-interfaces-never-call-each-other--or-a-third-party--directly):
+a trait meant to have swappable backends (`PhysicsBackend`, the RHI,
+`CanaryUI`'s traits) must not take or return a concrete third-party type
+anywhere in its public signature — not `rapier3d::RigidBody`, not
+`wgpu::Device`, not `libloading::Error`. Wrap it in a Canary-owned type at
+the boundary, even if that wrapper is thin. Check this explicitly on any
+PR touching a backend-facing trait; `cargo doc`'s rendered signatures make
+a leaked third-party type visible at a glance if you look for it.
+
 ## Module and crate structure
 
 - Each crate's `src/lib.rs` (or `main.rs` for binaries) should have a

@@ -5,7 +5,10 @@ important enough to become part of the architectural core this release
 exists to establish, even though — like rendering, physics, and
 networking — nothing here is implemented yet. See
 [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md)
-for the decision record; this document is the fuller design.
+for the founding decision record and
+[ADR 0013](../decisions/architecture-decision-records/0013-live-collaboration-server-authoritative-topology.md)
+for the live-collaboration topology decision that refines it; this
+document is the fuller design behind both.
 
 ## The problem
 
@@ -117,33 +120,40 @@ This document deliberately separates them:
   log, once one exists for the reasons above — valuable, but a
   consequence of the architecture rather than a reason to build it first.
 - Real-time collaborative editing ("live share"). Explicitly **not**
-  scoped to any near or medium-term milestone. Two credible architectural
-  directions exist for when this is pursued, and this document doesn't
-  pick one yet:
-  1. **Server-authoritative operation broadcast** — consistent with the
-     authority model Canary already committed to for gameplay networking
-     ([ADR 0007](../decisions/architecture-decision-records/0007-networking-and-multiplayer-model.md)):
-     a session owner accepts and orders edits, broadcasting accepted
-     operations to other participants. Simpler to reason about and
-     implement; requires a live, connected session with a coordinator.
-  2. **CRDT-based, leaderless merge** — genuinely offline-first, no
-     coordinator required, changes always mergeable. Real, mature, pure-
-     Rust prior art exists specifically for this
-     (see [`docs/research/technology-evaluations.md`](../research/technology-evaluations.md#local-first-collaborative-state-crdts)):
-     Automerge (Ink & Switch, MIT-licensed, "local-first" software with
-     Git-like change history — a strong conceptual match for this
-     project's own goals) and Loro (newer, Rust-native, faster, less
-     ecosystem maturity as of this writing). Building a bespoke CRDT
-     rather than depending on either would be exactly the kind of
-     unjustified reinvention this project's design philosophy warns
-     against — if this direction is pursued, it should bootstrap on one
-     of these, the same way rendering bootstraps on `wgpu`.
+  scoped to any near or medium-term milestone — this is about the
+  *architecture*, decided ahead of the implementation, the same posture
+  taken toward rendering, physics, and networking throughout this
+  project. The topology and authority model are resolved
+  ([ADR 0013](../decisions/architecture-decision-records/0013-live-collaboration-server-authoritative-topology.md)):
+  **server-authoritative, client–server–client** — not peer-to-peer, and
+  not CRDT-based leaderless merge as the top-level architecture. This
+  directly reuses the authority model Canary already committed to for
+  gameplay networking
+  ([ADR 0007](../decisions/architecture-decision-records/0007-networking-and-multiplayer-model.md)):
+  clients submit edits as requests, never force state; a session server
+  is authoritative over which operations are accepted, their ordering,
+  conflict resolution, and permissions. The session server is designed to
+  be self-hostable from the start — a team runs it themselves or on
+  dedicated hosting — not a mandated centralized service, consistent with
+  this project's broader no-lock-in posture.
 
-  Which of these two Canary eventually wants — or whether the answer is
-  "option 1 first, option 2 later if genuinely offline-first editing
-  becomes a real requirement" — is an open question, not a decision this
-  document makes. It's named here so it doesn't need to be rediscovered
-  from scratch when the time comes.
+  Real, mature, pure-Rust CRDT prior art was evaluated as a candidate for
+  the top-level architecture and was **not** chosen for that role — see
+  [`docs/research/technology-evaluations.md`](../research/technology-evaluations.md#local-first-collaborative-state-crdts)
+  for Automerge (Ink & Switch, MIT-licensed, "local-first" software with
+  Git-like change history) and Loro (newer, Rust-native, faster). A
+  leaderless merge model has no natural place to enforce permissions or
+  adjudicate conflicts by policy, which matters more for team/studio
+  collaboration than for casual, fully public editing — see
+  [ADR 0013](../decisions/architecture-decision-records/0013-live-collaboration-server-authoritative-topology.md)
+  for the full reasoning. CRDT-style merge algorithms remain a legitimate,
+  open candidate for how the *server* reconciles near-simultaneous
+  conflicting operations internally — demoted from top-level architecture
+  to implementation technique, not discarded.
+
+  What remains genuinely open: the wire protocol, the operation schema,
+  and permission-model specifics — real design work for whenever
+  `canary-state` implementation actually starts, not decided here.
 
 ## Why this belongs in `v0.0.1`'s documentation even though nothing here is built
 

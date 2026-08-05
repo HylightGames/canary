@@ -13,7 +13,7 @@ members = [
 version = "0.0.1"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/notthecloudy/canary"
+repository = "https://github.com/HylightGames/canary"
 # Deliberately no `rust-version` (MSRV) pin yet: this workspace has been
 # validated against Ubuntu's packaged rustc 1.75 in a sandbox without
 # rustup access, but that is a floor for *this session's* validation, not a
