@@ -8,22 +8,33 @@
 // See LICENSE in the project root for details.
 // ============================================================================
 
-//! Canary Engine ECS — v0.0.1-pre1 minimal implementation.
+//! Canary Engine ECS.
 //!
-//! **This is a deliberate placeholder, not the target design.** It is a
-//! generational-index [`World`] with per-type component storage and
-//! synchronous, uncached queries — not the archetype-based, parallel-
-//! scheduled ECS described in `docs/architecture/core-runtime.md#ecs-architecture`.
-//! The public API (`spawn`, `insert`, `query`, ...) is shaped so that
-//! migrating to archetype storage later changes the implementation behind
-//! these calls more than it changes call sites, but that's an intent, not
-//! a guarantee — see `docs/roadmap/v0.0.1-roadmap.md` for what's tracked
-//! as follow-up work.
+//! [`World`] is backed by archetype storage: entities that share the same
+//! set of component types are stored contiguously, with cached
+//! (`TypeId`-indexed) queries and change detection as a first-class query
+//! filter — see `docs/architecture/core-runtime.md#ecs-architecture` for
+//! the target design this now implements. A first cut of stable,
+//! language-agnostic component identity (for the plugin/replication/
+//! marketplace boundary) is available via [`CanaryComponent`] and
+//! [`World::register_component`] — see
+//! `docs/decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md`
+//! (ADR 0010).
+//!
+//! **Not yet here**: the parallel job-stealing scheduler itself, and the
+//! rest of the Tier A (WASM) plugin-loading path beyond the identity
+//! registry above — both deliberately out of scope for this pass, see
+//! `docs/roadmap/v0.0.2-roadmap.md`.
 
+mod archetype;
+mod column;
+mod component_identity;
 mod entity;
 mod error;
 mod world;
 
+pub use column::Tick;
+pub use component_identity::CanaryComponent;
 pub use entity::Entity;
 pub use error::EcsError;
 pub use world::World;

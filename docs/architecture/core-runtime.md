@@ -98,25 +98,39 @@ Target-design commitments:
   networking replication (only send what changed) and for editor tooling
   (only re-cook what changed).
 
-### What v0.0.1-pre1 actually ships
+### What's implemented as of `v0.0.2`
 
-The `canary-ecs` crate in this foundation is a deliberately minimal
-**placeholder**, not the archetype design above:
+`canary-ecs`'s `World` now matches the target design above on every point
+except the scheduler itself:
 
-- A `World` holding entities as generational indices.
-- Components stored per-type in a simple map (not archetype tables).
-- Synchronous, single-threaded system execution — no scheduler, no
-  automatic parallelism, no change detection yet.
+- **Archetype storage**: entities sharing a component-type signature live
+  together in one archetype table; each component type is its own
+  contiguous column, row-parallel to the entities it belongs to.
+- **Cached queries**: `World::query`/`World::query_changed_since` resolve
+  which archetypes to scan via a `TypeId -> Archetype` index maintained
+  incrementally as archetypes are created, rather than checking every
+  archetype's signature on every call.
+- **Change detection** is a first-class query filter —
+  `World::query_changed_since` — backed by a per-column, per-row tick
+  that survives archetype moves caused by unrelated components (moving
+  an entity because a *different* component was added or removed doesn't
+  make its untouched components look freshly written).
+- **Component identity**: a first cut of
+  [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)'s
+  proposed direction — `CanaryComponent::SCHEMA_ID` plus
+  `World::register_component`/`World::type_id_for_schema` — validates the
+  string+version identity, `TypeId`-stays-host-internal approach, without
+  yet building the Tier A consumer that would actually exercise it.
 
-This is documented as a placeholder rather than quietly presented as "the
-ECS is done" — see [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md)
-for why this scope was chosen for the very first buildable milestone, and
-what specifically needs to change to reach the target design above. The
-public API surface (`spawn`, `insert`, `query`) is intentionally shaped so
-that migrating to archetype storage later changes the *implementation*
-behind these calls, not the call sites that use them — but this is an
-intent, not a guarantee; some call-site churn during that migration should
-be expected and is fine.
+Still not here: the work-stealing scheduler itself (see
+[Threading & the job system](#threading--the-job-system) below,
+deliberately deferred) and the rest of the Tier A (WASM) plugin-loading
+path. See [`docs/roadmap/v0.0.2-roadmap.md`](../roadmap/v0.0.2-roadmap.md)
+for exact scope and what's explicitly excluded.
+
+The public API surface (`spawn`, `insert`, `query`, ...) is unchanged from
+`v0.0.1-pre1` — the migration changed the *implementation* behind these
+calls, as intended, not the call sites that use them.
 
 ## Threading & the job system
 
@@ -150,21 +164,26 @@ for the enforced version of these conventions.
 
 ## Known limitations
 
-- **Change detection** (needed by networking replication, hot reload, and
-  editor tooling alike) is named as a requirement here and elsewhere but
-  designed nowhere yet. It should be designed *as part of* the archetype
-  migration, not after it, since storage layout and change-tracking
-  tend to be deeply coupled. See
-  [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
-  Finding 4.3, and risk register R-13. Deferred to `v0.0.2`+ along with
-  the archetype migration itself — see
-  [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).
-- **Component identity relies on `std::any::TypeId`**, which does not
-  survive the Rust/WASM or cross-language boundary at all — see
-  [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
-  (`Proposed`) before extending this design to support Tier A plugins.
-  Deferred to `v0.0.2`+ alongside the archetype migration, which it needs
-  to be prototyped together with.
+No open known limitations for `canary-ecs`'s ECS design as of `v0.0.2` —
+see the two resolution notes below for what the August 2026 review and
+the `v0.0.2` archetype migration each closed out.
+
+Resolved since the August 2026 review, for `v0.0.1`: component storage
+now requires `T: Send + Sync` (was previously unbounded, contradicting
+the threading design above — see [`World::insert`](../../engine/canary-ecs/src/world.rs)
+and its `world_is_send_and_sync` compile-time guard test), and
+`Entity::generation` was widened from `u32` to `u64`, moving the
+generation-wraparound risk on a long-lived, hot-recycled slot from
+"plausible over years of real uptime" to "not reachable by any realistic
+runtime."
+
+Resolved by the `v0.0.2` archetype migration: change detection is now
+implemented (`World::query_changed_since`, ticked per column-row — see
+above) rather than merely named as a requirement, and component identity
+has a first prototyped cut (`World::register_component`) rather than
+relying on `TypeId` alone — see
+[ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md),
+now `Accepted`.
 
 Resolved since the August 2026 review, for `v0.0.1`: component storage
 now requires `T: Send + Sync` (was previously unbounded, contradicting

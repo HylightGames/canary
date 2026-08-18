@@ -1,9 +1,8 @@
 # 0010. Component identity must be stable across the language boundary, not just within the Rust host
 
-**Status:** Proposed (this ADR documents a required decision surfaced by
-review, not a finalized, prototyped design — see "Consequences" for why
-`Proposed` rather than `Accepted` is the honest status here; tracked as
-risk R-04 in `docs/reviews/risk-register.md`)
+**Status:** Accepted (prototyped alongside the `v0.0.2` archetype migration
+— see "Resolution" below for what held up and what narrowed; was tracked
+as risk R-04 in `docs/reviews/risk-register.md`, now `Mitigated`)
 
 ## Context
 
@@ -95,3 +94,32 @@ elsewhere (WIT, Protobuf).
   specific one) once that prototyping happens — see
   [ADR 0001](0001-record-format.md) for why superseding rather than
   silently editing is the right way to do that when the time comes.
+
+## Resolution (`v0.0.2` archetype migration)
+
+Prototyped alongside the archetype migration, as planned. The core
+direction held up: a `CanaryComponent` trait carrying a `SCHEMA_ID`
+constant, plus a `World::register_component`/`World::type_id_for_schema`
+registry mapping that stable identity to the host's `TypeId` — see
+`engine/canary-ecs/src/component_identity.rs` and the `register_component`
+family on `World` in `engine/canary-ecs/src/world.rs`.
+
+One open question from "Consequences" is settled, at least for this pass:
+**an explicit trait impl, not a `#[derive(CanaryComponent)]` macro.** A
+derive remains a fully backward-compatible future addition — it would
+only generate the same trait impl written by hand today — but building
+proc-macro infrastructure before there's a second real consumer felt
+speculative.
+
+What this prototype does **not** cover: any actual Tier A (WASM) consumer
+resolving a plugin-declared schema id through this registry to reach host
+storage. `World::type_id_for_schema` is the seam that consumer will
+eventually use; building it is future work, tracked wherever the Tier A
+loader itself gets scoped (see
+[`docs/roadmap/v0.0.2-roadmap.md`](../../roadmap/v0.0.2-roadmap.md),
+"Explicitly not in v0.0.2" — Tier A loading is out of scope for this
+release too).
+
+Status moves to `Accepted` on that basis: the principle and the concrete
+registry mechanism both held up under real implementation, not just desk
+review.
