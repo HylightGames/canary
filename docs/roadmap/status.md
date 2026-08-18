@@ -43,22 +43,22 @@ loading, real windowing, change detection, rendering, physics,
 networking, the editor, `CanaryUI` implementation, `canary-state`
 implementation.
 
-## `v0.0.2` — Scoped, not started
+## `v0.0.2` — Released
 
-Full detail: [`v0.0.2-roadmap.md`](v0.0.2-roadmap.md). Single focus:
-the archetype ECS migration.
+Full detail: [`v0.0.2-roadmap.md`](v0.0.2-roadmap.md). Single focus: the
+archetype ECS migration.
 
-- [ ] Archetype-based component storage, replacing the `v0.0.1`
+- [x] Archetype-based component storage, replacing the `v0.0.1`
       `HashMap<TypeId, HashMap<u32, Box<dyn Any + Send + Sync>>>` placeholder
-- [ ] Cached queries over archetype tables (replacing the linear scan)
-- [ ] Change-detection query filters, designed as part of this migration
-- [ ] A first cut at stable component schema identity (ADR 0010) —
-      scope may narrow once prototyping starts; that's expected, not creep
-- [ ] Existing `canary-ecs` tests passing against the new storage, with
-      minimal (not zero) call-site churn expected at the public API
-- [ ] ADR 0010 updated to `Accepted` or superseded, not left `Proposed`
-      once there's implementation experience
-- [ ] `core-runtime.md`'s "Known limitations" section updated to match
+- [x] Cached queries over archetype tables (replacing the linear scan)
+- [x] Change-detection query filters, designed as part of this migration
+- [x] A first cut at stable component schema identity (ADR 0010) —
+      landed as an explicit trait impl (`CanaryComponent`) plus a
+      registry, not a derive macro; see the ADR's "Resolution" section
+- [x] Existing `canary-ecs` tests passing against the new storage — all 6
+      passed completely unmodified; 13 new tests added (19 total)
+- [x] ADR 0010 updated to `Accepted`
+- [x] `core-runtime.md`'s "Known limitations" section updated to match
 
 **Explicitly not in `v0.0.2`** (each gets its own later release instead):
 the parallel job-stealing scheduler, Tier A WASM plugin loading, real
@@ -97,7 +97,7 @@ about working code in `engine/`.
 | Repository/governance | ✅ | ✅ | `v0.0.1` |
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
 | Platform abstraction | ✅ | ⚠️ Partial | Traits + headless only; real `winit` backend is `v0.0.3`+ |
-| ECS | ✅ | ⚠️ Placeholder | Generational-index storage now; archetype migration is `v0.0.2` |
+| ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2` |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ❌ | Designed; `v0.0.3` |
 | Rendering | ✅ | ❌ | Designed (incl. 2D-as-specialization); `v0.0.3`+ candidate |

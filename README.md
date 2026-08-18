@@ -27,13 +27,14 @@ content creation) that "game engine" already means in practice for the
 engines it's learning from. See
 [why](docs/vision/project-goals.md#2d-and-3d-games-and-beyond).
 
-> **Current status: `v0.0.1` — Foundation, released.** Governance, a
-> hardened plugin ABI, a correctness-hardened ECS placeholder, and a
-> full documented architecture (rendering, physics, audio, UI, networking,
-> localization, project state) — none of it a rendering/physics/editor
-> demo yet, on purpose. See [`docs/roadmap/status.md`](docs/roadmap/status.md)
-> for a precise, itemized answer to "what actually works right now," and
-> [`RELEASE_NOTES_v0.0.1.md`](RELEASE_NOTES_v0.0.1.md) for the full story.
+> **Current status: `v0.0.2` — Archetype ECS, released.** Governance, a
+> hardened plugin ABI, an archetype-based ECS with cached queries and
+> change detection, and a full documented architecture (rendering,
+> physics, audio, UI, networking, localization, project state) — none of
+> it a rendering/physics/editor demo yet, on purpose. See
+> [`docs/roadmap/status.md`](docs/roadmap/status.md) for a precise,
+> itemized answer to "what actually works right now," and
+> [`RELEASE_NOTES_v0.0.2.md`](RELEASE_NOTES_v0.0.2.md) for the full story.
 
 ## Free, open source, and no strings attached
 

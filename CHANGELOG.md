@@ -9,6 +9,53 @@ the more granular, dated story of how a release was built (including the
 `-pre1` and architecture-review work that led into this one), see
 [`docs/roadmap/milestones.md`](docs/roadmap/milestones.md).
 
+## [v0.0.2] — 2026-08-18
+
+The release where Canary's ECS becomes the archetype-based design
+`core-runtime.md` always described as the target, rather than the
+`v0.0.1` placeholder. Single-focus, per the release cadence — see
+[`RELEASE_NOTES_v0.0.2.md`](RELEASE_NOTES_v0.0.2.md) for the full account.
+
+### Added
+
+- **Archetype-based component storage** (`engine/canary-ecs/src/column.rs`,
+  `archetype.rs`): entities sharing a component-type signature are stored
+  contiguously, one packed column per component type, replacing the
+  `HashMap<TypeId, HashMap<u32, Box<dyn Any + Send + Sync>>>` placeholder.
+- **Cached queries**: `World::query` resolves which archetypes to scan via
+  a `TypeId -> Archetype` index maintained incrementally, not a per-call
+  scan of every archetype's signature.
+- **Change detection as a first-class query filter**: `World::query_changed_since`,
+  backed by a per-column, per-row tick (`Tick`, `World::change_tick`,
+  `World::advance_tick`) that correctly survives archetype moves caused by
+  unrelated components — closes risk register R-13.
+- **A first prototyped cut of [ADR 0010](docs/decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)**:
+  the `CanaryComponent` trait (`SCHEMA_ID`) and a
+  `World::register_component`/`World::type_id_for_schema` registry,
+  validating the string+version identity / `TypeId`-stays-host-internal
+  direction — closes risk register R-04. ADR 0010 moves from `Proposed`
+  to `Accepted`.
+- 13 new `canary-ecs` tests (19 total, up from 6), including coverage of
+  the `swap_remove` row-relocation edge case during archetype transitions
+  and a `proptest` exercising arbitrary insert/remove/despawn sequences
+  across multiple entities and component types.
+
+### Changed
+
+- `docs/architecture/core-runtime.md`'s ECS section rewritten for what's
+  actually implemented as of `v0.0.2`; both "Known limitations" bullets
+  (change detection, component identity) resolved.
+- `docs/roadmap/v0.0.2-roadmap.md` status updated to reflect completion.
+
+### Fixed
+
+- Nothing was broken going into this release; existing `canary-ecs`
+  tests pass against the new storage unmodified, as intended by the
+  public API's original design (see `World::insert`/`get`/`query`'s
+  unchanged signatures).
+
+[v0.0.2]: https://github.com/HylightGames/canary/releases/tag/v0.0.2
+
 ## [v0.0.1] — 2026-08-03
 
 The release that establishes Canary's engineering standards and

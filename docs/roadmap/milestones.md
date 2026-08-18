@@ -136,16 +136,65 @@ definition actually required:
 
 Full detail: [`RELEASE_NOTES_v0.0.1.md`](../../RELEASE_NOTES_v0.0.1.md).
 
-## `v0.0.2` — planned, scoped, not started
+## `v0.0.2` (unqualified) — **Released**
+
+**Status:** Complete.
 
 Single focus, per the release cadence recorded in
 [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete):
-the archetype-based ECS migration. Full scope in
-[`v0.0.2-roadmap.md`](v0.0.2-roadmap.md). Tier A WASM plugin loading and
-real windowing follow as their own, later releases rather than being
-bundled in.
+the archetype-based ECS migration, exactly as scoped in
+[`v0.0.2-roadmap.md`](v0.0.2-roadmap.md).
+
+- **Replaced the `v0.0.1` placeholder** (`HashMap<TypeId, HashMap<u32,
+  Box<dyn Any + Send + Sync>>>`) with archetype-table storage: entities
+  sharing a component-type signature live together, one packed column
+  per component type, matching the target design
+  [`core-runtime.md`](../architecture/core-runtime.md#ecs-architecture)
+  had always described.
+- **Added cached queries and change detection**, the two capabilities
+  the placeholder explicitly lacked — closing risk register findings
+  R-13 (change detection) and, alongside the item below, R-04
+  (component identity).
+- **Prototyped [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
+  for real**, moving it `Proposed` → `Accepted`: a `CanaryComponent`
+  trait plus a `World::register_component` registry, landed as an
+  explicit trait impl rather than a derive macro — a real, recorded
+  narrowing of scope from what the ADR originally left open, not
+  scope creep in the other direction.
+- **Grew `canary-ecs`'s test suite from 6 to 19**, all 6 original tests
+  passing completely unmodified against the new storage. The new tests
+  specifically target the highest-risk part of an archetype
+  implementation — the `swap_remove` row-relocation that happens when a
+  non-last row leaves an archetype — with both hand-traced examples and
+  a `proptest` running arbitrary operation sequences.
+- **A prior attempt at this same migration did not make it into this
+  history.** An earlier session did equivalent work — by its own
+  detailed account, complete except for one missing test module — but
+  ended without that work ever being pushed to `dev`; a sandboxed
+  working directory that's never pushed doesn't survive past its own
+  session. This was discovered, not assumed, at the start of the
+  session that produced the entry above: `dev` was checked directly
+  against the GitHub API before any code was written, found to contain
+  none of the claimed work, and the migration was built again from the
+  documented roadmap and ADRs rather than from an assumption that
+  undocumented prior work still existed somewhere. Recorded here in the
+  same spirit as everything else in this file: what actually happened,
+  not what was expected to have happened.
+- **Prepared the release**: version bumped to `0.0.2` across the
+  workspace (lockstep, per [ADR 0008](../decisions/architecture-decision-records/0008-workspace-crate-versioning-lockstep.md)),
+  [`CHANGELOG.md`](../../CHANGELOG.md) updated,
+  [`RELEASE_NOTES_v0.0.2.md`](../../RELEASE_NOTES_v0.0.2.md) written, and
+  a [release checklist](v0.0.2-RELEASE_CHECKLIST.md) completed and
+  checked against reality rather than assumed.
+
+Full detail: [`RELEASE_NOTES_v0.0.2.md`](../../RELEASE_NOTES_v0.0.2.md).
 
 ## Beyond `v0.0.2`
 
-See [`future-roadmap.md`](future-roadmap.md) and the era-based narrative in
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md).
+`docs/roadmap/status.md`'s existing sequencing names Tier A (WASM) plugin
+loading as `v0.0.3`; that sequencing is under active discussion, alongside
+a broader look at architectural differentiation, before `v0.0.3` is
+formally scoped in detail. See [`future-roadmap.md`](future-roadmap.md)
+and the era-based narrative in
+[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md) for
+everything not yet affected by that discussion.
