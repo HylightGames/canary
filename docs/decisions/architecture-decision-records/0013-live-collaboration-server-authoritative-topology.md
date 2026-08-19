@@ -107,9 +107,14 @@ of operations" — which a clean, version-controllable history requires
   (persistent identity, package format, migration rules) remain exactly
   as open as ADR 0012 originally left them.
 - [ADR 0014](0014-change-detection-as-shared-primitive.md), written once
-  `v0.0.2` shipped `World::query_changed_since`, names this ADR's
-  operation-log-is-the-diff commitment as one of the things that
-  primitive is meant to serve, for the ECS-resident slice of project
-  state this ADR covers — it doesn't change anything decided here, it
-  formalizes the mechanism the eventual implementation is expected to
-  share with replication and hot-reload rather than reinvent.
+  `v0.0.2` shipped `World::query_changed_since`, names
+  `query_changed_since` as what tells the session server which
+  ECS-resident components actually changed *value* — driving what gets
+  broadcast to collaborators and what gets serialized to the diffable
+  format. It does not change anything decided here, but it's worth
+  being precise about the boundary: ADR 0014 is explicit that a `Tick`
+  is not a substitute for this ADR's operation log — it reports that a
+  value differs from an earlier point, not what operation produced the
+  difference, in what order, or under whose authority, which is
+  provenance/conflict information only the operation log itself
+  carries. The two are complementary, not the same mechanism.

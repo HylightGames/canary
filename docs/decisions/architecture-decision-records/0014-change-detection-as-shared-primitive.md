@@ -1,8 +1,8 @@
-# 0014. Change detection is the shared primitive for replication, live collaboration, hot-reload, and subsystem decoupling
+# 0014. Change detection as a shared primitive for replication, live collaboration, hot-reload, and subsystem decoupling
 
 **Status:** Proposed (a principle to build future subsystems against, not
-yet cross-validated by a second real consumer beyond `canary-ecs` itself
-— see "Consequences" for what would move this to `Accepted`)
+yet cross-validated by a second real consumer that actually stresses its
+semantics — see "Consequences" for the two-part bar for `Accepted`)
 
 ## Context
 
@@ -49,34 +49,50 @@ times does this codebase reinvent 'what changed'."
 ## Decision
 
 **`World::query_changed_since`'s `Tick`-based mechanism is the canonical
-definition of "changed" for the whole engine.** Every future subsystem
-that needs to answer some version of "what's different since X"
-consumes this primitive rather than designing its own change-tracking
-from scratch:
+primitive for detecting *ECS-resident component mutation* — not, more
+broadly, "changed" for the whole engine.** That distinction is worth
+stating precisely rather than leaving it for a future reader to infer: a
+source asset changing on disk, a collaborator's edit being accepted or
+rejected, and a component's in-memory value being overwritten are three
+different kinds of "change," and only the last one is what `Tick`
+observes directly. What this ADR actually commits to is narrower and
+more durable than "everything": every future subsystem whose own
+mutation-tracking would otherwise duplicate "did this component's value
+change" consumes `query_changed_since` for exactly that question,
+rather than inventing a parallel mechanism for the same fact.
 
 - **Networking replication** (Era 4,
   [`docs/architecture/networking.md`](../../architecture/networking.md)):
   a replicated component's dirty set for a given client is computed by
   `query_changed_since(client's last-acknowledged tick)`, not a
-  separately designed dirty-flag or shadow-state-diff system.
+  separately designed dirty-flag or shadow-state-diff system. See
+  "Known gaps" below for what this does *not* yet give replication.
 - **Live collaboration** (medium-term `canary-state`, per
   [ADR 0012](0012-project-state-as-a-versionable-graph.md) and
   [ADR 0013](0013-live-collaboration-server-authoritative-topology.md)):
-  for ECS-resident project data, the session server's "accepted
-  operation log" is materialized as ordinary `World::insert`/`get_mut`/
-  `remove` calls; the resulting `Tick`s are what drive both what gets
-  broadcast to other collaborators *and* what gets serialized into the
-  diffable, persisted format ADR 0013 already commits to treating as
-  one artifact, not two.
+  for the ECS-resident *result* of an accepted operation,
+  `query_changed_since` is what tells the session server which
+  components actually changed value and therefore need broadcasting to
+  other collaborators, or serializing to the diffable persisted format.
+  This is deliberately narrower than ADR 0013's "operation log" itself —
+  see "Known gaps."
 - **Asset hot-reload** (Era 3,
   [`docs/architecture/asset-system.md`](../../architecture/asset-system.md)):
-  for ECS-resident data affected by a reimport, "what needs re-cooking"
-  is answered the same way, rather than a separate file-watcher-driven
-  dirty system that happens to exist alongside the ECS's own.
-- **Inter-subsystem decoupling**: the "physics writes, audio observes"
-  pattern design-philosophy.md already commits to is, mechanically, a
-  `query_changed_since` read on whatever component physics wrote —
-  named here as what it already structurally is, not a new mechanism.
+  for ECS-resident data *downstream* of an asset — a mesh handle, a
+  material reference, anything the asset pipeline eventually writes into
+  a component — `query_changed_since` is how a consumer of that data
+  notices it changed. The upstream question, "this source file changed,
+  therefore which derived assets need rebuilding," is a
+  dependency-graph problem the asset system owns; this ADR doesn't reach
+  that far up the pipeline, only the ECS-resident tail end of it.
+- **Inter-subsystem decoupling**: for *persistent* state one subsystem
+  writes and a peer reads later — physics writing a `Transform`, audio
+  reading it — `query_changed_since` is that read. This does not extend
+  to genuinely *transient* signals (a collision starting and ending
+  within one tick window, an impulse applied and gone) that a polling
+  read could miss or coalesce incorrectly; those need an actual event
+  mechanism, which this ADR does not attempt to replace. See "Known
+  gaps."
 
 **This is a shared *definition*, not a shared *queue*.** Each consumer
 keeps its own cadence, transport, and failure semantics — a network
@@ -85,6 +101,41 @@ hot-reload watcher's last-cooked tick are independent bookkeeping,
 each simply a `Tick` value a caller supplies to the same query. Nothing
 about this decision implies one shared buffer or one consumer draining
 before another can.
+
+## Known gaps this ADR does not resolve
+
+Named directly, because leaving them implicit is exactly how an ADR gets
+misused later as license for more than it actually decided:
+
+- **Component removal and entity destruction are not covered.** When a
+  component is removed (`World::remove`) or an entity is despawned, the
+  row it occupied is gone — there is nothing left for
+  `query_changed_since` to report, because the archetype it would have
+  been read from no longer has that row. A client that misses the tick
+  a `Transform` was removed at has no way to learn "entity 42 no longer
+  has a `Transform`" from this primitive alone, and replication
+  genuinely needs that (a despawned entity has to disappear client-side,
+  not linger). This ADR does not provide it. The likely shape — a
+  durable removal/destruction log or tombstone mechanism, consulted
+  *alongside* `query_changed_since` rather than folded into it, in the
+  spirit of how other ECS designs expose removed-component notification
+  as its own stream rather than trying to answer it via value polling —
+  is future `canary-ecs` work, not resolved here. Tracked as risk R-33
+  in [`docs/reviews/risk-register.md`](../../reviews/risk-register.md).
+- **This is not an operation log.** A `Tick` answers "does the current
+  value differ from the value as of tick X" — it does not preserve
+  intermediate values, the order distinct writers produced them in, or
+  authority/conflict metadata. A value going `10 -> 20 -> 10` between
+  tick 99 and tick 103 reports as "unchanged since 99," even though two
+  writes happened in between. That is exactly the right, cheap answer
+  for state replication, where only the current value matters to a
+  client. It is not sufficient, on its own, for collaboration history,
+  undo provenance, or conflict reconciliation — those need the actual
+  sequence of operations, which
+  [ADR 0013](0013-live-collaboration-server-authoritative-topology.md)'s
+  operation log is responsible for, as a genuinely separate artifact
+  from whatever `query_changed_since` reports about the resulting
+  state, not a byproduct derivable from `Tick`s after the fact.
 
 ## Alternatives considered
 
@@ -120,30 +171,56 @@ justified ADR 0013 as its own record instead of an amendment to ADR
 
 - Future work on Era 3 (hot-reload), Era 4 (replication), and
   `canary-state`/live collaboration should each explicitly justify any
-  change-tracking mechanism that *isn't* built on
-  `World::query_changed_since`, rather than silently inventing one.
+  *value-mutation* tracking that isn't built on `query_changed_since`.
+  The "Known gaps" above are exactly the parts of "what changed" this
+  ADR does *not* yet claim to cover — building a removal log or an
+  event system for those is not a violation of this ADR, it's the
+  complementary work this ADR deliberately declines to design
+  speculatively, per the same reasoning in "Alternatives considered."
   `docs/architecture/networking.md` and `asset-system.md` should
   reference this ADR once each subsystem is actually designed against
   it — they don't yet, since neither has been built.
-- **A real risk, not glossed over**: `Tick` is currently a simple,
-  per-column-row monotonic counter — enough for "has this changed since
-  tick X," which covers replication and hot-reload cleanly. It is *not*
-  enough, as-is, for the kind of causality tracking a CRDT-style
+- **Precisely, to close an ambiguity an earlier draft of this ADR left
+  open**: `Tick` is one world-wide, monotonically increasing counter
+  (`World::advance_tick`); each component's storage records, per row,
+  the `Tick` value in effect the last time that row was written. It is
+  *not* an independent per-column or per-row counter — every `Tick`
+  value is comparable against every other, engine-wide, which is what
+  makes `query_changed_since(since)` meaningful for a caller that never
+  observed the intervening writes to any *other* component. This
+  representation is a **local, single-timeline ordering primitive**. It
+  is a different thing from a **distributed causality primitive** (e.g.
+  per-client vector clocks), which is what a CRDT-adjacent
+  conflict-reconciliation technique would actually need if
+  `canary-state` goes that direction — see the next point.
+- **A real risk, not glossed over**: `Tick`'s current representation is
+  enough for "has this changed since tick X" — replication and
+  hot-reload, once "Known gaps" above is also addressed. It is *not*
+  enough, as-is, for the causality tracking a CRDT-style
   conflict-reconciliation technique might eventually want internally
   (ADR 0013 names this as "a candidate technique the server could use
   internally," not a commitment). If that need materializes during Era
-  4 or the live-collaboration work, extending or partially replacing
-  `Tick`'s internals (e.g., toward per-client vector clocks for the
-  replication/collaboration path specifically) is the expected outcome,
-  not a violation of this ADR — the commitment is to *not reinventing
-  the concept of change tracking per subsystem*, not to freezing
-  `Tick`'s current representation forever. Tracked as risk R-32 in
-  [`docs/reviews/risk-register.md`](../../reviews/risk-register.md) so
-  this doesn't get rediscovered the hard way mid-Era-4.
-- This ADR moves from `Proposed` to `Accepted` once at least one real
-  consumer beyond `canary-ecs` itself — most likely Era 3's hot-reload,
-  being the nearest in the sequence — is actually built against
-  `query_changed_since`, the same "prototype before finalizing status"
-  discipline [ADR 0010](0010-component-identity-across-language-boundary.md)
-  and [ADR 0012](0012-project-state-as-a-versionable-graph.md) already
+  4 or the live-collaboration work, the expected outcome is adding a
+  distributed-causality primitive *alongside* `Tick` — not replacing
+  it, since replication's needs for a simple local ordering don't go
+  away — which is a different temporal dimension underneath the same
+  higher-level "consume the canonical primitive, don't reinvent one"
+  commitment, not a violation of it. Tracked as risk R-32 in
+  [`docs/reviews/risk-register.md`](../../reviews/risk-register.md).
+- This ADR moves from `Proposed` to `Accepted` once **two** things are
+  true, not one: (1) at least one real consumer beyond `canary-ecs`
+  itself — most likely Era 3's hot-reload, being nearest in the
+  sequence — is actually built against `query_changed_since`, *and* (2)
+  that consumer's experience demonstrates the primitive's semantics are
+  actually sufficient for its needs, not merely that it compiles against
+  them. Hot-reload is a real but comparatively easy validation — it
+  could plausibly succeed while never exercising either "Known gap"
+  above. Networking replication (Era 4) is the harder, more honest test
+  of sufficiency, precisely because it needs removal/destruction
+  detection this ADR admits it doesn't yet provide. `Accepted` status
+  should wait for whichever consumer actually stresses the primitive,
+  not just whichever lands first — the same "prototype before
+  finalizing status" discipline
+  [ADR 0010](0010-component-identity-across-language-boundary.md) and
+  [ADR 0012](0012-project-state-as-a-versionable-graph.md) already
   follow.

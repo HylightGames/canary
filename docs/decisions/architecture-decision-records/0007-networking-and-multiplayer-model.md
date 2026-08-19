@@ -79,7 +79,12 @@ much larger redesign later.
   than just anticipated: [ADR 0014](0014-change-detection-as-shared-primitive.md),
   written once `v0.0.2` actually shipped `World::query_changed_since`,
   commits replication to consuming that primitive directly rather than
-  designing its own delta-detection from scratch.
+  designing its own delta-detection from scratch — for component
+  *mutation*. ADR 0014 is explicit that it does not yet cover component
+  removal or entity destruction (risk R-33): this networking model still
+  needs an answer for "the client must be told an entity/component is
+  gone," and that answer isn't `query_changed_since` alone. Worth
+  keeping in view when Era 4 actually starts, not rediscovering then.
 - `quinn` becomes a dependency of the (future) `canary-net` crate, not of
   engine core — consistent with the transport being a replaceable
   subsystem, not a hard-wired dependency.
