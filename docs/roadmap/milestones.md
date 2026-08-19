@@ -191,10 +191,15 @@ Full detail: [`RELEASE_NOTES_v0.0.2.md`](../../RELEASE_NOTES_v0.0.2.md).
 
 ## Beyond `v0.0.2`
 
-`docs/roadmap/status.md`'s existing sequencing names Tier A (WASM) plugin
-loading as `v0.0.3`; that sequencing is under active discussion, alongside
-a broader look at architectural differentiation, before `v0.0.3` is
-formally scoped in detail. See [`future-roadmap.md`](future-roadmap.md)
-and the era-based narrative in
+`v0.0.3` — Tier A (sandboxed WASM/Wasmtime) plugin loading — is now
+scoped: see [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Not started. This
+was scoped alongside a broader architecture discussion that produced
+[ADR 0014](../decisions/architecture-decision-records/0014-change-detection-as-shared-primitive.md)
+(change detection as the shared primitive behind replication, live
+collaboration, and hot-reload) — recorded as its own ADR rather than
+folded in here, since it's a cross-cutting principle for later releases,
+not a `v0.0.3`-specific decision.
+
+See [`future-roadmap.md`](future-roadmap.md) and the era-based narrative in
 [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md) for
-everything not yet affected by that discussion.
+everything beyond that.

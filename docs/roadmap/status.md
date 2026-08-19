@@ -72,9 +72,11 @@ one focus per release, in this order — later ones intentionally not
 detailed yet, per [`future-roadmap.md`](future-roadmap.md)'s own
 "don't assign fake specificity" discipline:
 
-1. **`v0.0.3` — Tier A (WASM/Wasmtime) plugin loading.** Depends on Tier B
-   (done) and benefits from, but doesn't strictly require, `v0.0.2`'s
-   component-identity work landing first.
+1. **`v0.0.3` — Tier A (WASM/Wasmtime) plugin loading.** Now scoped in
+   detail: see [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Depends on
+   Tier B (done) and, per [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
+   landing in `v0.0.2`, now has the component-identity registry it needs
+   rather than merely benefiting from one.
 2. **Real windowing (`winit`-backed `canary-platform`).** Needed before
    rendering can be validated in a non-headless environment.
 3. **Rendering bootstrap** (`wgpu`-backed RHI, per
