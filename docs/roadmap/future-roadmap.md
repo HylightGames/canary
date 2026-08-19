@@ -23,9 +23,11 @@ unassigned.
 ## Blocked on the ECS reaching its target (archetype) design
 
 - Parallel job-stealing scheduler (`docs/architecture/core-runtime.md`)
-- Change-detection query filters
-- Networking replication (`docs/architecture/networking.md`) — depends on
-  change detection above
+- Networking replication (`docs/architecture/networking.md`) — archetype
+  storage and change detection (both `v0.0.2`) are no longer what block
+  this; see [ADR 0014](../decisions/architecture-decision-records/0014-change-detection-as-shared-primitive.md)
+  for how it's meant to consume `World::query_changed_since` once built.
+  What's actually blocking it now is simply that Era 4 hasn't started.
 - Rollback-netcode support — depends on networking above
 
 ## Blocked on the Tier A (WASM) plugin loader existing
@@ -90,13 +92,33 @@ unassigned.
 - **Real-time collaborative editing** ("live share"). Named and
   architecturally scoped in
   [`docs/architecture/state-and-versioning.md`](../architecture/state-and-versioning.md)
-  and [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md),
-  but the actual mechanism (server-authoritative operation broadcast vs.
-  CRDT-based leaderless merge) is a genuinely open question, deliberately
-  left unresolved until there's a `canary-state` implementation to ground
-  the choice in. Blocked on the medium-term scope of `canary-state`
-  itself, which is in turn blocked on the archetype ECS migration and the
-  asset pipeline (see the dependency sections above).
+  and [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md).
+  The topology/authority question [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md)
+  originally left open is resolved: [ADR 0013](../decisions/architecture-decision-records/0013-live-collaboration-server-authoritative-topology.md)
+  commits to server-authoritative, client–server–client, the same
+  authority model as gameplay networking. What's still genuinely open is
+  the wire protocol, the operation schema, and permission-model
+  specifics — deliberately left unresolved until there's a `canary-state`
+  implementation to ground the choice in. Blocked on the medium-term
+  scope of `canary-state` itself, which is in turn blocked on the
+  archetype ECS migration (done, `v0.0.2`) and the asset pipeline (see
+  the dependency sections above).
+- **First-party MCP (Model Context Protocol) access to a running engine
+  instance**, distinct from the existing `canary-ai` in-game/in-editor
+  inference bullet above: exposing ECS state, the scene graph, and
+  (once it exists) asset-pipeline status as MCP tools, so an AI coding
+  agent can inspect and drive a live Canary session the same way a human
+  using the editor would, rather than through ad hoc reflection over an
+  API that wasn't designed for it (which is how at least one existing
+  third-party integration works for another engine today). This is the
+  natural extension of design-philosophy.md's first "AI-ready" pillar
+  ([legible to AI-assisted development](../vision/design-philosophy.md#ai-ready-architecture))
+  rather than its second (in-game/in-editor inference, i.e.
+  `canary-ai`) — and depends on [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)'s
+  stable component identity (so an agent can name a component without
+  ever needing to know a `TypeId`) and, for anything editor-side, on the
+  editor existing at all (Era 5). Genuinely open on shape and timing;
+  tracked here rather than assigned an era.
 
 ## Explicitly not on this list
 

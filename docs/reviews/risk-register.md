@@ -47,6 +47,7 @@ long as it's a decision, not a default).
 | R-29 | Versioning | Pre-1.0 CHANGELOG entries don't distinguish cosmetic churn from breaking redesigns | Low | Open | Review §9.2; adopt a lightweight `[breaking]` tag convention |
 | R-30 | Versioning | Workspace crate lockstep versioning was implemented but undocumented as a decision | High | Mitigated | [ADR 0008](../decisions/architecture-decision-records/0008-workspace-crate-versioning-lockstep.md) added Aug 2026, formalizing the existing choice |
 | R-31 | Build/CI | `rustfmt.toml` specified nightly-only options (silently not applied on the pinned `stable` toolchain); already-committed code failed its own `cargo fmt --check` | High | Mitigated | Review §2.5; fixed directly (mechanical, behavior-preserving) — nightly-only options removed, `cargo fmt --all` run, rebuild + full test pass confirmed afterward |
+| R-32 | ECS | [ADR 0014](../decisions/architecture-decision-records/0014-change-detection-as-shared-primitive.md) commits replication, live collaboration, and hot-reload to sharing `Tick`-based change detection, but `Tick`'s current shape (a simple monotonic counter) may not fit causality-tracking needs (e.g. CRDT-adjacent conflict reconciliation) that only become clear once Era 4 or live collaboration is actually built | Medium | Open | Named proactively in the ADR itself rather than discovered mid-implementation; extending or partially replacing `Tick`'s internals for the replication/collaboration path specifically is an expected, not exceptional, outcome |
 
 ## Using this register
 

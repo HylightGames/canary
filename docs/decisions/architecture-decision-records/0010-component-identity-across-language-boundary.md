@@ -123,3 +123,16 @@ release too).
 Status moves to `Accepted` on that basis: the principle and the concrete
 registry mechanism both held up under real implementation, not just desk
 review.
+
+The same `v0.0.2` session that prototyped this also formalized a related
+but distinct idea as its own record:
+[ADR 0014](0014-change-detection-as-shared-primitive.md) commits
+`World::query_changed_since` (also new in `v0.0.2`) as the shared
+primitive behind replication, live collaboration, and hot-reload. The
+two are complementary, not the same decision — this ADR is about
+*identity* (naming a component stably across languages), 0014 is about
+*change* (knowing when a component's value moved) — but both exist to
+let something outside a single Rust compilation (a WASM plugin, a
+network client, a collaborator, a build tool) reason about ECS state
+without reaching into host-internal representation details like
+`TypeId` to do it.

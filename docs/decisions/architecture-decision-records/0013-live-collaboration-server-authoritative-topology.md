@@ -106,3 +106,10 @@ of operations" — which a clean, version-controllable history requires
   otherwise unchanged, since the parts of it this ADR doesn't touch
   (persistent identity, package format, migration rules) remain exactly
   as open as ADR 0012 originally left them.
+- [ADR 0014](0014-change-detection-as-shared-primitive.md), written once
+  `v0.0.2` shipped `World::query_changed_since`, names this ADR's
+  operation-log-is-the-diff commitment as one of the things that
+  primitive is meant to serve, for the ECS-resident slice of project
+  state this ADR covers — it doesn't change anything decided here, it
+  formalizes the mechanism the eventual implementation is expected to
+  share with replication and hot-reload rather than reinvent.

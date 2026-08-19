@@ -75,7 +75,11 @@ much larger redesign later.
   (see [`docs/architecture/core-runtime.md`](../../architecture/core-runtime.md))
   need to account for replication's needs (snapshotting, delta detection)
   from the point they're actually implemented (Era 2), even though
-  networking itself lands later (Era 4).
+  networking itself lands later (Era 4). This is now formalized rather
+  than just anticipated: [ADR 0014](0014-change-detection-as-shared-primitive.md),
+  written once `v0.0.2` actually shipped `World::query_changed_since`,
+  commits replication to consuming that primitive directly rather than
+  designing its own delta-detection from scratch.
 - `quinn` becomes a dependency of the (future) `canary-net` crate, not of
   engine core — consistent with the transport being a replaceable
   subsystem, not a hard-wired dependency.

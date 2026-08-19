@@ -18,7 +18,7 @@ a point-in-time record — the same convention as
 - [x] CI (Linux/macOS/Windows build matrix, `wasm32-wasip2` target check)
 - [x] Full `docs/` architecture (vision, architecture, decisions, roadmap,
       development, ui, research, reviews)
-- [x] 13 ADRs (`0001`–`0013`; see the [ADR index](../decisions/architecture-decision-records/))
+- [x] 14 ADRs (`0001`–`0014`; see the [ADR index](../decisions/architecture-decision-records/))
 - [x] Cargo workspace + `xtask` build orchestration
 - [x] `canary-core` — `App`/`Subsystem` bootstrap, structured logging,
       error-handling conventions
