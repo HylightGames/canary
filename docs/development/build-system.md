@@ -98,6 +98,44 @@ Per [ADR 0005](../decisions/architecture-decision-records/0005-build-system-and-
 reproducible builds across contributors and CI matter more here than the
 flexibility an uncommitted lockfile would give a pure library.
 
+## The `rustc` 1.75 sandbox-validation floor
+
+`rust-toolchain.toml` pins `channel = "stable"`, deliberately left
+unpinned to an exact version — see that file's own comment for why. Some
+implementation sessions, though, have only had network access to this
+project's specific sandboxed environment, which installs Rust via `apt`
+from Ubuntu's archive rather than `rustup`, landing on whatever `rustc`
+that archive currently carries (`1.75.0` as of this writing). That's
+older than most of the ecosystem now assumes, and the gap only grows —
+Wasmtime, for one, tracks only the latest three stable Rust releases and
+moves its own MSRV forward continuously (see
+[`v0.0.3-roadmap.md`](../roadmap/v0.0.3-roadmap.md)).
+
+Where a dependency — or one of *its* transitive dependencies — has moved
+past whatever `rustc` a given validation session can reach, the fix has
+been to pin that one dependency to the newest release still compatible,
+not to relax the workspace's actual `rust-toolchain.toml` floor, which
+stays `stable` for real contributors using `rustup` normally. Each pin
+carries an inline comment explaining why, pointing back here. Two things
+worth knowing before adding another one:
+
+- **A crate's own declared `rust-version` isn't the whole story.**
+  Wasmtime `21.0.2` declares `rust-version = "1.75.0"` and does build
+  under it — but several of its *transitive* dependencies (at time of
+  writing: `idna`, `idna_adapter`, `hashbrown`, `indexmap`, `litemap`,
+  and, only if the optional `wat` text-format feature is enabled, `wat`
+  itself) had, by the time this was checked, independently drifted past
+  that floor through their own later releases — Cargo resolves each
+  dependency to the newest release satisfying its semver range by
+  default, regardless of when the crate that declared the range was
+  published. Confirming a pin actually works means a real `cargo build`,
+  not just reading one `rust-version` field.
+- **Bump these pins opportunistically, not on a schedule.** Any session
+  with access to a current `stable` toolchain (via `rustup`, or a
+  less-constrained sandbox) should feel free to re-verify whether a pin
+  is still needed and relax it if the underlying gap has closed — the
+  same encouragement the `libloading` pin below already gives.
+
 ## Known limitations (added by the August 2026 architecture review)
 
 - **CI previously set a blanket `RUSTFLAGS: "-D warnings"`**, which

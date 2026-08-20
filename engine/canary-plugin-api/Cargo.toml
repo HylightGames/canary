@@ -19,3 +19,21 @@ thiserror = "2.0.19"
 # compatible with 1.75. Bump once building against a current `stable`
 # toolchain.
 libloading = "=0.8.6"
+
+# Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. wasmtime 21.0.2
+# is the newest release confirmed, empirically (a real `cargo build`, not
+# just its declared rust-version), to compile under this sandbox's
+# apt-installed rustc 1.75 -- see
+# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
+# for why this needed six pins, not one, and what to do once a current
+# toolchain is available.
+wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
+wasmtime-wasi = "=21.0.2"
+# Transitive-dependency pins required to actually build the above under
+# rustc 1.75 -- each independently drifted past that floor through its
+# own later releases since wasmtime 21.0.2 was originally published.
+idna = "=1.0.3"
+idna_adapter = "=1.2.0"
+hashbrown = "=0.16.1"
+indexmap = "=2.11.4"
+litemap = "=0.7.3"
