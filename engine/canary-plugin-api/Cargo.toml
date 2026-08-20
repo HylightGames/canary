@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 thiserror = "2.0.19"
+canary-ecs = { path = "../canary-ecs" }
 # Pinned below latest for this sandbox's validation build: libloading's own
 # latest release (0.9.0) has raised its MSRV to rustc 1.88, newer than the
 # apt-installed rustc 1.75 available here (see
@@ -37,3 +38,17 @@ idna_adapter = "=1.2.0"
 hashbrown = "=0.16.1"
 indexmap = "=2.11.4"
 litemap = "=0.7.3"
+
+[dev-dependencies]
+# The `wat` feature (WAT text-format parsing) is dev-only on purpose:
+# production Tier A loading always goes through real `.wasm` binaries
+# (see docs/roadmap/v0.0.3-roadmap.md's `.cwasm`-is-a-cache-artifact,
+# `.wasm`-is-canonical note), so nothing in `src/` needs it. This
+# crate's tests use inline WAT fixtures instead of an external
+# `cargo-component`/`wit-bindgen` toolchain -- see `tier_a.rs`'s test
+# module docs. Cargo unifies this feature in for `cargo test` builds
+# without it affecting `cargo build --release`.
+wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
+# wat's own pin, for the same rustc-1.75 reason as the others above --
+# it drifted independently of wasmtime's core dependency tree.
+wat = "=1.207.0"

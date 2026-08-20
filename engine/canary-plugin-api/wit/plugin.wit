@@ -1,0 +1,41 @@
+// Tier A (sandboxed WASM Component Model) plugin interface -- first slice.
+//
+// This is deliberately minimal: it proves the *mechanism* (a component
+// lifecycle, and one capability-gated host call reaching real
+// canary-ecs::World state) rather than attempting the full ECS
+// read/write data ABI described in docs/roadmap/v0.0.3-roadmap.md
+// (SCHEMA_ID-addressed get/set/has-component/is-valid-entity over a
+// capped value-type set). That remains its own, larger piece of work --
+// see engine/canary-plugin-api/src/tier_a.rs's module docs for exactly
+// what this slice does and does not cover.
+//
+// `name` is deliberately not part of this interface: a WIT function
+// returning `string` needs canonical-ABI memory (a guest-exported
+// `memory` and `realloc`) that adds real complexity without validating
+// anything this slice is actually trying to prove. A Tier A plugin's
+// name is supplied by its loader's caller for now -- see
+// `WasmPluginLoader::load`'s doc comment. Revisit once there's a real
+// reason to (e.g. a plugin manifest, R-08).
+
+package canary:plugin@0.1.0;
+
+interface lifecycle {
+    on-load: func();
+    on-unload: func();
+    // Testing/illustration hook: exposes what `on-load` cached from the
+    // `ecs-read` import below, so a host-side test can observe that a
+    // value genuinely round-tripped through a real component instance
+    // rather than asserting on the host's own state.
+    last-entity-count: func() -> u32;
+}
+
+// One capability's worth of the eventual "read ECS state" surface --
+// see the module docs above for why this isn't the full thing yet.
+interface ecs-read {
+    entity-count: func() -> u32;
+}
+
+world tier-a-plugin {
+    export lifecycle;
+    import ecs-read;
+}

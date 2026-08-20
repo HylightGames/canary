@@ -10,15 +10,17 @@
 
 /// A capability a plugin declares it needs.
 ///
-/// v0.0.1-pre1: an illustrative, non-exhaustive set, and — because only
-/// the trusted native (Tier B) loader exists so far — **advisory only**.
+/// An illustrative, non-exhaustive set. Enforcement varies by tier:
 /// Tier B has no sandboxing by design (see
 /// `docs/architecture/plugin-system.md#tier-b--trusted-native-c-abi`), so
-/// nothing in this crate currently *enforces* that a plugin only does what
-/// it declared here. This type exists now so the declaration shape is
-/// settled; it becomes load-bearing — actually checked and enforced by the
-/// runtime — once the sandboxed WASM (Tier A) loader lands. See
-/// `docs/architecture/plugin-system.md#the-plugin-trait-surface-canary-plugin-api`.
+/// nothing in this crate enforces that a Tier B plugin only does what it
+/// declared here — it's advisory only for that tier. Tier A enforces
+/// [`Capability::ReadEcsWorld`] **structurally**, as of `v0.0.3`'s first
+/// slice: see [`crate::WasmPluginLoader::load`]'s doc comment. The
+/// remaining three variants don't have a corresponding Tier A interface
+/// yet (`wit/plugin.wit` only defines one), so they remain advisory for
+/// both tiers until that's built out — see
+/// `docs/roadmap/v0.0.3-roadmap.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Capability {
     /// Read access to ECS component/resource data the plugin declares.
