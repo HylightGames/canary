@@ -75,6 +75,23 @@ pub(crate) trait ColumnOps: Send + Sync {
     /// `docs/development/coding-standards.md`.
     fn push_any(&mut self, value: Box<dyn Any + Send + Sync>, tick: Tick);
 
+    /// A type-erased reference to row `row`'s value, for a caller that
+    /// only has a runtime `TypeId` (e.g. resolved via
+    /// [`crate::World::type_id_for_schema`]), not a concrete type at
+    /// the call site -- the read half of the "host adapter" ADR 0010
+    /// named but didn't itself build; see
+    /// `docs/roadmap/v0.0.3-roadmap.md`'s component-data-ABI scope item.
+    fn get_erased(&self, row: usize) -> &(dyn Any + Send + Sync);
+
+    /// Overwrites row `row` in place with a type-erased value, stamping
+    /// `tick` as its new changed-tick -- the write half of the same
+    /// "host adapter". Does not change the column's length (no insert,
+    /// no archetype transition); see
+    /// [`crate::World::set_erased`] for why that's a deliberate first-cut
+    /// boundary. Panics on a type mismatch, per the same convention as
+    /// [`ColumnOps::push_any`].
+    fn set_erased(&mut self, row: usize, value: Box<dyn Any + Send + Sync>, tick: Tick);
+
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
@@ -145,6 +162,17 @@ impl<T: Send + Sync + 'static> ColumnOps for TypedColumn<T> {
             .expect("push_any: internal archetype invariant violated (column/value type mismatch)");
         self.values.push(value);
         self.changed_ticks.push(tick);
+    }
+
+    fn get_erased(&self, row: usize) -> &(dyn Any + Send + Sync) {
+        &self.values[row]
+    }
+
+    fn set_erased(&mut self, row: usize, value: Box<dyn Any + Send + Sync>, tick: Tick) {
+        let value = *value
+            .downcast::<T>()
+            .expect("set_erased: internal invariant violated (column/value type mismatch)");
+        self.set(row, value, tick);
     }
 
     fn as_any(&self) -> &dyn Any {

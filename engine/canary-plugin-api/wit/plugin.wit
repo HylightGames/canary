@@ -1,19 +1,22 @@
-// Tier A (sandboxed WASM Component Model) plugin interface -- first slice.
+// Tier A (sandboxed WASM Component Model) plugin interface.
 //
-// This is deliberately minimal: it proves the *mechanism* (a component
-// lifecycle, and one capability-gated host call reaching real
-// canary-ecs::World state) rather than attempting the full ECS
-// read/write data ABI described in docs/roadmap/v0.0.3-roadmap.md
-// (SCHEMA_ID-addressed get/set/has-component/is-valid-entity over a
-// capped value-type set). That remains its own, larger piece of work --
-// see engine/canary-plugin-api/src/tier_a.rs's module docs for exactly
-// what this slice does and does not cover.
+// `ecs-read`/`ecs-write` implement the component data ABI described in
+// docs/roadmap/v0.0.3-roadmap.md: a capped `component-value` shape, not
+// arbitrary Rust reflection, and `schema-id` strings resolved to a
+// concrete Rust type via canary_ecs::World::type_id_for_schema (ADR
+// 0010) plus a registered ComponentValueCodec (see
+// engine/canary-plugin-api/src/component_value.rs) -- identity and data
+// representation are deliberately two different mechanisms; see that
+// module's own doc comment for why.
 //
-// `name` is deliberately not part of this interface: a WIT function
-// returning `string` needs canonical-ABI memory (a guest-exported
-// `memory` and `realloc`) that adds real complexity without validating
-// anything this slice is actually trying to prove. A Tier A plugin's
-// name is supplied by its loader's caller for now -- see
+// `name` is deliberately not part of the `lifecycle` interface: a WIT
+// function returning `string` needs canonical-ABI memory (a guest
+// -exported `memory` and `realloc`) for the *return* direction
+// specifically. `schema-id` parameters below don't have this problem --
+// passing a string *into* an import only requires reading the guest's
+// existing memory, no realloc needed -- which is why those were
+// feasible to add without also tackling `name`. A Tier A plugin's name
+// is supplied by its loader's caller for now -- see
 // `WasmPluginLoader::load`'s doc comment. Revisit once there's a real
 // reason to (e.g. a plugin manifest, R-08).
 
@@ -29,13 +32,71 @@ interface lifecycle {
     last-entity-count: func() -> u32;
 }
 
-// One capability's worth of the eventual "read ECS state" surface --
-// see the module docs above for why this isn't the full thing yet.
+interface types {
+    record entity-handle {
+        index: u32,
+        generation: u64,
+    }
+
+    // A capped, portable value. Split into two levels because WIT (like
+    // the Component Model generally) doesn't support a type that
+    // recursively contains itself -- `component-value` can't have a
+    // case holding `list<component-value>` -- so `list`/`record` here
+    // hold `primitive-value`, not `component-value`: one level of
+    // nesting (a flat record or list of primitives), not arbitrarily
+    // deep structures. See
+    // engine/canary-plugin-api/src/component_value.rs for the Rust-side
+    // mirror and why this is a real constraint discovered against the
+    // actual WIT parser, not a design preference.
+    variant primitive-value {
+        %u32(u32),
+        %s32(s32),
+        %u64(u64),
+        %s64(s64),
+        %f32(f32),
+        %f64(f64),
+        %bool(bool),
+        %string(string),
+    }
+
+    variant component-value {
+        primitive(primitive-value),
+        %list(list<primitive-value>),
+        // Field name/value pairs, in declaration order -- see
+        // ComponentValue::Record's doc comment for why this dynamic
+        // stand-in, not a statically-shaped `record`.
+        %record(list<tuple<string, primitive-value>>),
+    }
+}
+
+// Split into two interfaces on purpose: capability gating happens at
+// interface granularity (an interface is either linked into a given
+// instance or it isn't), so `ecs-read` and `ecs-write` being separate
+// is what lets a read-only grant structurally exclude `set` -- there is
+// no way to link "half" of one interface.
 interface ecs-read {
+    use types.{entity-handle, component-value};
+
     entity-count: func() -> u32;
+    is-valid-entity: func(entity: entity-handle) -> bool;
+    has-component: func(entity: entity-handle, schema-id: string) -> bool;
+    get: func(entity: entity-handle, schema-id: string) -> option<component-value>;
+}
+
+interface ecs-write {
+    use types.{entity-handle, component-value};
+
+    // Overwrites an existing component's value; does not insert a new
+    // component type onto the entity -- see
+    // canary_ecs::World::set_erased's doc comment for why that's a
+    // deliberate first-cut boundary. Returns `false` (and changes
+    // nothing) if the entity is dead, doesn't have this component, or
+    // no codec is registered for it.
+    set: func(entity: entity-handle, schema-id: string, value: component-value) -> bool;
 }
 
 world tier-a-plugin {
     export lifecycle;
     import ecs-read;
+    import ecs-write;
 }

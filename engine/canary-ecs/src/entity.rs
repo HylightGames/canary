@@ -49,6 +49,27 @@ impl Entity {
     pub fn generation(&self) -> u64 {
         self.generation
     }
+
+    /// Reconstructs an `Entity` from its raw parts — `index` then
+    /// `generation`, matching [`Entity::index`]/[`Entity::generation`]'s
+    /// order.
+    ///
+    /// Exists for boundaries that can't pass an opaque `Entity` value
+    /// through directly and have to reconstruct one from raw bits
+    /// instead — e.g. a WASM Component Model host function receiving an
+    /// `entity-handle` record (see `docs/roadmap/v0.0.3-roadmap.md`).
+    /// This does not, and cannot, verify the result corresponds to a
+    /// real, currently-alive entity in any particular [`crate::World`]:
+    /// passing it to [`crate::World::get`]/[`crate::World::insert`]/etc.
+    /// is exactly as safe as passing a genuinely stale handle — those
+    /// methods check aliveness themselves and simply report `None`/
+    /// `false`, never treat this as an unchecked precondition. Prefer an
+    /// `Entity` from [`crate::World::spawn`] or a query wherever one is
+    /// available; reach for this only at a boundary that genuinely
+    /// can't pass the value through as-is.
+    pub fn from_raw_parts(index: u32, generation: u64) -> Entity {
+        Entity { index, generation }
+    }
 }
 
 impl std::fmt::Display for Entity {

@@ -501,6 +501,68 @@ impl World {
         self.schema_registry.get(schema_id).copied()
     }
 
+    /// Type-erased counterpart to [`World::is_alive`] plus
+    /// [`World::get`], for a caller that only has a runtime `TypeId`
+    /// (e.g. resolved via [`World::type_id_for_schema`]), not a
+    /// concrete type at the call site — the "host adapter" the
+    /// component identity registry
+    /// (`docs/decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md`)
+    /// was built to eventually feed, now consumed by Tier A (`v0.0.3`)
+    /// — see `docs/roadmap/v0.0.3-roadmap.md`'s component-data-ABI
+    /// scope item. Returns `None` if `entity` isn't alive or doesn't
+    /// have a component of type `type_id`.
+    pub fn get_erased(&self, entity: Entity, type_id: TypeId) -> Option<&(dyn Any + Send + Sync)> {
+        let location = self.location_of(entity)?;
+        let column = self.archetypes[location.archetype.0].column(type_id)?;
+        Some(column.get_erased(location.row))
+    }
+
+    /// Type-erased counterpart to [`World::insert`], **narrowed to
+    /// overwriting an existing component's value only** — it does not
+    /// insert a new component type onto an entity, unlike
+    /// [`World::insert`]. Returns `false` (and changes nothing) if
+    /// `entity` isn't alive or doesn't already have a component of type
+    /// `type_id`; `true` on a successful overwrite.
+    ///
+    /// This is deliberately narrower than [`World::insert`]'s full
+    /// archetype-transition behavior — a first-cut boundary for Tier A
+    /// specifically (an untrusted plugin changing an entity's
+    /// *component set*, versus overwriting a value it was already
+    /// granted access to, are different risk profiles), not a general
+    /// ECS limitation. See `docs/roadmap/v0.0.3-roadmap.md`.
+    ///
+    /// # Panics
+    /// If `value`'s concrete type doesn't match `type_id` — an internal
+    /// invariant violation the caller is responsible for avoiding (e.g.
+    /// a codec resolving the wrong `TypeId` for a schema), not a
+    /// user-facing error.
+    pub fn set_erased(
+        &mut self,
+        entity: Entity,
+        type_id: TypeId,
+        value: Box<dyn Any + Send + Sync>,
+    ) -> bool {
+        let Some(location) = self.location_of(entity) else {
+            return false;
+        };
+        let current_tick = self.current_tick;
+        let Some(column) = self.archetypes[location.archetype.0].column_mut(type_id) else {
+            return false;
+        };
+        column.set_erased(location.row, value, current_tick);
+        true
+    }
+
+    /// Type-erased counterpart to checking whether an alive entity has
+    /// a component of a given (runtime-only) `TypeId`. `false` for a
+    /// dead or unknown entity, matching [`World::get_erased`]'s
+    /// `None`-on-dead-entity convention rather than treating it as a
+    /// distinct error case.
+    pub fn has_component_erased(&self, entity: Entity, type_id: TypeId) -> bool {
+        self.location_of(entity)
+            .is_some_and(|location| self.archetypes[location.archetype.0].has_component(type_id))
+    }
+
     /// Finds the archetype for `signature` (sorted here, so callers
     /// don't have to), creating it if it doesn't exist yet.
     ///
@@ -870,6 +932,116 @@ mod tests {
             changed.is_empty(),
             "moving archetypes because of an unrelated Velocity insert must not mark Position as freshly changed"
         );
+    }
+
+    #[test]
+    fn from_raw_parts_round_trips_a_real_entity_and_safely_rejects_a_mismatched_one() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 1.0, y: 1.0 }).unwrap();
+
+        let reconstructed = Entity::from_raw_parts(entity.index(), entity.generation());
+        assert_eq!(reconstructed, entity);
+        assert!(world.is_alive(reconstructed));
+        assert_eq!(
+            world.get::<Position>(reconstructed),
+            Some(&Position { x: 1.0, y: 1.0 })
+        );
+
+        // A forged handle for the same slot but the wrong generation
+        // must be safely rejected, not treated as an unchecked
+        // precondition -- see Entity::from_raw_parts's doc comment.
+        let forged = Entity::from_raw_parts(entity.index(), entity.generation().wrapping_add(1));
+        assert!(!world.is_alive(forged));
+        assert_eq!(world.get::<Position>(forged), None);
+    }
+
+    // -- Type-erased access (the Tier A "host adapter") --------------------
+
+    #[test]
+    fn get_erased_and_set_erased_round_trip_through_a_real_type_id() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 1.0, y: 2.0 }).unwrap();
+        let type_id = TypeId::of::<Position>();
+
+        let read_back = world
+            .get_erased(entity, type_id)
+            .and_then(|value| value.downcast_ref::<Position>())
+            .copied();
+        assert_eq!(read_back, Some(Position { x: 1.0, y: 2.0 }));
+
+        let overwrote = world.set_erased(entity, type_id, Box::new(Position { x: 9.0, y: 9.0 }));
+        assert!(overwrote);
+        assert_eq!(
+            world.get::<Position>(entity),
+            Some(&Position { x: 9.0, y: 9.0 }),
+            "set_erased should be visible through the ordinary typed get too"
+        );
+    }
+
+    #[test]
+    fn get_erased_returns_none_for_a_component_type_the_entity_lacks() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 1.0, y: 1.0 }).unwrap();
+
+        assert!(world.get_erased(entity, TypeId::of::<Velocity>()).is_none());
+    }
+
+    #[test]
+    fn set_erased_returns_false_and_changes_nothing_for_a_component_type_the_entity_lacks() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 1.0, y: 1.0 }).unwrap();
+
+        let changed = world.set_erased(
+            entity,
+            TypeId::of::<Velocity>(),
+            Box::new(Velocity { dx: 1.0, dy: 1.0 }),
+        );
+
+        assert!(
+            !changed,
+            "set_erased must not insert a new component type -- see World::set_erased's docs"
+        );
+        assert!(world.get::<Velocity>(entity).is_none());
+        assert_eq!(
+            world.get::<Position>(entity),
+            Some(&Position { x: 1.0, y: 1.0 }),
+            "the failed set_erased attempt must not have disturbed Position either"
+        );
+    }
+
+    #[test]
+    fn has_component_erased_matches_real_component_presence() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 0.0, y: 0.0 }).unwrap();
+
+        assert!(world.has_component_erased(entity, TypeId::of::<Position>()));
+        assert!(!world.has_component_erased(entity, TypeId::of::<Velocity>()));
+    }
+
+    #[test]
+    fn set_erased_marks_the_component_as_changed() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 0.0, y: 0.0 }).unwrap();
+
+        let baseline = world.change_tick();
+        world.advance_tick();
+        world.set_erased(
+            entity,
+            TypeId::of::<Position>(),
+            Box::new(Position { x: 5.0, y: 5.0 }),
+        );
+
+        let changed: Vec<Entity> = world
+            .query_changed_since::<Position>(baseline)
+            .map(|(e, _)| e)
+            .collect();
+        assert_eq!(changed, vec![entity]);
     }
 
     // -- Component identity (ADR 0010 first cut) ---------------------------

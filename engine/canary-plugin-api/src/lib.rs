@@ -31,12 +31,16 @@
 
 pub mod abi;
 mod capability;
+mod component_value;
 mod error;
 mod loader;
 mod plugin;
 mod tier_a;
 
 pub use capability::Capability;
+pub use component_value::{
+    CodecRegistry, ComponentValue, ComponentValueCodec, ComponentValueError, PrimitiveValue,
+};
 pub use error::PluginError;
 pub use loader::NativePluginLoader;
 pub use plugin::Plugin;
