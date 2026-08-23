@@ -64,7 +64,38 @@ archetype ECS migration.
 the parallel job-stealing scheduler, Tier A WASM plugin loading, real
 windowing, rendering, physics, networking, `CanaryUI`, `canary-state`.
 
-## `v0.0.3`+ — sequenced, not deeply scoped yet
+## `v0.0.3` — In progress, nearly complete
+
+Full detail: [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Single focus:
+Tier A (sandboxed WASM Component Model) plugin loading.
+
+- [x] Wasmtime `21.0.2` confirmed and pinned as compatible with this
+      sandbox's `rustc` 1.75 floor, empirically — see
+      [`docs/development/build-system.md#the-rustc-175-sandbox-validation-floor`](../development/build-system.md#the-rustc-175-sandbox-validation-floor)
+- [x] Component loading (fresh and AOT-precompiled), the `Plugin`
+      lifecycle through a component
+- [x] Structural capability enforcement, proven independently for
+      `ecs-read`/`ReadEcsWorld` and `ecs-write`/`WriteEcsWorld`
+- [x] A resource budget (memory limit, fuel execution budget), proven
+      via a real fuel-exhaustion trap and a real over-budget
+      `memory.grow` failure — not merely wired through unverified
+- [x] The full first-cut ECS data ABI: `get`/`set`/`has-component`/
+      `is-valid-entity`, `SCHEMA_ID`-addressed through the `v0.0.2`
+      identity registry plus a new `ComponentValueCodec`/
+      `CodecRegistry` for representation
+- [x] `docs/architecture/plugin-system.md` and
+      [ADR 0003](../decisions/architecture-decision-records/0003-plugin-and-modding-architecture.md)
+      updated to match
+- [ ] `clippy` verification — same open item every release has hit in
+      this sandbox; see the release checklist once this is cut
+
+**Explicitly not in `v0.0.3`** (each is its own tracked follow-up, not
+an oversight): a plugin manifest format (R-08), Tier B signing (R-09),
+safe hot-unloading with full resource reclamation, and safely lending a
+Tier A instance scoped access to a `World` already in use elsewhere
+(R-34) — see `v0.0.3-roadmap.md` and the risk register for each.
+
+## `v0.0.4`+ — sequenced, not deeply scoped yet
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
@@ -72,18 +103,13 @@ one focus per release, in this order — later ones intentionally not
 detailed yet, per [`future-roadmap.md`](future-roadmap.md)'s own
 "don't assign fake specificity" discipline:
 
-1. **`v0.0.3` — Tier A (WASM/Wasmtime) plugin loading.** Now scoped in
-   detail: see [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Depends on
-   Tier B (done) and, per [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
-   landing in `v0.0.2`, now has the component-identity registry it needs
-   rather than merely benefiting from one.
-2. **Real windowing (`winit`-backed `canary-platform`).** Needed before
+1. **Real windowing (`winit`-backed `canary-platform`).** Needed before
    rendering can be validated in a non-headless environment.
-3. **Rendering bootstrap** (`wgpu`-backed RHI, per
+2. **Rendering bootstrap** (`wgpu`-backed RHI, per
    [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)),
    including the 2D-as-specialization design in
    [`rendering.md`](../architecture/rendering.md#2d-is-a-specialization-of-this-architecture-not-a-separate-one).
-4. Beyond this point, ordering is genuinely undecided among physics,
+3. Beyond this point, ordering is genuinely undecided among physics,
    networking, `CanaryUI`'s `egui` backend, and `canary-state`'s
    medium-term scope — see [`future-roadmap.md`](future-roadmap.md) for
    the dependency graph rather than a false ordering here.
@@ -98,10 +124,10 @@ about working code in `engine/`.
 |---|---|---|---|
 | Repository/governance | ✅ | ✅ | `v0.0.1` |
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
-| Platform abstraction | ✅ | ⚠️ Partial | Traits + headless only; real `winit` backend is `v0.0.3`+ |
+| Platform abstraction | ✅ | ⚠️ Partial | Traits + headless only; real `winit` backend is `v0.0.4`+ |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2` |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
-| Plugin system — Tier A (WASM) | ✅ | ❌ | Designed; `v0.0.3` |
+| Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
 | Rendering | ✅ | ❌ | Designed (incl. 2D-as-specialization); `v0.0.3`+ candidate |
 | Physics | ✅ | ❌ | Designed (2D+3D via Rapier); not yet scheduled |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |

@@ -112,24 +112,33 @@ Both tiers are exposed to engine code through the same conceptual `Plugin`
 trait — lifecycle hooks (`name`, `on_load`, `on_unload`) implemented
 identically regardless of tier — so that "load a plugin" is one concept in
 the engine's public API even though the two tiers are implemented very
-differently underneath. v0.0.1 ships:
+differently underneath.
 
-- The `Plugin` trait and the `Capability` declaration type (currently
-  advisory-only — see [`Capability`](../../engine/canary-plugin-api/src/capability.rs)'s
-  own docs for why).
+`v0.0.1` shipped:
+
+- The `Plugin` trait and the `Capability` declaration type.
 - A working, versioned native (Tier B) loader using `libloading` and a
   hand-rolled, `#[repr(C)]` vtable ABI with an explicit version field and
   forward-extension hook (see [ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md)) —
   chosen for this milestone because it requires no async runtime and no
   WASM toolchain to prove the loader mechanism, and the trust/ABI-safety
   boundary, end to end.
-- **Not yet implemented:** the Wasmtime-backed Tier A loader. The interface
-  types are designed to accommodate it (see doc comments in
-  `engine/canary-plugin-api/src/lib.rs`), but wiring in an async WASM
-  runtime, a capability-grant UX, and WIT interface definitions is
-  substantial scope on its own — deliberately deferred to `v0.0.2`+ rather
-  than rushed; see
-  [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).
+
+`v0.0.3` additionally shipped the Wasmtime-backed Tier A loader
+(`engine/canary-plugin-api/src/tier_a.rs`): component loading (fresh or
+AOT-precompiled), the `Plugin` lifecycle through a component rather than a
+dylib, a resource budget (memory limit, fuel execution budget) applied to
+every instance by default, and the first-cut ECS data ABI
+(`get`/`set`/`has-component`/`is-valid-entity` over a capped value-type
+set — see `docs/roadmap/v0.0.3-roadmap.md` for exactly what that does and
+doesn't cover). `Capability` enforcement is now genuinely **structural**
+for Tier A's `ReadEcsWorld`/`WriteEcsWorld` — proven independently per
+interface, since gating happens at interface-linking granularity, not
+per-grant — while `Filesystem`/`Network` remain advisory-only for both
+tiers until they have a corresponding Tier A interface, and Tier B remains
+advisory-only entirely (no sandboxing by design; see the comparison table
+above). See [`Capability`](../../engine/canary-plugin-api/src/capability.rs)'s
+own docs for the precise, per-variant breakdown.
 
 ## Marketplace and the security model
 
@@ -155,18 +164,13 @@ frustrated modder.
 
 ## Known limitations
 
-- **Component identity doesn't yet have a language-agnostic form** for
-  Tier A plugins to declare capabilities against — see
-  [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
-  (`Proposed`). Deferred to `v0.0.2`+ alongside the archetype ECS
-  migration and the Tier A loader itself.
 - **No plugin manifest format exists yet** (metadata: author, version,
   engine-compatibility range, declared capabilities as data). Needed
   before marketplace tooling (Era 6) can exist without executing a
   plugin just to learn its name. See
   [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
   Finding 3.2, and risk register R-08. Correctly out of scope for
-  `v0.0.1` — there is no marketplace to serve yet.
+  `v0.0.1`/`v0.0.3` — there is no marketplace to serve yet.
 - **"Trusted" (Tier B) currently has no verification mechanism** —
   signing, checksums, or provenance are all unaddressed. Fine for a
   solo-architect foundation; a real supply-chain risk the moment Tier B
@@ -175,6 +179,15 @@ frustrated modder.
 - **No engine/plugin compatibility-range declaration mechanism** exists
   beyond the ABI version check below. See the review, Finding 3.4, and
   risk register R-19.
+- **Tier A's `HostState` owns the `World` it exposes by value**, rather
+  than safely lending access to one some other code is concurrently
+  using. Giving a WASM host call temporary, scoped access to an
+  already-running `World` is a real design question that belongs with
+  whatever the parallel job-stealing scheduler eventually settles for
+  *every* system's `World` access (still unbuilt — see
+  `docs/architecture/core-runtime.md#threading--the-job-system`), not
+  something Tier A invented ad hoc for itself. See
+  `engine/canary-plugin-api/src/tier_a.rs`'s `HostState` doc comment.
 
 Resolved since the August 2026 review, for `v0.0.1`: the Tier B vtable
 now carries an explicit `abi_version` and a `get_extension` hook for
@@ -187,3 +200,22 @@ review. Validated by a test
 (`engine/canary-plugin-api/tests/native_loader.rs`) that compiles a real
 C plugin declaring a wrong version and confirms the loader actually
 rejects it, not merely that the check compiles.
+
+Resolved for `v0.0.3`: component identity now has the language-agnostic
+form Tier A capability declarations need —
+[ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
+(`Accepted` since `v0.0.2`) for identity (`SCHEMA_ID -> TypeId`), and
+`engine/canary-plugin-api/src/component_value.rs`'s
+`ComponentValueCodec`/`CodecRegistry` (new this release) for the
+*representation* question identity alone never answered — how an
+arbitrary component's fields actually cross the boundary. The Tier A
+loader itself is real
+(`engine/canary-plugin-api/src/tier_a.rs`): component loading (fresh or
+AOT), the `Plugin` lifecycle, structural capability enforcement (proven
+independently for `ecs-read` and `ecs-write` — granting one doesn't
+imply the other), and a resource budget (memory limit, fuel execution
+budget) applied to every instance by default. See
+`docs/roadmap/v0.0.3-roadmap.md` for the exact, deliberately-scoped
+boundary of what this covers (a capped value-type set, not arbitrary
+Rust reflection) and what it doesn't (the scoped-`World`-access question
+above).

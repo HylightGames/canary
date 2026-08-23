@@ -1,6 +1,14 @@
 # 0003. Two-tier plugin architecture: sandboxed WASM components + trusted native C ABI
 
-**Status:** Accepted. Amended by [ADR 0009](0009-plugin-abi-versioning-and-extensibility.md)
+**Status:** Accepted and implemented — both tiers. Tier B since
+`v0.0.1` (`engine/canary-plugin-api/src/{abi,loader}.rs`, validated by
+`tests/native_loader.rs`'s real-compiled-plugin tests). Tier A since
+`v0.0.3` (`engine/canary-plugin-api/src/tier_a.rs`: component loading —
+fresh or AOT-precompiled — the `Plugin` lifecycle, structural
+capability enforcement proven independently per interface, a resource
+budget, and the full first-cut ECS data ABI; see
+`docs/roadmap/v0.0.3-roadmap.md` for exactly what that does and
+doesn't cover). Amended by [ADR 0009](0009-plugin-abi-versioning-and-extensibility.md)
 (Tier B ABI versioning/extensibility) and [ADR 0010](0010-component-identity-across-language-boundary.md)
 (component identity across the language boundary) — both add detail this
 ADR's original text didn't cover; neither reverses anything decided here.

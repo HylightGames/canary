@@ -12,41 +12,49 @@
 //! `docs/architecture/plugin-system.md#tier-a--sandboxed-wasm-component-model`
 //! and `docs/roadmap/v0.0.3-roadmap.md`.
 //!
-//! **This module is a first slice of `v0.0.3`'s scope, not the whole of
-//! it.** What it proves, end to end, against a real Wasmtime engine:
+//! What this proves, end to end, against a real Wasmtime engine:
 //!
-//! - Loading and instantiating a real WASM Component Model artifact.
+//! - Loading and instantiating a real WASM Component Model artifact,
+//!   either freshly compiled ([`WasmPluginLoader::load`]) or a
+//!   precompiled (AOT) artifact deserialized back in — see the AOT
+//!   tests in this module for the full round trip.
 //! - The [`Plugin`] lifecycle (`on_load`/`on_unload`) working through a
 //!   component, not just a native dylib.
 //! - **Structural** capability enforcement: [`WasmPluginLoader::load`]
 //!   only links a capability's host functions into the instance's
-//!   [`Linker`] when that capability was actually granted. A component
-//!   whose world imports an ungranted capability's interface has
-//!   nothing to link against and fails at *instantiation* — before any
-//!   of its own code runs — not merely a call that gets rejected. See
-//!   the tests in this module for both directions proven directly.
+//!   [`Linker`] when that capability was actually granted — proven
+//!   independently for both `ecs-read`/[`Capability::ReadEcsWorld`] and
+//!   `ecs-write`/[`Capability::WriteEcsWorld`], since capability gating
+//!   happens per-interface, not per-grant. A component whose world
+//!   imports an ungranted capability's interface has nothing to link
+//!   against and fails at *instantiation* — before any of its own code
+//!   runs — not merely a call that gets rejected.
+//! - **A resource budget** ([`ResourceBudget`]), genuinely separate from
+//!   capability-based authority: a memory limit (a `memory.grow` past it
+//!   fails, doesn't trap — see the memory-budget test) and a fuel
+//!   execution budget (an infinite loop traps once it's exhausted — see
+//!   the fuel-budget test), both applied to every instance a given
+//!   loader creates, not opt-in.
+//! - The full first-cut ECS data ABI: `get`/`set`/`has-component`/
+//!   `is-valid-entity`, `SCHEMA_ID`-addressed through
+//!   [`canary_ecs::World::type_id_for_schema`] (identity) and
+//!   [`crate::component_value::CodecRegistry`] (representation) —
+//!   see `crate::component_value`'s module docs for why those are two
+//!   different mechanisms.
+//!
+//! See the tests in this module for all of the above proven directly,
+//! not merely asserted in this comment.
 //!
 //! What it does **not** yet cover — real, separately scoped work, not
-//! oversights:
+//! an oversight:
 //!
-//! - **The full ECS read/write data ABI.** `wit/plugin.wit`'s `ecs-read`
-//!   interface exposes exactly one method (`entity-count`) as a proof of
-//!   the mechanism. The `SCHEMA_ID`-addressed, capped-value-type `get`/
-//!   `set`/`has-component`/`is-valid-entity` surface
-//!   `docs/roadmap/v0.0.3-roadmap.md` actually scopes is a distinct,
-//!   larger piece of work: it needs a real component *data* ABI (how an
-//!   arbitrary Rust component's fields cross the boundary), not just
-//!   the identity resolution [`canary_ecs::World::type_id_for_schema`]
-//!   already provides.
-//! - **A resource budget** (memory limit, fuel/epoch execution budget).
-//!   Every instance created here runs with Wasmtime's defaults, which
-//!   are not a deliberate sandboxing decision.
-//! - **AOT compilation.** Every load here goes through Wasmtime's
-//!   default (JIT) compilation path.
 //! - **A real, running [`canary_ecs::World`]'s scoped access.**
 //!   `HostState` owns a `World` by value rather than borrowing an
-//!   already-in-use one — seem its doc comment for why that's a
-//!   deliberate simplification, not a finished design.
+//!   already-in-use one — see its doc comment for why that's a
+//!   deliberate simplification, not a finished design. This is the one
+//!   piece of `v0.0.3`'s original scope that's more of an open design
+//!   question than an implementation task; see
+//!   `docs/roadmap/v0.0.3-roadmap.md` for where it's tracked.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -54,12 +62,48 @@ use std::sync::Arc;
 
 use canary_ecs::World;
 use wasmtime::component::{Component, Linker};
-use wasmtime::{Config, Engine, Store};
+use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 
 use crate::capability::Capability;
 use crate::component_value::{CodecRegistry, ComponentValue, PrimitiveValue};
 use crate::error::PluginError;
 use crate::plugin::Plugin;
+
+/// A resource budget applied to every Tier A instance a given
+/// [`WasmPluginLoader`] loads — a sandboxing property genuinely
+/// separate from [`Capability`]-based authority: a component with
+/// *zero* granted capabilities can still attempt to exhaust memory or
+/// spin the CPU forever, and "sandboxed" here means both "can't reach
+/// what it wasn't granted" (capabilities) *and* "can't consume
+/// unbounded host resources" (this). See
+/// `docs/roadmap/v0.0.3-roadmap.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceBudget {
+    /// Maximum linear memory, in bytes, any single instance may grow to.
+    /// A `memory.grow` past this fails (returns `-1` to the guest, per
+    /// core WASM semantics for a failed grow) rather than trapping —
+    /// the same behavior as genuinely running out of host memory, which
+    /// well-behaved guest code already has to handle.
+    pub max_memory_bytes: usize,
+    /// Execution budget, in Wasmtime "fuel" units — consumed
+    /// approximately per WASM instruction executed. Exhausting it traps
+    /// the current call, which is how an infinite (or just
+    /// pathologically long) loop in untrusted guest code gets bounded,
+    /// without needing a separate watchdog thread.
+    pub fuel: u64,
+}
+
+impl Default for ResourceBudget {
+    /// 64 MiB of memory, 10,000,000 fuel units — generous enough for
+    /// legitimate plugin logic in this first cut, not tuned against any
+    /// real workload yet. Revisit once one exists.
+    fn default() -> Self {
+        Self {
+            max_memory_bytes: 64 * 1024 * 1024,
+            fuel: 10_000_000,
+        }
+    }
+}
 
 wasmtime::component::bindgen!({
     path: "wit",
@@ -149,6 +193,12 @@ fn from_wit_value(value: WitComponentValue) -> ComponentValue {
 struct HostState {
     world: World,
     codecs: Arc<CodecRegistry>,
+    /// Backs the memory half of [`ResourceBudget`] — wired to the
+    /// [`Store`] via [`Store::limiter`] in
+    /// [`WasmPluginLoader::instantiate`]. The fuel half doesn't need a
+    /// field here; it's set directly on the `Store` via
+    /// [`Store::set_fuel`].
+    limits: StoreLimits,
 }
 
 impl canary::plugin::ecs_read::Host for HostState {
@@ -256,26 +306,35 @@ impl WasmComponentPlugin {
 pub struct WasmPluginLoader {
     engine: Engine,
     codecs: Arc<CodecRegistry>,
+    budget: ResourceBudget,
 }
 
 impl WasmPluginLoader {
-    /// Creates a loader with the Component Model enabled and `codecs`
-    /// as the fixed set of component types Tier A plugins can access
-    /// via `ecs-read`/`ecs-write` (if granted). Registration happens
+    /// Creates a loader with the Component Model enabled, `codecs` as
+    /// the fixed set of component types Tier A plugins can access via
+    /// `ecs-read`/`ecs-write` (if granted), and `budget` applied to
+    /// every instance this loader goes on to load. Registration happens
     /// before construction, not after: `codecs` is shared cheaply
     /// (`Arc`) across every plugin this loader goes on to load, rather
     /// than cloned per instance, so there's no `&mut self` registration
     /// method to call once instances exist — register everything this
     /// loader will ever need up front.
-    pub fn new(codecs: CodecRegistry) -> Result<Self, PluginError> {
+    pub fn new(codecs: CodecRegistry, budget: ResourceBudget) -> Result<Self, PluginError> {
         let mut config = Config::new();
         config.wasm_component_model(true);
+        // Enables the fuel-consumption accounting `budget.fuel` (set per
+        // `Store` in `instantiate`, below) relies on; without this, the
+        // engine simply doesn't track fuel at all, silently making
+        // `set_fuel` a no-op instead of the execution budget it's
+        // supposed to be.
+        config.consume_fuel(true);
         let engine = Engine::new(&config).map_err(|source| PluginError::WasmEngineSetup {
             source: source.into(),
         })?;
         Ok(Self {
             engine,
             codecs: Arc::new(codecs),
+            budget,
         })
     }
 
@@ -345,13 +404,27 @@ impl WasmPluginLoader {
         // yet (see `wit/plugin.wit`'s module docs), so there is nothing
         // further to conditionally link for them at this stage.
 
+        let limits = StoreLimitsBuilder::new()
+            .memory_size(self.budget.max_memory_bytes)
+            .build();
         let mut store = Store::new(
             &self.engine,
             HostState {
                 world,
                 codecs: Arc::clone(&self.codecs),
+                limits,
             },
         );
+        // Ties memory growth to `HostState.limits` -- without this call,
+        // the `StoreLimits` built above is inert data, not an enforced
+        // budget.
+        store.limiter(|state| &mut state.limits);
+        store
+            .set_fuel(self.budget.fuel)
+            .map_err(|source| PluginError::WasmEngineSetup {
+                source: source.into(),
+            })?;
+
         let (bindings, _instance) = TierAPlugin::instantiate(&mut store, &component, &linker)
             .map_err(|source| PluginError::WasmInstantiate {
                 path: path_for_errors,
@@ -423,6 +496,130 @@ mod tests {
         world
     }
 
+    // -- Resource budget -----------------------------------------------
+
+    #[test]
+    fn fuel_budget_traps_a_component_that_loops_forever() {
+        const INFINITE_LOOP_WAT: &str = r#"
+            (component
+              (core module $guest
+                (func (export "on-load")
+                  (loop $forever
+                    br $forever
+                  )
+                )
+                (func (export "on-unload"))
+                (func (export "last-entity-count") (result i32) (i32.const 0))
+              )
+              (core instance $guest_instance (instantiate $guest))
+              (func $on_load_lifted (canon lift (core func $guest_instance "on-load")))
+              (func $on_unload_lifted (canon lift (core func $guest_instance "on-unload")))
+              (func $last_entity_count_lifted (result u32)
+                (canon lift (core func $guest_instance "last-entity-count")))
+              (instance $lifecycle_export
+                (export "on-load" (func $on_load_lifted))
+                (export "on-unload" (func $on_unload_lifted))
+                (export "last-entity-count" (func $last_entity_count_lifted))
+              )
+              (export "canary:plugin/lifecycle@0.1.0" (instance $lifecycle_export))
+            )
+        "#;
+
+        let low_fuel = ResourceBudget {
+            fuel: 1_000,
+            ..ResourceBudget::default()
+        };
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), low_fuel)
+            .expect("engine setup should not fail");
+        let component = Component::new(&loader.engine, INFINITE_LOOP_WAT)
+            .expect("the fixture WAT should parse as a valid component");
+
+        let mut plugin = loader
+            .instantiate(
+                component,
+                PathBuf::from("<fuel test fixture>"),
+                "fuel-test-plugin",
+                &HashSet::new(),
+                world_with_entities(0),
+            )
+            .expect("instantiation itself should succeed -- the loop only runs once called");
+
+        // Bypassing the `Plugin` trait's `on_load` here specifically to
+        // observe the `Result` it otherwise swallows (see `on_load`'s
+        // own doc comment) -- this test's whole point is confirming
+        // *that* a trap happens, which the trait's infallible signature
+        // can't surface.
+        let result = plugin
+            .bindings
+            .canary_plugin_lifecycle()
+            .call_on_load(&mut plugin.store);
+        assert!(
+            result.is_err(),
+            "an infinite loop should trap once its fuel budget is exhausted, not run forever"
+        );
+    }
+
+    #[test]
+    fn memory_budget_fails_growth_past_the_limit_rather_than_trapping() {
+        const MEMORY_HUNGRY_WAT: &str = r#"
+            (component
+              (core module $guest
+                (memory (export "mem") 1)
+                (global $grow_result (mut i32) (i32.const -2))
+                (func (export "on-load")
+                  ;; 10,000 pages is roughly 640 MiB -- comfortably past
+                  ;; ResourceBudget::default()'s 64 MiB limit. A failed
+                  ;; memory.grow returns -1 (does not trap), so this
+                  ;; observes enforcement without needing fuel to also
+                  ;; run out first.
+                  (global.set $grow_result (memory.grow (i32.const 10000)))
+                )
+                (func (export "on-unload"))
+                ;; Repurposed for this fixture: reports the grow result
+                ;; rather than a real entity count.
+                (func (export "last-entity-count") (result i32) (global.get $grow_result))
+              )
+              (core instance $guest_instance (instantiate $guest))
+              (func $on_load_lifted (canon lift (core func $guest_instance "on-load")))
+              (func $on_unload_lifted (canon lift (core func $guest_instance "on-unload")))
+              (func $last_entity_count_lifted (result u32)
+                (canon lift (core func $guest_instance "last-entity-count")))
+              (instance $lifecycle_export
+                (export "on-load" (func $on_load_lifted))
+                (export "on-unload" (func $on_unload_lifted))
+                (export "last-entity-count" (func $last_entity_count_lifted))
+              )
+              (export "canary:plugin/lifecycle@0.1.0" (instance $lifecycle_export))
+            )
+        "#;
+
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
+        let component = Component::new(&loader.engine, MEMORY_HUNGRY_WAT)
+            .expect("the fixture WAT should parse as a valid component");
+
+        let mut plugin = loader
+            .instantiate(
+                component,
+                PathBuf::from("<memory test fixture>"),
+                "memory-test-plugin",
+                &HashSet::new(),
+                world_with_entities(0),
+            )
+            .expect("instantiation itself should succeed");
+
+        plugin.on_load();
+        // `last-entity-count` is repurposed by this fixture (see above)
+        // to report `memory.grow`'s actual result: `-1` (reinterpreted
+        // as `u32::MAX` through the WIT `u32` return type) means the
+        // grow failed, exactly as an over-budget request should.
+        assert_eq!(
+            plugin.last_entity_count(),
+            u32::MAX,
+            "growing memory far past the configured budget should fail (-1), not succeed or trap"
+        );
+    }
+
     // -- Direct HostState tests: the get/set/has-component/is-valid-entity
     // logic itself (schema resolution, type-erased ECS access, codec
     // conversion), called as plain Rust trait methods rather than through
@@ -486,6 +683,7 @@ mod tests {
             HostState {
                 world,
                 codecs: Arc::new(codecs),
+                limits: StoreLimitsBuilder::new().build(),
             },
             entity,
         )
@@ -570,12 +768,66 @@ mod tests {
         );
     }
 
+    // -- AOT compilation --------------------------------------------------
+
+    /// Proves the AOT (ahead-of-time) compilation path end to end:
+    /// `Engine::precompile_component` on real WASM bytes, then
+    /// `Component::deserialize` on the result, then instantiating and
+    /// running that deserialized component exactly as if it had been
+    /// loaded fresh. This proves the *mechanism* -- WASM in, a
+    /// precompiled artifact out, that artifact loads and runs correctly
+    /// -- not that it's fast; no benchmark backs a performance claim
+    /// here, and none should be inferred from a successful round trip.
+    /// See `docs/roadmap/v0.0.3-roadmap.md` for why `.cwasm` is treated
+    /// as a toolchain-tied cache artifact, not the canonical
+    /// distribution format (that stays the plain `.wasm`/WAT source).
+    #[test]
+    fn a_precompiled_component_loads_and_runs_identically_to_a_freshly_compiled_one() {
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
+
+        let wasm_bytes = wat::parse_str(TEST_COMPONENT_WAT)
+            .expect("the fixture WAT should parse to a valid binary component");
+        let precompiled = loader
+            .engine
+            .precompile_component(&wasm_bytes)
+            .expect("precompilation of a valid component should succeed");
+
+        // Safety: `precompiled` was just produced, above, by this exact
+        // `loader.engine`'s own `precompile_component` -- the
+        // "compatible engine configuration" `Component::deserialize`
+        // requires is trivially satisfied here, not merely assumed.
+        let component = unsafe { Component::deserialize(&loader.engine, &precompiled) }.expect(
+            "deserializing an artifact from the same engine that precompiled it should succeed",
+        );
+
+        let mut capabilities = HashSet::new();
+        capabilities.insert(Capability::ReadEcsWorld);
+        let mut plugin = loader
+            .instantiate(
+                component,
+                PathBuf::from("<precompiled test fixture>"),
+                "aot-test-plugin",
+                &capabilities,
+                world_with_entities(7),
+            )
+            .expect("instantiating a deserialized precompiled component should succeed");
+
+        plugin.on_load();
+        assert_eq!(
+            plugin.last_entity_count(),
+            7,
+            "a precompiled component must behave identically to a freshly compiled one, \
+             including reaching real World state through a granted capability"
+        );
+    }
+
     // -- WASM-boundary tests: the capability *linking* mechanism itself --
 
     #[test]
     fn granting_read_ecs_world_lets_the_component_read_real_world_state() {
-        let loader =
-            WasmPluginLoader::new(CodecRegistry::new()).expect("engine setup should not fail");
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
         let component = Component::new(&loader.engine, TEST_COMPONENT_WAT)
             .expect("the fixture WAT should parse as a valid component");
 
@@ -608,8 +860,8 @@ mod tests {
     /// (if any) would show up when calling `on_load`, not here.
     #[test]
     fn denying_read_ecs_world_makes_the_import_structurally_unreachable() {
-        let loader =
-            WasmPluginLoader::new(CodecRegistry::new()).expect("engine setup should not fail");
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
         let component = Component::new(&loader.engine, TEST_COMPONENT_WAT)
             .expect("the fixture WAT should parse as a valid component");
 
@@ -667,8 +919,8 @@ mod tests {
             )
         "#;
 
-        let loader =
-            WasmPluginLoader::new(CodecRegistry::new()).expect("engine setup should not fail");
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
         let component = Component::new(&loader.engine, WRITE_IMPORTING_COMPONENT_WAT)
             .expect("the fixture WAT should parse as a valid component");
 
