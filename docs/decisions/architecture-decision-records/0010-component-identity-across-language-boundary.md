@@ -124,6 +124,21 @@ Status moves to `Accepted` on that basis: the principle and the concrete
 registry mechanism both held up under real implementation, not just desk
 review.
 
+### Addendum (`v0.0.3`): the Tier A consumer now exists
+
+The paragraph above, current as of `v0.0.2`, is no longer current: the
+Tier A (WASM) consumer it named as not-yet-built now is.
+`engine/canary-plugin-api/src/tier_a.rs`'s `HostState::get`/`set` resolve
+a WASM guest's `schema-id` string through `World::type_id_for_schema`
+exactly as this ADR's registry was designed to be used — no changes to
+the registry itself were needed. The *representation* question this ADR
+always said it wasn't answering (how a component's fields, not just its
+identity, cross the boundary) is what `v0.0.3` additionally built,
+as its own mechanism — see
+`engine/canary-plugin-api/src/component_value.rs`'s module docs for why
+that's a genuinely separate concern from this ADR's identity registry,
+not a gap in it.
+
 The same `v0.0.2` session that prototyped this also formalized a related
 but distinct idea as its own record:
 [ADR 0014](0014-change-detection-as-shared-primitive.md) commits

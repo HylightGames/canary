@@ -209,9 +209,11 @@ impl World {
 
     fn location_of(&self, entity: Entity) -> Option<EntityLocation> {
         let slot = self.slots.get(entity.index as usize)?;
-        (slot.alive && slot.generation == entity.generation)
-            .then_some(())
-            .and(slot.location)
+        if slot.alive && slot.generation == entity.generation {
+            slot.location
+        } else {
+            None
+        }
     }
 
     fn set_location(&mut self, entity: Entity, location: EntityLocation) {
@@ -492,11 +494,13 @@ impl World {
     /// Resolves a stable [`CanaryComponent::SCHEMA_ID`] back to the
     /// host-internal `TypeId` it was [`World::register_component`]ed
     /// under, if any. This is the boundary a Tier A (WASM) plugin
-    /// loader, a replication decoder, or a marketplace tool would cross
+    /// loader, a replication decoder, or a marketplace tool crosses
     /// through in the target design -- see the type-level docs on
-    /// [`World`] and ADR 0010. Building that consumer is out of scope
-    /// here (`docs/roadmap/v0.0.2-roadmap.md`, "Explicitly not in
-    /// v0.0.2"); this method is the seam it will eventually plug into.
+    /// [`World`] and ADR 0010. As of `v0.0.3`, this is exactly what the
+    /// real Tier A loader uses: `engine/canary-plugin-api/src/tier_a.rs`'s
+    /// `HostState::get`/`set` resolve a WASM guest's `schema-id` string
+    /// through this method before touching ECS storage. Replication and
+    /// marketplace tooling remain future consumers of the same seam.
     pub fn type_id_for_schema(&self, schema_id: &str) -> Option<TypeId> {
         self.schema_registry.get(schema_id).copied()
     }

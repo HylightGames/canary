@@ -32,11 +32,14 @@
 /// trait impl" alternative rather than a `#[derive(CanaryComponent)]`
 /// macro: the ADR names the choice between the two as one of the open
 /// questions this prototyping pass exists to settle, and a manual impl
-/// is enough to validate the identity-and-registry direction without
-/// committing to macro/proc-macro infrastructure before there's a
-/// second real consumer (the Tier A loader) to design it against. A
-/// derive macro remains a fully backward-compatible future addition --
-/// it would just generate the same trait impl written here by hand.
+/// was enough to validate the identity-and-registry direction without
+/// committing to macro/proc-macro infrastructure before there was a
+/// second real consumer to design it against. That consumer now exists
+/// -- the Tier A loader (`v0.0.3`, `engine/canary-plugin-api/src/tier_a.rs`)
+/// uses this exact trait and registry, unchanged, to resolve a WASM
+/// guest's `schema-id` string back to a Rust type. A derive macro
+/// remains a fully backward-compatible future addition -- it would just
+/// generate the same trait impl written here by hand.
 ///
 /// [`World::insert`]: crate::World::insert
 /// [`World::register_component`]: crate::World::register_component

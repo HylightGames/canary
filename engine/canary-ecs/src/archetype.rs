@@ -109,6 +109,19 @@ impl Archetype {
     /// underlying `Vec` via `swap_remove` so the archetype stays dense
     /// (no gaps). See [`ExtractedRow`] for what the caller gets back
     /// and is responsible for doing with it.
+    ///
+    /// **Performance note, named rather than left implicit**: this
+    /// allocates a `Vec` for the returned values plus one `Box` per
+    /// column (via [`crate::column::ColumnOps::swap_remove_to_any`]),
+    /// so every [`crate::World::insert`]/[`crate::World::remove`]/
+    /// [`crate::World::despawn`] call that changes an entity's
+    /// archetype costs at least a few heap allocations, proportional to
+    /// that entity's component count. Fine for a first correct
+    /// implementation and for entities with the small component counts
+    /// typical of real usage; a spawn/despawn-heavy workload with large
+    /// component counts is where this would show up first if it ever
+    /// needs revisiting. Not a bottleneck this codebase has actually
+    /// measured -- named as a known tradeoff, not a confirmed problem.
     pub(crate) fn extract_row(&mut self, row: usize) -> ExtractedRow {
         let entity = self.entities.swap_remove(row);
         let moved_into_row = self.entities.get(row).copied();

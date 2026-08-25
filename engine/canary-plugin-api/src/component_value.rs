@@ -160,7 +160,7 @@ impl CodecRegistry {
     /// entry, since there's nothing to conflict on — unlike
     /// [`canary_ecs::World::register_component`], there's no separate
     /// stable identity here for two different types to collide over).
-    pub fn register<T: ComponentValueCodec + Send + Sync + 'static>(&mut self) {
+    pub fn register<T: ComponentValueCodec>(&mut self) {
         let type_id = TypeId::of::<T>();
         self.codecs.insert(
             type_id,

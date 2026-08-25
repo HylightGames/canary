@@ -118,15 +118,21 @@ except the scheduler itself:
 - **Component identity**: a first cut of
   [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)'s
   proposed direction — `CanaryComponent::SCHEMA_ID` plus
-  `World::register_component`/`World::type_id_for_schema` — validates the
-  string+version identity, `TypeId`-stays-host-internal approach, without
-  yet building the Tier A consumer that would actually exercise it.
+  `World::register_component`/`World::type_id_for_schema` — validating the
+  string+version identity, `TypeId`-stays-host-internal approach. As of
+  `v0.0.3`, this has a real consumer exercising it: `canary-plugin-api`'s
+  Tier A loader resolves a WASM guest's `schema-id` through exactly this
+  registry — see
+  [`docs/architecture/plugin-system.md`](plugin-system.md) for that side
+  of it, which lives in a different crate than this one.
 
-Still not here: the work-stealing scheduler itself (see
-[Threading & the job system](#threading--the-job-system) below,
-deliberately deferred) and the rest of the Tier A (WASM) plugin-loading
-path. See [`docs/roadmap/v0.0.2-roadmap.md`](../roadmap/v0.0.2-roadmap.md)
-for exact scope and what's explicitly excluded.
+Still not here, in this crate specifically: the work-stealing scheduler
+itself (see [Threading & the job system](#threading--the-job-system)
+below, deliberately deferred). Tier A's own loader, capability
+enforcement, resource budget, and data ABI are real as of `v0.0.3`, but
+live in `canary-plugin-api`, not here — see
+[`docs/roadmap/v0.0.3-roadmap.md`](../roadmap/v0.0.3-roadmap.md) for
+exact scope and what's explicitly excluded there.
 
 The public API surface (`spawn`, `insert`, `query`, ...) is unchanged from
 `v0.0.1-pre1` — the migration changed the *implementation* behind these

@@ -90,8 +90,10 @@ interface ecs-write {
     // component type onto the entity -- see
     // canary_ecs::World::set_erased's doc comment for why that's a
     // deliberate first-cut boundary. Returns `false` (and changes
-    // nothing) if the entity is dead, doesn't have this component, or
-    // no codec is registered for it.
+    // nothing) if the entity is dead, doesn't have this component, no
+    // codec is registered for it, or `value`'s shape doesn't match what
+    // the registered codec expects (e.g. a record missing a field the
+    // component type requires).
     set: func(entity: entity-handle, schema-id: string, value: component-value) -> bool;
 }
 

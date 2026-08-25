@@ -39,8 +39,14 @@ restart the game to see a tuning change. Target design:
   reload doesn't risk leaking native resources the way reloading a native
   DLL can (dangling pointers into an unloaded module) — the WASM instance is
   simply discarded and a new one instantiated.
-- This is explicitly **not implemented** in v0.0.1; it depends on the Tier A
-  loader existing first (see [plugin-system.md](plugin-system.md#the-plugin-trait-surface-canary-plugin-api)).
+- This depended on the Tier A loader existing at all, which it now does
+  (`v0.0.3`) — but hot reload itself is still not implemented. `v0.0.3`
+  deliberately scoped out safe hot-unloading with full resource
+  reclamation (see `docs/roadmap/v0.0.3-roadmap.md`): `Plugin::on_unload`
+  being *called* is proven; guaranteeing every resource, handle, and ECS
+  reference a component held gets safely reclaimed before a *new*
+  instance takes its place is the harder problem this design still
+  depends on, unaddressed.
 
 ## Designer-facing ergonomics vs. systems-programmer ergonomics
 

@@ -21,10 +21,20 @@
 //! `docs/decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md`
 //! (ADR 0010).
 //!
-//! **Not yet here**: the parallel job-stealing scheduler itself, and the
-//! rest of the Tier A (WASM) plugin-loading path beyond the identity
-//! registry above — both deliberately out of scope for this pass, see
-//! `docs/roadmap/v0.0.2-roadmap.md`.
+//! Since `v0.0.3`, that identity registry has a real external consumer:
+//! `canary-plugin-api`'s Tier A (WASM Component Model) plugin loader,
+//! which is what [`World::get_erased`]/[`World::set_erased`]/
+//! [`World::has_component_erased`] and [`Entity::from_raw_parts`] exist
+//! for — type-erased ECS access and entity-handle reconstruction for a
+//! caller on the other side of a language boundary, who only has a
+//! runtime `TypeId` (resolved via [`World::type_id_for_schema`]) and raw
+//! index/generation bits, not a concrete Rust type or an opaque `Entity`
+//! value. See each method's own doc comment for the specific safety
+//! properties involved.
+//!
+//! **Not yet here**: the parallel job-stealing scheduler — see
+//! `docs/architecture/core-runtime.md#threading--the-job-system` — still
+//! the one piece of the target ECS design this crate doesn't implement.
 
 mod archetype;
 mod column;
