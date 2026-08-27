@@ -1,6 +1,7 @@
-# EditorConfig helps keep formatting consistent across the many languages a
-# language-agnostic engine attracts (see docs/development/coding-standards.md).
+# EditorConfig helps keep formatting consistent across the languages and tooling used by Canary.
+
 # https://editorconfig.org
+
 root = true
 
 [*]
@@ -11,23 +12,18 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
 
-[*.rs]
-indent_size = 4
-
-[*.{yml,yaml,toml,json}]
+[*.{yml,yaml,json}]
 indent_size = 2
 
 [*.md]
+# Trailing spaces can have semantic meaning in Markdown (for example, explicit line breaks), so preserve them.
 trim_trailing_whitespace = false
 indent_size = 2
 
-[*.{c,h,cpp,hpp,cc,cxx}]
-indent_size = 4
+[*.{js,jsx,ts,tsx}]
+indent_size = 2
 
-[*.py]
-indent_size = 4
-
-[*.{js,ts,jsx,tsx}]
+[*.{sh,bash,zsh}]
 indent_size = 2
 
 [Makefile]
