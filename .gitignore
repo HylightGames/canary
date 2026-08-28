@@ -1,30 +1,31 @@
 # ==============================================================================
+
 # Canary Engine — .gitignore
-#
-# Canary is explicitly multi-language (see docs/decisions/architecture-decision-
-# records/0002-primary-language-selection.md). This file ignores build output
-# for the host language (Rust) as well as the language ecosystems that plugins,
-# tooling, and bindings are expected to touch over the project's lifetime.
+
 # ==============================================================================
 
-# --- Rust ---------------------------------------------------------------
+# --- Rust / Cargo -------------------------------------------------------------
+
 /target/
-**/target/
 Cargo.lock.bak
 *.pdb
 
-# --- Build / packaging outputs -------------------------------------------
+# --- Generated build / packaging output ---------------------------------------
+
 /build/
 /dist/
 /out/
 /.cache/
+/.canary-cache/
+*.cooked
 *.cwasm
 
-# --- WebAssembly plugin/mod artifacts -------------------------------------
-*.wasm
-!/docs/**/*.wasm
+# --- WebAssembly build artifacts ----------------------------------------------
 
-# --- Native plugin artifacts (C ABI tier, see plugin-system.md) -----------
+*.wasm
+
+# --- Native build artifacts ---------------------------------------------------
+
 *.o
 *.obj
 *.a
@@ -34,48 +35,79 @@ Cargo.lock.bak
 *.dylib
 *.dll
 *.exp
+
 CMakeFiles/
 CMakeCache.txt
 CMakeUserPresets.json
 
-# --- C/C++ third-party vendoring (used by native subsystem bindings) -----
+# --- Vendored dependency build output ----------------------------------------
+
 /vendor/**/build/
 
-# --- Node.js (editor tooling, docs site, future bindings) -----------------
-node_modules/
-npm-debug.log*
-yarn-error.log*
-.pnpm-store/
+# --- JavaScript / Node.js tooling ---------------------------------------------
 
-# --- Python (asset pipeline tooling scripts, future bindings) -------------
-__pycache__/
-*.pyc
+node_modules/
+.npm/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# --- Python tooling -----------------------------------------------------------
+
+**pycache**/
+*.py[cod]
+*.pyd
 .venv/
+.venv*/
 .mypy_cache/
+.pytest_cache/
 .ruff_cache/
 
-# --- Editors / IDEs --------------------------------------------------------
+# --- Editors / IDEs -----------------------------------------------------------
+
+.idea/
+*.iml
+
 .vscode/*
 !.vscode/extensions.json
-.idea/
+!.vscode/settings.json
+
 *.swp
 *.swo
 *~
 
-# --- OS junk ---------------------------------------------------------------
+# --- Operating system files ---------------------------------------------------
+
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+._*
+
 Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+
 Desktop.ini
 
-# --- Logs, local env, secrets ----------------------------------------------
+# --- Logs / local configuration -----------------------------------------------
+
 *.log
 .env
 .env.local
 .env.*.local
 
-# --- Asset pipeline cook cache (see docs/architecture/asset-system.md) ----
-/.canary-cache/
-*.cooked
+# --- Temporary files ----------------------------------------------------------
 
-# Note: Cargo.lock is intentionally tracked (Canary ships binaries/examples),
-# per docs/development/build-system.md.
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+
+# Cargo.lock is intentionally tracked.
+
+# Canary ships binaries and executable tooling, so dependency resolution is part of the repository and must remain under version control.
