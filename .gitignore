@@ -56,7 +56,7 @@ lerna-debug.log*
 
 # --- Python tooling -----------------------------------------------------------
 
-**pycache**/
+__pycache__/
 *.py[cod]
 *.pyd
 .venv/
