@@ -49,7 +49,7 @@ See the [project goals](docs/vision/project-goals.md) for the reasoning behind t
 
 See [`docs/roadmap/status.md`](docs/roadmap/status.md) for the canonical, itemized status of what is implemented, experimental, and planned.
 
-For the details of this release, see [`RELEASE_NOTES_v0.0.2.md`](RELEASE_NOTES_v0.0.2.md).
+For the details of this release, see [`v0.0.2.md`](docs/release-notes/v0.0.2.md).
 
 ---
 
