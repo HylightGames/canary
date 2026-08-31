@@ -197,6 +197,7 @@ The repository is heavily documented because understanding *why* Canary is built
 | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
 | [`docs/roadmap/status.md`](docs/roadmap/status.md)                                               | **Start here.** Canonical implementation, experimental, and planned status |
 | [`docs/vision/`](docs/vision/)                                                                   | Project goals, philosophy, and non-negotiable constraints                  |
+| [`docs/release-notes/`](docs/release-notes/)                                                     | Release notes for each project version                                     |
 | [`docs/architecture/`](docs/architecture/)                                                       | Subsystem and system-level architecture                                    |
 | [`docs/decisions/architecture-decision-records/`](docs/decisions/architecture-decision-records/) | Architectural decisions and rejected alternatives                          |
 | [`docs/roadmap/`](docs/roadmap/)                                                                 | Release planning and scoped work                                           |
