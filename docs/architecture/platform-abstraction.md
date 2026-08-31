@@ -54,17 +54,25 @@ RHI backend. This is a planned decision, not yet implemented — see below.
 
 ## Status in this foundation
 
-v0.0.1 ships only the **trait definitions** (`Window`, `InputSource`)
-plus a `NullWindow`/headless implementation used by
-`canary-runtime` and by tests. It deliberately does **not** add `winit` (or
-any real windowing/graphics dependency) yet, for a concrete, practical
-reason specific to this session: this foundation was built and validated in
-a headless Linux container without a display server, GPU drivers, or the
-system libraries (X11/Wayland, Vulkan loader) that a real windowing
-dependency would need — pulling one in now would add a dependency this
-environment cannot actually build or test, for a feature (opening a window)
-that has no consumer yet anyway (there's no renderer to draw into it). Real
-windowing is scoped as Era 2 follow-up work (see
-[`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md)), to be
-implemented and tested in an environment that actually has a display/GPU
-stack to validate against.
+v0.0.1 shipped only the **trait definitions** (`Window`, `InputSource`)
+plus a `NullWindow`/headless implementation used by `canary-runtime` and
+by tests. It deliberately did **not** add `winit` (or any real
+windowing/graphics dependency) yet.
+
+**The reason given at the time — since corrected, not carried forward
+unverified.** `v0.0.1`'s reasoning was that its sandbox had "no display
+server, GPU drivers, or the system libraries... a real windowing
+dependency would need," making the dependency impossible to build or
+test there. Checked directly while scoping `v0.0.4`, rather than
+assumed still true: this sandbox has `Xvfb` (a virtual X server)
+already installed, `libx11-dev` already installed, and installable
+Wayland/software-Vulkan (`llvmpipe`/`lavapipe`) support — and a real
+`winit` `0.30.13` window was created, driven through several redraw
+cycles, and closed cleanly against `Xvfb` as part of that scoping work.
+See [`docs/roadmap/v0.0.4-roadmap.md`](../roadmap/v0.0.4-roadmap.md) for
+the full verification and what it does and doesn't prove. The
+*implementation* is still `v0.0.4`'s job, not done yet — only the
+"cannot actually build or test" premise is what's now known to be
+false, in this sandbox at least; a different environment implementing
+that release should still confirm the same packages/behavior rather
+than assume this note travels with it.
