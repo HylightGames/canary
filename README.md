@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="misc/logo/icon-white.svg">
-    <img src="misc/logo/icon-black.svg" width="400" alt="Canary Engine logo">
+    <img src="misc/logo/icon-black.svg" width="180" alt="Canary Engine logo">
   </picture>
 </p>
 
