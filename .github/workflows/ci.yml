@@ -28,7 +28,7 @@ jobs:
     name: Format check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: rustup component add rustfmt
       - name: cargo fmt --check
@@ -42,7 +42,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: rustup component add clippy
       - name: cargo build --workspace
@@ -56,7 +56,7 @@ jobs:
     name: WASM component target compiles
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust with wasm32-wasip2
         run: rustup target add wasm32-wasip2
       - name: Check canary-plugin-api on wasm32-wasip2
