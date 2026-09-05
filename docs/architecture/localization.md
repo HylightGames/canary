@@ -43,20 +43,27 @@ touch source code or recompile anything.
 ## Format: Fluent (FTL)
 
 **[Project Fluent](https://projectfluent.org/)** (`.ftl` files) is the
-target format, via the `fluent-rs` crate family — a mature, actively
-maintained, dual MIT/Apache-2.0-licensed Rust implementation (directly
-compatible with Canary's own licensing), with a real supporting ecosystem
-already worth knowing about: `fluent-templates`/`i18n-embed` for loading
-and locale-fallback management, and companion crates for locale-aware
-concerns localization touches beyond raw string lookup (collation,
-CJK-aware text handling). Chosen over a plain key-value format
-(gettext `.po`, flat JSON/TOML tables) specifically because Fluent's
-syntax natively handles the parts of translation that a flat key-value
-table handles badly: pluralization rules that differ by language,
-grammatical gender, and value interpolation with correct word order —
-getting these right per-language is the actual hard part of localization,
-and a naive key-value format pushes that difficulty onto every
-translator by hand instead of the tooling.
+target format, via the `fluent`/`fluent-bundle` crates from the
+`fluent-rs` family — a mature, actively maintained, dual
+MIT/Apache-2.0-licensed Rust implementation (directly compatible with
+Canary's own licensing). Chosen over a plain key-value format (gettext
+`.po`, flat JSON/TOML tables) specifically because Fluent's syntax
+natively handles the parts of translation that a flat key-value table
+handles badly: pluralization rules that differ by language, grammatical
+gender, and value interpolation with correct word order — getting these
+right per-language is the actual hard part of localization, and a naive
+key-value format pushes that difficulty onto every translator by hand
+instead of the tooling. See
+[ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md)
+for the full decision record, including why the wider ecosystem
+(`fluent-templates`, `fluent-fallback`, `i18n-embed`) is deliberately
+*not* adopted yet: `fluent-langneg` (a focused, already-transitive
+dependency of `fluent`) covers locale-fallback-chain resolution without
+needing them, and each of the three was found, by direct testing, to add
+either a real limitation (`i18n-embed 0.15.4`'s asset-loading forcing
+compile-time asset embedding regardless of feature flags) or acknowledged
+API immaturity (`fluent-fallback`'s own documentation) not worth taking
+on for `v0.0.5`.
 
 ```ftl
 # locales/en-US/main.ftl
@@ -71,9 +78,11 @@ items-remaining = { $count ->
 
 A locale that's missing a given key falls back to a configured default
 locale (typically the locale development happens in) rather than showing
-a blank string or a raw key — `fluent-rs`'s fallback-bundle support
-(`fluent-fallback`) covers this directly rather than needing bespoke
-logic. Missing-translation fallback firing should be logged
+a blank string or a raw key. Locale-fallback-chain resolution is handled
+via `fluent-langneg` directly rather than `fluent-fallback`'s higher-level
+`Localization` abstraction — see
+[ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md)
+for why. Missing-translation fallback firing should be logged
 (developer-facing, not player-facing) so gaps are discoverable during
 development rather than only reported by a confused player.
 
@@ -103,8 +112,14 @@ development rather than only reported by a confused player.
 
 ## Status in this foundation
 
-Entirely architectural. No `canary-loc` crate, no `LocKey` type, and no
-`.ftl` loading exist yet — this depends on `CanaryUI` having a real
-implementation to enforce the key-not-literal constraint against. Not yet
-assigned a specific `0.0.x` release; see
-[`docs/roadmap/future-roadmap.md`](../roadmap/future-roadmap.md).
+Assigned to `v0.0.5` — see
+[`v0.0.5-roadmap.md`](../roadmap/v0.0.5-roadmap.md) and
+[ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md).
+Deliberately scoped to not wait on `CanaryUI` (which still doesn't exist)
+or `canary-assets` (likewise): the `canary-loc` crate, its `LocKey`
+type, and `.ftl` resolution (including pluralization and locale
+fallback) are proven correct through direct tests against the crate
+itself, with a visibly temporary `std::fs`-based file loader standing
+in for the asset pipeline that will eventually replace it. See the
+roadmap doc for exactly what's in scope for this first cut versus
+deferred to when `CanaryUI`/`canary-assets` actually exist.

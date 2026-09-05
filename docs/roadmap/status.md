@@ -99,20 +99,27 @@ Tier A instance scoped access to a `World` already in use elsewhere
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release, in this order — later ones intentionally not
-detailed yet, per [`future-roadmap.md`](future-roadmap.md)'s own
-"don't assign fake specificity" discipline:
+one focus per release. `v0.0.5` is scoped and detailed below; beyond it,
+later releases are intentionally not detailed yet, per
+[`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
+specificity" discipline:
 
-1. **Real windowing (`winit`-backed `canary-platform`).** Needed before
-   rendering can be validated in a non-headless environment.
-2. **Rendering bootstrap** (`wgpu`-backed RHI, per
-   [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)),
-   including the 2D-as-specialization design in
-   [`rendering.md`](../architecture/rendering.md#2d-is-a-specialization-of-this-architecture-not-a-separate-one).
-3. Beyond this point, ordering is genuinely undecided among physics,
-   networking, `CanaryUI`'s `egui` backend, and `canary-state`'s
-   medium-term scope — see [`future-roadmap.md`](future-roadmap.md) for
-   the dependency graph rather than a false ordering here.
+1. **Real windowing (`winit`-backed `canary-platform`).** Scoped in
+   [`v0.0.4-roadmap.md`](v0.0.4-roadmap.md); not yet implemented.
+2. **Localization (`canary-loc`).** Scoped in
+   [`v0.0.5-roadmap.md`](v0.0.5-roadmap.md) and
+   [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md) —
+   deliberately moved ahead of rendering, since it's a founding
+   constraint ("no hardcoded user-facing text") that gets cheaper the
+   earlier it's load-bearing; see that roadmap's "Why this replaces
+   what was pencilled in as `v0.0.5`" for the full reasoning. Proven
+   standalone, ahead of `CanaryUI`/`canary-assets` existing to consume
+   it. Not yet implemented.
+3. Beyond this point, ordering is genuinely undecided among rendering
+   bootstrap, physics, networking, `CanaryUI`'s `egui` backend, and
+   `canary-state`'s medium-term scope — see
+   [`future-roadmap.md`](future-roadmap.md) for the dependency graph
+   rather than a false ordering here.
 
 ## Full architecture-to-implementation map
 
@@ -128,7 +135,8 @@ about working code in `engine/`.
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2` |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
-| Rendering | ✅ | ❌ | Designed (incl. 2D-as-specialization); `v0.0.3`+ candidate |
+| Rendering | ✅ | ❌ | Designed (incl. 2D-as-specialization); ordering vs. physics/networking/`CanaryUI` undecided — see `future-roadmap.md` |
+| Localization (`canary-loc`) | ✅ | ❌ | ADR 0015; `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ❌ | Designed (2D+3D via Rapier); not yet scheduled |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |
 | Scripting system | ✅ | ❌ | Depends on Tier A |

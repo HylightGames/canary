@@ -116,8 +116,40 @@ past whatever `rustc` a given validation session can reach, the fix has
 been to pin that one dependency to the newest release still compatible,
 not to relax the workspace's actual `rust-toolchain.toml` floor, which
 stays `stable` for real contributors using `rustup` normally. Each pin
-carries an inline comment explaining why, pointing back here. Two things
-worth knowing before adding another one:
+carries an inline comment explaining why, pointing back here.
+
+**The `fluent-rs` family** (verified for the `v0.0.5` localization
+scoping pass — see [`v0.0.5-roadmap.md`](../roadmap/v0.0.5-roadmap.md)
+and [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md))
+needed several pins, one of which wasn't the simple single-crate fix the
+`idna`/`hashbrown`-style pins above are:
+
+- **`rustc-hash = "=2.1.1"`** — `2.1.3`, the default resolution,
+  requires rustc 1.77+.
+- **`unic-langid = "=0.9.5"` and `unic-langid-impl = "=0.9.5"`, pinned
+  *together*.** `unic-langid-impl 0.9.6` calls `Option::is_none_or`
+  directly in its source (stabilized in rustc 1.82) — a real compile
+  error, not a `rust-version`-field mismatch Cargo flags up front.
+  Pinning `unic-langid-impl` on its own doesn't resolve it: `unic-langid
+  0.9.6` hard-requires `unic-langid-impl = "^0.9.6"` exactly, so
+  `unic-langid` itself has to drop to `0.9.5` before the impl-crate pin
+  can take effect. `tinystr` then resolves to `0.7.6` on its own, via
+  `unic-langid-impl 0.9.5`'s own `^0.7.0` requirement — no separate pin
+  needed for it once the two above are in place.
+- Only relevant if `fluent-templates`, `fluent-fallback`, or
+  `i18n-embed` are reconsidered later (`v0.0.5` itself doesn't depend on
+  them — see the ADR): **`block-buffer = "=0.10.4"`, `ignore =
+  "=0.4.20"`, `globset = "=0.4.14"`**, each because a newer release
+  declares `edition = "2024"` outright — a hard parse-time wall under
+  Cargo 1.75 (`error: … requires edition2024 …`), distinct from the
+  `is_none_or`-style compile error above. And **`rust-embed`,
+  `rust-embed-impl`, `rust-embed-utils`, pinned together to
+  `"=8.11.0"`**: `8.12.0` bumps to `sha2 ^0.11`, dragging in a newer
+  `digest`/`block-buffer` major version with the same `edition2024`
+  wall; `8.11.0` still resolves to `sha2 ^0.10.5` → `digest 0.10.7` →
+  `block-buffer 0.10.4`, all fine under 1.75.
+
+Two things worth knowing before adding another one:
 
 - **A crate's own declared `rust-version` isn't the whole story.**
   Wasmtime `21.0.2` declares `rust-version = "1.75.0"` and does build
