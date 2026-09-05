@@ -76,3 +76,16 @@ the full verification and what it does and doesn't prove. The
 false, in this sandbox at least; a different environment implementing
 that release should still confirm the same packages/behavior rather
 than assume this note travels with it.
+
+**Extended further while scoping `v0.0.6`'s rendering bootstrap:** not
+just "software Vulkan support is installable" but confirmed working —
+installing `mesa-vulkan-drivers` and running `vulkaninfo --summary`
+enumerated a real `PHYSICAL_DEVICE_TYPE_CPU` device (`llvmpipe`, Vulkan
+API 1.4.318). This means a Vulkan RHI backend's *offscreen* rendering
+(instance/device creation, buffers, pipelines, a real draw call) is
+genuinely testable in this sandbox without real GPU hardware — see
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)
+and [`v0.0.6-roadmap.md`](../roadmap/v0.0.6-roadmap.md). A *windowed*
+Vulkan surface would additionally need the `Xvfb` setup already
+confirmed above; `v0.0.6`'s own scope is offscreen-only and doesn't need
+that combination yet.

@@ -2,7 +2,12 @@
 
 **Status:** Accepted (architecture only — no code in `v0.0.1`; see
 [`docs/architecture/ui-toolkit.md`](../../architecture/ui-toolkit.md) for
-the full design)
+the full design). One supporting detail below — "`wgpu` integration
+precedent... directly consistent with ADR 0004's choice of `wgpu`" — is
+superseded by [ADR 0016](0016-native-rendering-backends.md): rendering
+no longer bootstraps on `wgpu`. The actual decision (`egui` as the first
+backend) is unaffected — see `ui-toolkit.md`'s "Why `egui` specifically"
+section for why, restated without that now-inaccurate detail.
 
 ## Context
 

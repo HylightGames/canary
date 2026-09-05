@@ -149,6 +149,25 @@ needed several pins, one of which wasn't the simple single-crate fix the
   wall; `8.11.0` still resolves to `sha2 ^0.10.5` → `digest 0.10.7` →
   `block-buffer 0.10.4`, all fine under 1.75.
 
+**Rendering** (`v0.0.6` — see
+[`v0.0.6-roadmap.md`](../roadmap/v0.0.6-roadmap.md) and
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md))
+needed far less than localization did:
+
+- **`ash = "0.38"`** (the Vulkan bindings `canary-render-vulkan` uses)
+  — **no pin needed at all.** Compiles clean against this sandbox's
+  rustc 1.75 out of the box, the cleanest dependency check run so far.
+- **`naga = "=22.1.0"` and `indexmap = "=2.11.4"`**, for standalone
+  `naga` (`wgpu`'s shader cross-compiler, used here without `wgpu`
+  itself as a dependency — see ADR 0016). `naga`'s newer majors declare
+  a `rust-version` above 1.75 (`30.0.1`, the default resolution,
+  requires 1.87); `22.1.0` is the newest release still under that floor.
+  `indexmap` here is the exact same pin already in place for Wasmtime
+  above, reused rather than rediscovered — confirmed this is in fact
+  the minimal pin set (not an artifact of a longer, over-pinned
+  debugging session) by resolving from a clean `Cargo.lock` with only
+  these two pins present.
+
 Two things worth knowing before adding another one:
 
 - **A crate's own declared `rust-version` isn't the whole story.**

@@ -3,8 +3,11 @@
 Formalizes a decision made while completing `v0.0.1`: **`CanaryUI` exists
 as an abstraction from the start, with `egui` as its first backend** —
 the same "bootstrap pragmatically, architect for replacement" pattern
-already used for rendering ([ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md),
-`wgpu`) and physics ([`physics.md`](physics.md), Rapier). See
+already used for physics ([`physics.md`](physics.md), Rapier) and,
+previously, rendering (rendering's own bootstrap choice has since moved
+past this pattern — see
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)).
+See
 [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md)
 for the decision record; this document is the fuller design. Nothing
 here is implemented in `v0.0.1` — this is architecture for `v0.0.2`+,
@@ -108,16 +111,29 @@ implementation.
 ## Why `egui` specifically as the first backend
 
 `egui` is a mature, actively developed, pure-Rust immediate-mode GUI
-library with native `wgpu` integration precedent already established in
-the Rust ecosystem — directly consistent with [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)'s
-choice of `wgpu` as the initial RHI backend, so the UI and rendering
-bootstrap choices reinforce rather than fight each other. See
-[`docs/research/technology-evaluations.md`](../research/technology-evaluations.md#editor-ui-toolkit-evaluated-not-yet-decided)
+library — a strong first-backend choice on its own merits (multi-year
+production track record, permissive licensing, an existing renderer-
+agnostic output format: `egui`'s draw output is triangle meshes and
+textures, not a GPU-API-specific call, so it doesn't require whichever
+RHI backend Canary is using to natively integrate with `egui` itself).
+See
+[`docs/research/technology-evaluations.md`](../research/technology-evaluations.md#editor-ui-toolkit-evaluated-first-backend-chosen)
 for the sourcing. Immediate-mode is a deliberate fit for the tool-panel-
 heavy style of an engine editor (inspectors, hierarchies, consoles are
 exactly the kind of UI immediate-mode libraries handle well), at the cost
 of some of the animation/styling ceiling a retained-mode toolkit would
 offer — an accepted tradeoff for a first backend, not a permanent one.
+
+Concretely, `canary-ui-egui` renders `egui`'s output (clipped triangle
+meshes + textures) through `canary-render`'s RHI trait directly, not
+through the community's `egui-wgpu` integration crate — per
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md),
+Canary's own rendering no longer bootstraps on `wgpu`, so `egui`'s
+existing `wgpu`-specific integration crate isn't the path here. This is
+a small, well-understood integration surface either way (rasterize
+textured triangles with a scissor rect per mesh) — not a reason this
+choice was made, just a detail worth being accurate about now that the
+rendering plan has changed since this document was first written.
 
 ## 100% native — no embedded web view
 

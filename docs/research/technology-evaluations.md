@@ -59,11 +59,20 @@ support, limited exposure of hardware ray-tracing/mesh-shader extensions
 as newly supported on Vulkan, with Metal/DX12 support via passthrough
 shaders), and no console NDA'd API backends.
 
-**Implication for Canary:** a strong, low-risk bootstrap choice for the RHI
-layer's initial implementation — see
-[ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md) —
-with known, documented gaps that justify keeping the RHI trait boundary
-genuinely swappable rather than treating `wgpu` as a permanent dependency.
+**Implication for Canary:** validated as a strong bootstrap choice when
+first evaluated, and still relevant background (a real, mature reference
+implementation exists to compare against). Superseded as Canary's actual
+backend-implementation plan by
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md),
+which targets native per-graphics-API backends directly instead —
+`wgpu`'s known gaps here (no multi-GPU, limited ray-tracing/mesh-shader
+extension exposure) are no longer the central argument for that
+decision, which is why this section's framing has been updated rather
+than left to imply `wgpu` is still the plan. `naga` — `wgpu`'s shader
+cross-compiler, but a separate, independently usable crate — remains
+relevant and is what ADR 0016's native backends use for WGSL
+cross-compilation; confirmed to work standalone without `wgpu` itself as
+a dependency (see that ADR's "Verified, not assumed").
 
 ## WebAssembly / plugin sandboxing
 

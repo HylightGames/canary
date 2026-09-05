@@ -99,7 +99,7 @@ Tier A instance scoped access to a `World` already in use elsewhere
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release. `v0.0.5` is scoped and detailed below; beyond it,
+one focus per release. `v0.0.6` is scoped and detailed below; beyond it,
 later releases are intentionally not detailed yet, per
 [`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
 specificity" discipline:
@@ -115,9 +115,19 @@ specificity" discipline:
    what was pencilled in as `v0.0.5`" for the full reasoning. Proven
    standalone, ahead of `CanaryUI`/`canary-assets` existing to consume
    it. Not yet implemented.
-3. Beyond this point, ordering is genuinely undecided among rendering
-   bootstrap, physics, networking, `CanaryUI`'s `egui` backend, and
-   `canary-state`'s medium-term scope — see
+3. **Rendering bootstrap: the RHI trait + `canary-render-vulkan`.**
+   Scoped in [`v0.0.6-roadmap.md`](v0.0.6-roadmap.md) and
+   [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md) —
+   native per-graphics-API backends (Vulkan first, via `ash`), not a
+   `wgpu` bootstrap, per direct project direction superseding ADR 0004's
+   original backend choice. Deliberately proven offscreen, not blocked
+   on `v0.0.4` real windowing landing first — same "prove it in
+   isolation" pattern as `v0.0.5`. Not yet implemented.
+4. Beyond this point, ordering is genuinely undecided among physics,
+   `CanaryUI`'s `egui` backend, and `canary-state`'s medium-term scope.
+   **Networking is deliberately deprioritized toward the end of this
+   sequence, per direct project direction** — not raced against the
+   others the way rendering was moved ahead of it for localization. See
    [`future-roadmap.md`](future-roadmap.md) for the dependency graph
    rather than a false ordering here.
 
@@ -135,7 +145,7 @@ about working code in `engine/`.
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2` |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
-| Rendering | ✅ | ❌ | Designed (incl. 2D-as-specialization); ordering vs. physics/networking/`CanaryUI` undecided — see `future-roadmap.md` |
+| Rendering | ✅ | ❌ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first; `v0.0.6` |
 | Localization (`canary-loc`) | ✅ | ❌ | ADR 0015; `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ❌ | Designed (2D+3D via Rapier); not yet scheduled |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |

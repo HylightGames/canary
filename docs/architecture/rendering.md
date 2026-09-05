@@ -3,9 +3,11 @@
 No rendering code exists in v0.0.1 — this is architecture for Era 3 (see
 [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)),
 written now so the decision is reasoned about once rather than improvised
-under deadline pressure later. The concrete backend decision is recorded in
+under deadline pressure later. The RHI/render-graph split is recorded in
 [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md);
-this document covers the fuller design.
+the concrete backend-implementation decision is in
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md).
+This document covers the fuller design.
 
 ## Two layers: RHI and render graph
 
@@ -29,27 +31,41 @@ engine subsystems" goal) without touching the render graph, materials, or
 any gameplay-facing rendering API — a new RHI implementation is a new crate
 satisfying an existing trait.
 
-## Backend choice: bootstrap on wgpu, architect for a custom RHI later
+## Backend choice: native per-graphics-API crates, no bootstrap dependency
 
-`wgpu` — a mature, actively developed, pure-Rust graphics library targeting
-Vulkan, Metal, DirectX 12, and OpenGL natively, plus WebGPU/WebGL2 on
-WebAssembly — is the initial RHI implementation. It already backs Firefox's,
-Servo's, and Deno's WebGPU implementations, and multiple Rust engines
-(Bevy, Fyrox, rend3) build on it in production. Reimplementing that surface
-area before there's a renderer to justify it would be exactly the kind of
-premature, unjustified effort this foundation is trying to avoid.
+Each graphics API gets its own crate implementing the RHI trait
+directly against that API's native bindings — no single third-party
+abstraction library (`wgpu` or otherwise) as a required intermediary.
+See [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)
+for the full reasoning and what was verified before committing to this;
+[ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)
+covers why the RHI/render-graph split itself exists (unchanged by
+ADR 0016).
 
-The RHI **trait boundary is designed so a fully custom RHI (Vulkan-first,
-with direct access to features wgpu doesn't yet expose — mesh shaders,
-hardware ray tracing extensions, console graphics APIs) can replace the
-wgpu-backed implementation later without the render graph or any
-gameplay-facing code changing.** This is the concrete instance of "bootstrap
-pragmatically, architect for replacement" that recurs across this
-foundation's decisions. See
-[`docs/research/technology-evaluations.md`](../research/technology-evaluations.md)
-for the sourcing on wgpu's current capabilities and known gaps (multi-GPU,
-hardware ray-tracing extensions, and console NDA'd APIs are the main ones as
-of this writing).
+**`canary-render-vulkan`** (via [`ash`](https://github.com/ash-rs/ash))
+is first: Vulkan alone covers Linux, Windows, and Android in one
+backend, and `ash` needed zero version pins against this project's
+rustc-1.75 floor — the cleanest dependency check run so far. **A real
+Vulkan device is confirmed enumerable in this project's sandbox**
+(`llvmpipe`, Mesa's software rasterizer, via `mesa-vulkan-drivers`),
+meaning this backend can be built *and tested* in CI-like environments
+without real GPU hardware, not merely compiled against.
+
+**`canary-render-metal`** (native Apple support, avoiding a
+Vulkan-to-Metal translation layer like MoltenVK), **`canary-render-dx12`**,
+and **`canary-render-gl`** (OpenGL 4.x core plus WebGL2/GLES, for older
+hardware and web targets) follow the same pattern — real, intended, and
+explicitly not sequenced on a timeline yet, per
+[`future-roadmap.md`](../roadmap/future-roadmap.md)'s "don't assign fake
+specificity" discipline. None of these four is structurally privileged:
+each is a separate crate behind the same trait, opt-in via a Cargo
+feature on `canary-render`, so a game build only compiles and links the
+backend(s) it actually enables — the same "no privileged built-ins"
+guarantee [`physics.md`](physics.md)'s `PhysicsBackend` trait already
+gives, applied here to rendering. A backend crate's public surface must
+never leak its native API's types (`ash::vk::*`, etc.) past the RHI
+trait boundary, mirroring the existing rule against physics backends
+leaking third-party types.
 
 ## Render graph responsibilities
 
@@ -70,11 +86,17 @@ of this writing).
 ## Materials & shaders
 
 Target design uses WGSL (WebGPU Shading Language) as the primary shader
-authoring language, since it's what `wgpu`/`naga` natively understand and
-translate to SPIR-V/HLSL/MSL as needed — avoiding a second, engine-specific
-shading language to maintain. Material definitions are data (not code) where
-possible, describing which shader variant and which parameters apply, so
-that non-programmer contributors and future editor tooling
+authoring language, cross-compiled to each native backend's expected
+representation (SPIR-V for Vulkan, MSL for Metal, HLSL for DirectX 12,
+GLSL for OpenGL/WebGL) via [`naga`](https://github.com/gfx-rs/wgpu/tree/trunk/naga)
+used standalone — a separate, independent crate from `wgpu` (confirmed
+directly, not assumed; see
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)),
+so this doesn't require `wgpu` itself as a dependency. One shading
+language across every backend, rather than a second, engine-specific one
+to maintain. Material definitions are data (not code) where possible,
+describing which shader variant and which parameters apply, so that
+non-programmer contributors and future editor tooling
 (`docs/ui/editor-design.md`) can author materials without touching Rust.
 
 ## 2D is a specialization of this architecture, not a separate one

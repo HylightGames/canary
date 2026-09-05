@@ -1,6 +1,10 @@
 # 0004. Rendering Hardware Interface: custom trait, bootstrapped on wgpu
 
-**Status:** Accepted
+**Status:** Accepted. The RHI/render-graph split below is unchanged.
+The specific backend-implementation choice ("bootstrap on `wgpu`, defer
+a custom RHI") is superseded by
+[ADR 0016](0016-native-rendering-backends.md), which reverses that one
+sub-decision — see ADR 0016 for why and what's unchanged.
 
 ## Context
 
