@@ -1,0 +1,74 @@
+[package]
+name = "canary-loc"
+description = "Canary Engine localization: LocKey + Fluent (.ftl) resolution. See docs/architecture/localization.md and ADR 0015."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = "2.0.19"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+
+# Load-bearing dependency for this crate (see ADR 0015 for why this, not
+# fluent-templates/fluent-fallback/i18n-embed). `fluent` re-exports
+# fluent-bundle's types (FluentBundle, FluentResource, FluentArgs,
+# FluentValue), so fluent-bundle isn't listed separately here -- adding
+# it as its own direct dependency would just resolve a second, redundant
+# copy without giving access to anything `fluent` doesn't already expose.
+fluent = "0.16"
+
+# `fluent` does *not* re-export this one -- needed directly for
+# `ParserError`, surfaced in this crate's own `LoaderError` when a
+# `.ftl` file fails to parse.
+fluent-syntax = "0.11"
+
+# Locale-fallback-chain resolution -- already a transitive dependency of
+# `fluent`, listed explicitly here since this crate calls it directly
+# (see ADR 0015 for why this, not fluent-fallback's Localization type).
+fluent-langneg = "0.13"
+
+# Locale identifiers (the `LanguageIdentifier` type fluent-langneg's API
+# is built around), with the `langid!()` const macro for compile-time-
+# known locale constants (used for this crate's configured default
+# locale). Listed explicitly (not left purely transitive) because this
+# crate uses its macro directly, not just its types. Version pinned
+# exactly here (not just its `-impl` crate below) -- see the pin
+# explanation below for why pinning only the impl crate isn't enough.
+unic-langid = { version = "=0.9.5", features = ["macros"] }
+
+# Transitive-dependency pins, for this sandbox's rustc-1.75 validation
+# floor (see
+# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor).
+# `fluent` 0.16.1 itself has no MSRV issue; its `unic-langid` dependency
+# chain does, and using `unic-langid`'s `macros` feature (for `langid!()`,
+# above) pulls in two *more* pins than the localization roadmap's own
+# scoping pass found, discovered only once that feature was actually
+# exercised:
+#   - rustc-hash = "=2.1.1": the default resolution (2.1.3) requires
+#     rustc 1.77+.
+#   - unic-langid-impl = "=0.9.5": unic-langid-impl 0.9.6 calls
+#     Option::is_none_or (stabilized in rustc 1.82) directly in its
+#     source. unic-langid 0.9.6 hard-requires unic-langid-impl "^0.9.6"
+#     exactly, which is why unic-langid itself is pinned to 0.9.5 above
+#     rather than just its impl crate here -- pinning only the impl
+#     crate while leaving unic-langid at its default "0.9" resolution
+#     would resolve unic-langid to 0.9.6 and conflict outright. tinystr
+#     then resolves to 0.7.6 on its own via unic-langid-impl 0.9.5's own
+#     "^0.7.0" requirement -- no separate pin needed for it.
+#   - unic-langid-macros = "=0.9.5" and
+#     unic-langid-macros-impl = "=0.9.5", pinned together, for the same
+#     reason as the pair above -- needed only because this crate uses
+#     the `macros` feature (for `langid!()`); a consumer that only used
+#     unic-langid's non-macro API wouldn't need these two.
+rustc-hash = "=2.1.1"
+unic-langid-impl = "=0.9.5"
+unic-langid-macros = "=0.9.5"
+unic-langid-macros-impl = "=0.9.5"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
+tempfile = "3.10.1"

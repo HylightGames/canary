@@ -5,6 +5,7 @@ members = [
     "engine/canary-platform",
     "engine/canary-ecs",
     "engine/canary-plugin-api",
+    "engine/canary-loc",
     "engine/canary-runtime",
     "tools/xtask",
 ]
@@ -17,10 +18,13 @@ repository = "https://github.com/HylightGames/canary"
 # Deliberately no `rust-version` (MSRV) pin yet: this workspace has been
 # validated against Ubuntu's packaged rustc 1.75 in a sandbox without
 # rustup access, but that is a floor for *this session's* validation, not a
-# considered MSRV policy. Pick a real MSRV once a dependency (wgpu's is
-# already known to be newer, per docs/research/technology-evaluations.md)
-# actually forces the question, and record that choice as an ADR rather
-# than asserting a number here that hasn't been decided on purpose.
+# considered MSRV policy. Several dependencies across several crates have
+# already needed pinning to stay under this floor (see
+# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
+# for the full, growing list). Pick a real MSRV once one of them actually
+# forces the question in a way pinning can't route around, and record
+# that choice as an ADR rather than asserting a number here that hasn't
+# been decided on purpose.
 
 # Shared lint configuration for every crate in the workspace. Individual
 # crates inherit this via `[lints] workspace = true` in their own Cargo.toml
