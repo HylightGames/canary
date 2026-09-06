@@ -9,4 +9,78 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Off by default so headless-only consumers (dedicated servers, most
+# tests -- see docs/architecture/platform-abstraction.md's "Why this is
+# a real trait boundary" section) never pull in winit's dependency tree
+# (X11/Wayland/Win32/AppKit bindings) just by depending on this crate.
+# The same "nothing hardcoded, not in the build if unused" pattern this
+# project already applies to physics and rendering backends
+# (docs/architecture/physics.md, ADR 0016) -- windowing gets one real
+# implementation rather than several competing ones, so it's a feature
+# flag on this crate rather than a separate `canary-platform-winit`
+# crate, but the actual goal (opt-in, not silently bundled) is the same.
+#
+# Every dependency below is `optional = true` and listed here rather
+# than left unconditional -- including the transitive pins -- so that a
+# headless-only build genuinely never downloads or compiles any of them,
+# not just "doesn't use `winit`'s API while still paying for the deps."
+winit-backend = [
+    "dep:winit",
+    "dep:thiserror",
+    "dep:tracing",
+    "dep:wayland-protocols",
+    "dep:wayland-protocols-plasma",
+    "dep:wayland-protocols-wlr",
+    "dep:wayland-scanner",
+    "dep:quick-xml",
+]
+
 [dependencies]
+# Real desktop windowing/input backend (v0.0.4) and its error/logging
+# support, behind `winit-backend` -- see the [features] comment above.
+winit = { version = "0.30", optional = true }
+thiserror = { version = "2.0.19", optional = true }
+tracing = { version = "0.1.44", default-features = false, features = ["std"], optional = true }
+
+# Transitive-dependency pins, needed only when `winit-backend` is active,
+# for this sandbox's rustc-1.75 validation floor (see
+# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor).
+# `winit` 0.30.13 itself has no MSRV issue; five of its *transitive*
+# Wayland-protocol dependencies do, and this pin set had already drifted
+# once by the time this was implemented (re-verified empirically, not
+# carried forward from the v0.0.4 roadmap's own scoping pass, which
+# itself found only three of these five):
+#   - wayland-protocols = "=0.32.9": newer releases require rustc 1.79+
+#     (declared via `edition = "2024"`, a hard Cargo-1.75 parse wall).
+#   - wayland-protocols-plasma = "=0.3.9" and
+#     wayland-protocols-wlr = "=0.3.9": both hard-require
+#     `wayland-protocols = "^0.32.<their-own-patch>"` in lockstep with
+#     their own version number, so pinning wayland-protocols alone
+#     isn't sufficient -- these two have to be pinned to the specific
+#     patch release whose own requirement is "^0.32.9", or newer
+#     releases of *these* crates silently demand a newer
+#     wayland-protocols than the pin above allows.
+#   - wayland-scanner = "=0.31.10": same edition-2024 wall as
+#     wayland-protocols above.
+#   - quick-xml = "=0.39.4": wayland-scanner's own build-time dependency;
+#     0.41+ declares rust-version 1.79.
+wayland-protocols = { version = "=0.32.9", optional = true }
+wayland-protocols-plasma = { version = "=0.3.9", optional = true }
+wayland-protocols-wlr = { version = "=0.3.9", optional = true }
+wayland-scanner = { version = "=0.31.10", optional = true }
+quick-xml = { version = "=0.39.4", optional = true }
+
+[dev-dependencies]
+
+# Used only by the winit-backend integration test, to send a real
+# ICCCM WM_DELETE_WINDOW ClientMessage directly to the test window --
+# the same signal a window manager forwards when a user clicks the
+# close button -- without needing an actual window manager running in
+# CI. Already a transitive dependency of winit's own X11 backend; listed
+# explicitly here since the test constructs and sends the message itself
+# rather than going through winit. Linux-only: the test this supports is
+# inherently X11-specific (see winit_backend.rs's test module docs for
+# why macOS/Windows don't get an equivalent live-window test yet).
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = { version = "0.13", features = ["xtest"] }

@@ -45,12 +45,61 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         run: rustup component add clippy
+      # Linux only: winit's X11/Wayland backends need these at compile
+      # time (not just runtime) -- see engine/canary-platform/Cargo.toml's
+      # winit-backend feature docs.
+      - name: Install X11/Wayland dev libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config
       - name: cargo build --workspace
         run: cargo build --workspace --all-targets
       - name: cargo clippy --workspace
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: cargo test --workspace
         run: cargo test --workspace
+      # Separate steps (not folded into the ones above) so a winit-backend
+      # regression on any OS is attributed clearly, and so the default
+      # (most common) configuration's results aren't muddied by a second
+      # feature set in the same log. Feature-gated per
+      # docs/architecture/physics.md's and ADR 0016's "not privileged,
+      # not in the build unless used" pattern -- applied here too (see
+      # canary-platform/Cargo.toml) -- so this is checked deliberately on
+      # all three OSes rather than assumed to keep working since it's
+      # off by default.
+      - name: cargo build --workspace --features winit-backend
+        run: cargo build --workspace --all-targets --features canary-platform/winit-backend
+      - name: cargo clippy --workspace --features winit-backend
+        run: cargo clippy --workspace --all-targets --features canary-platform/winit-backend -- -D warnings
+      - name: cargo test --workspace --features winit-backend
+        run: cargo test --workspace --features canary-platform/winit-backend
+
+  windowing-integration:
+    name: Real windowing integration test (Xvfb)
+    runs-on: ubuntu-latest
+    # Linux-only: this exercises canary-platform's winit-backend against
+    # a live (if virtual) X11 display -- window creation, redraw/resize,
+    # real synthesized keyboard input via XTEST, and a real
+    # WM_DELETE_WINDOW close signal -- none of which the `lint-and-test`
+    # matrix above actually runs (it only confirms the feature builds
+    # and its unit tests pass, since it has no display available). An
+    # equivalent macOS/Windows job is real, intended future work, not
+    # fixed here -- see engine/canary-platform/tests/winit_backend_window.rs's
+    # own module docs.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable
+      - name: Install X11 dev libraries and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config xvfb
+      - name: Run the real windowing integration test under Xvfb
+        run: >
+          xvfb-run --auto-servernum
+          cargo test -p canary-platform --features winit-backend
+          --test winit_backend_window -- --ignored
 
   wasm-target-check:
     name: WASM component target compiles

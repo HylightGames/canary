@@ -86,8 +86,10 @@ Tier A (sandboxed WASM Component Model) plugin loading.
 - [x] `docs/architecture/plugin-system.md` and
       [ADR 0003](../decisions/architecture-decision-records/0003-plugin-and-modding-architecture.md)
       updated to match
-- [ ] `clippy` verification — same open item every release has hit in
-      this sandbox; see the release checklist once this is cut
+- [x] `clippy` verification — this sandbox couldn't reach `clippy` when
+      `v0.0.3` was implemented; it can now (see `v0.0.4`'s own entry
+      below for when and how that changed), and a workspace-wide check
+      confirmed `v0.0.3`'s own code is clean
 
 **Explicitly not in `v0.0.3`** (each is its own tracked follow-up, not
 an oversight): a plugin manifest format (R-08), Tier B signing (R-09),
@@ -95,18 +97,66 @@ safe hot-unloading with full resource reclamation, and safely lending a
 Tier A instance scoped access to a `World` already in use elsewhere
 (R-34) — see `v0.0.3-roadmap.md` and the risk register for each.
 
-## `v0.0.4`+ — sequenced, not deeply scoped yet
+## `v0.0.4` — Implemented, not yet tagged
+
+Full detail: [`v0.0.4-roadmap.md`](v0.0.4-roadmap.md). Single focus:
+real, `winit`-backed windowing.
+
+- [x] `WinitWindow`/`WinitInput`, alongside (not replacing)
+      `HeadlessWindow`/`HeadlessInput`, behind a `winit-backend` Cargo
+      feature off by default — confirmed mechanically (`cargo tree`)
+      that a build without it pulls in no `winit`/Wayland dependency
+- [x] The `pump_app_events` pull/push bridge, documented as a real,
+      acknowledged tradeoff rather than a frictionless fit
+- [x] `Key` expanded to a realistic keyboard (letters, digits, function
+      keys, modifiers, navigation, editing keys, punctuation), modeled
+      on physical position
+- [x] A real, `#[ignore]`d-by-default integration test against a live
+      `Xvfb` display: window creation, several `poll_events()` cycles,
+      a real keyboard press synthesized via the X11 XTEST extension,
+      and a real ICCCM `WM_DELETE_WINDOW` close signal — run
+      automatically in CI's dedicated `windowing-integration` job, not
+      just documented as runnable
+- [x] Two real `winit` constraints found via direct testing, not
+      assumed, and worked around: `EventLoop::new()` panics off the
+      main thread (where `cargo test` runs each test), and only one
+      `EventLoop` can exist per process, ever — see
+      `platform-abstraction.md`'s "Status in this foundation" for the
+      full detail
+- [x] The `winit`/Wayland pin set re-verified at implementation time,
+      per its own "re-verify, don't assume it still holds" caveat — and
+      it had drifted: two more pins needed beyond the three found while
+      scoping (`build-system.md`)
+- [x] `docs/architecture/platform-abstraction.md`'s "Status in this
+      foundation" rewritten to match
+- [x] `cargo build`/`fmt --check`/`test`/`doc` clean; `clippy` clean —
+      **`clippy` became reachable in this sandbox for the first time
+      this session** (a real local-capability change, not luck; every
+      prior release's checklist had this as an open item). Used to
+      confirm `v0.0.4`'s own new code is clean, and separately (own
+      commit, not mixed into this release's work) to clear the small
+      number of pre-existing warnings in unrelated older code that
+      surfaced once `clippy` was finally reachable
+
+**Explicitly not in `v0.0.4`**: rendering (a window with nothing drawn
+into it — see `v0.0.6`), gamepad/joystick/IME input, multi-window
+support (a real `winit` constraint, not just an unimplemented feature —
+see `v0.0.4-roadmap.md`), mobile/console windowing, and a macOS/Windows
+equivalent of the real windowing integration test (Linux/`Xvfb`/XTEST
+only for now).
+
+## `v0.0.5`+ — sequenced, not deeply scoped yet
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release. `v0.0.6` is scoped and detailed below; beyond it,
-later releases are intentionally not detailed yet, per
-[`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
+one focus per release. `v0.0.5` and `v0.0.6` are both scoped and
+detailed below (implementation for both is still pending — `v0.0.4`
+above was implemented out of strict numeric order, since it was ready
+first); beyond them, later releases are intentionally not detailed yet,
+per [`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
 specificity" discipline:
 
-1. **Real windowing (`winit`-backed `canary-platform`).** Scoped in
-   [`v0.0.4-roadmap.md`](v0.0.4-roadmap.md); not yet implemented.
-2. **Localization (`canary-loc`).** Scoped in
+1. **Localization (`canary-loc`).** Scoped in
    [`v0.0.5-roadmap.md`](v0.0.5-roadmap.md) and
    [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md) —
    deliberately moved ahead of rendering, since it's a founding
@@ -115,15 +165,16 @@ specificity" discipline:
    what was pencilled in as `v0.0.5`" for the full reasoning. Proven
    standalone, ahead of `CanaryUI`/`canary-assets` existing to consume
    it. Not yet implemented.
-3. **Rendering bootstrap: the RHI trait + `canary-render-vulkan`.**
+2. **Rendering bootstrap: the RHI trait + `canary-render-vulkan`.**
    Scoped in [`v0.0.6-roadmap.md`](v0.0.6-roadmap.md) and
    [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md) —
    native per-graphics-API backends (Vulkan first, via `ash`), not a
    `wgpu` bootstrap, per direct project direction superseding ADR 0004's
    original backend choice. Deliberately proven offscreen, not blocked
-   on `v0.0.4` real windowing landing first — same "prove it in
-   isolation" pattern as `v0.0.5`. Not yet implemented.
-4. Beyond this point, ordering is genuinely undecided among physics,
+   on `v0.0.4` real windowing landing first (which has since landed
+   anyway) — same "prove it in isolation" pattern as `v0.0.5`. Not yet
+   implemented.
+3. Beyond this point, ordering is genuinely undecided among physics,
    `CanaryUI`'s `egui` backend, and `canary-state`'s medium-term scope.
    **Networking is deliberately deprioritized toward the end of this
    sequence, per direct project direction** — not raced against the
@@ -141,7 +192,7 @@ about working code in `engine/`.
 |---|---|---|---|
 | Repository/governance | ✅ | ✅ | `v0.0.1` |
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
-| Platform abstraction | ✅ | ⚠️ Partial | Traits + headless only; real `winit` backend is `v0.0.4`+ |
+| Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2` |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |

@@ -168,6 +168,30 @@ needed far less than localization did:
   debugging session) by resolving from a clean `Cargo.lock` with only
   these two pins present.
 
+**Windowing** (`v0.0.4` — see
+[`v0.0.4-roadmap.md`](../roadmap/v0.0.4-roadmap.md)) needed five pins
+for `winit`, discovered across two separate passes — the second because
+the ecosystem had genuinely moved between scoping and implementation,
+confirmed by re-running the same verification rather than trusting the
+first pass:
+
+- **`wayland-protocols = "=0.32.9"`** and **`wayland-scanner =
+  "=0.31.10"`**: both found while scoping this release. Newer releases
+  of each declare `edition = "2024"` outright — the same hard
+  parse-time wall as localization's `ignore`/`globset` pins above, not
+  an `is_none_or`-style compile error.
+- **`quick-xml = "=0.39.4"`**: `wayland-scanner`'s own build-time
+  dependency; `0.41+` declares `rust-version` 1.79.
+- **`wayland-protocols-plasma = "=0.3.9"` and
+  `wayland-protocols-wlr = "=0.3.9"`**: found only at implementation
+  time, re-verifying the pins above rather than assuming they still
+  held. Both hard-require `wayland-protocols = "^0.32.<their-own-patch>"`
+  in lockstep with their own version number — so pinning
+  `wayland-protocols` alone isn't sufficient; these two have to be
+  pinned to the specific patch release whose own requirement is
+  `"^0.32.9"`, or a newer release of *these* crates silently demands a
+  newer `wayland-protocols` than the pin above allows.
+
 Two things worth knowing before adding another one:
 
 - **A crate's own declared `rust-version` isn't the whole story.**
