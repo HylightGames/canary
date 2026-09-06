@@ -116,7 +116,7 @@ fn main() -> anyhow::Result<()> {
             "no plugins found (none ship with this foundation; the loader itself is exercised by canary-plugin-api's own tests)"
         );
     }
-    drop(loader);
+    let _ = loader;
 
     tracing::info!("Canary Engine shutting down cleanly");
     Ok(())

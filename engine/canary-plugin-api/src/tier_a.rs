@@ -699,18 +699,16 @@ mod tests {
         let schema_id = Health::SCHEMA_ID.to_string();
 
         assert!(canary::plugin::ecs_read::Host::is_valid_entity(
-            &mut host,
-            handle.clone()
+            &mut host, handle
         ));
         assert!(canary::plugin::ecs_read::Host::has_component(
             &mut host,
-            handle.clone(),
+            handle,
             schema_id.clone()
         ));
 
-        let value =
-            canary::plugin::ecs_read::Host::get(&mut host, handle.clone(), schema_id.clone())
-                .map(from_wit_value);
+        let value = canary::plugin::ecs_read::Host::get(&mut host, handle, schema_id.clone())
+            .map(from_wit_value);
         assert_eq!(
             value,
             Some(ComponentValue::Record(vec![(
@@ -797,7 +795,7 @@ mod tests {
         // `loader.engine`'s own `precompile_component` -- the
         // "compatible engine configuration" `Component::deserialize`
         // requires is trivially satisfied here, not merely assumed.
-        let component = unsafe { Component::deserialize(&loader.engine, &precompiled) }.expect(
+        let component = unsafe { Component::deserialize(&loader.engine, precompiled) }.expect(
             "deserializing an artifact from the same engine that precompiled it should succeed",
         );
 
