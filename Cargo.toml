@@ -6,6 +6,8 @@ members = [
     "engine/canary-ecs",
     "engine/canary-plugin-api",
     "engine/canary-loc",
+    "engine/canary-render",
+    "engine/canary-render-vulkan",
     "engine/canary-runtime",
     "tools/xtask",
 ]

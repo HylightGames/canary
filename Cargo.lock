@@ -297,6 +297,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "canary-render"
+version = "0.0.2"
+
+[[package]]
+name = "canary-render-vulkan"
+version = "0.0.2"
+dependencies = [
+ "canary-render",
+]
+
+[[package]]
 name = "canary-runtime"
 version = "0.0.2"
 dependencies = [
