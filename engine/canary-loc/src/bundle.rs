@@ -152,6 +152,59 @@ impl LocaleBundle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+    use tracing::field::{Field, Visit};
+    use tracing::Event;
+    use tracing_subscriber::layer::{Context, Layer};
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::Registry;
+
+    /// A minimal `tracing` layer that captures every event's level and
+    /// `message` field, so tests can assert a specific `tracing::warn!`/
+    /// `tracing::debug!` call actually fired -- not just infer it from
+    /// the returned value, which wouldn't catch a case where the
+    /// logging call was silently removed or never reached.
+    struct CapturingLayer {
+        events: Arc<Mutex<Vec<(tracing::Level, String)>>>,
+    }
+
+    struct MessageVisitor(String);
+    impl Visit for MessageVisitor {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            use std::fmt::Write;
+            // Captures every field, not just "message" -- this crate's
+            // fallback/missing-key events put the actual key and locale
+            // values in their own structured fields (`key = %key`, not
+            // string-concatenated into the message), so a test checking
+            // "did the key appear anywhere in this event" needs all of
+            // them, not just the message text.
+            let _ = write!(self.0, "{}={value:?} ", field.name());
+        }
+    }
+
+    impl<S: tracing::Subscriber> Layer<S> for CapturingLayer {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut visitor = MessageVisitor(String::new());
+            event.record(&mut visitor);
+            self.events
+                .lock()
+                .expect("test mutex should not be poisoned")
+                .push((*event.metadata().level(), visitor.0));
+        }
+    }
+
+    fn capture_events(f: impl FnOnce()) -> Vec<(tracing::Level, String)> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let layer = CapturingLayer {
+            events: Arc::clone(&events),
+        };
+        let subscriber = Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, f);
+        Arc::try_unwrap(events)
+            .expect("no other references to the captured-events buffer should remain")
+            .into_inner()
+            .expect("test mutex should not be poisoned")
+    }
 
     fn resource(ftl: &str) -> FluentResource {
         FluentResource::try_new(ftl.to_string()).expect("test .ftl content should be valid")
@@ -254,5 +307,88 @@ mod tests {
 
         let resolved = bundle.resolve(&crate::key!("anything"), None);
         assert_eq!(resolved, "anything");
+    }
+
+    #[test]
+    fn a_missing_key_actually_emits_a_warn_event_not_just_a_correct_return_value() {
+        let en = langid("en-US");
+        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+            vec![resource("real-key = Real Text")]
+        });
+
+        let events = capture_events(|| {
+            let _ = bundle.resolve(&crate::key!("this-key-does-not-exist"), None);
+        });
+
+        assert!(
+            events
+                .iter()
+                .any(|(level, fields)| *level == tracing::Level::WARN
+                    && fields.contains("did not resolve")
+                    && fields.contains("this-key-does-not-exist")),
+            "expected a WARN event mentioning the missing key; captured events: {events:?}"
+        );
+    }
+
+    #[test]
+    fn resolving_via_a_fallback_locale_actually_emits_a_debug_event() {
+        // Both de-DE and en-US are genuinely negotiated into the chain
+        // (unlike `an_unavailable_requested_locale_falls_back_to_the_default`,
+        // where negotiation itself collapses everything to a single
+        // candidate before resolution ever starts) -- so this actually
+        // exercises LocaleBundle::resolve's own per-key fallback branch,
+        // not just fluent-langneg's locale-selection fallback.
+        let requested = langid("de-DE");
+        let de = langid("de-DE");
+        let en = langid("en-US");
+        let bundle = LocaleBundle::new(
+            &[requested],
+            &[de.clone(), en.clone()],
+            en.clone(),
+            |locale| {
+                if *locale == de {
+                    // de-DE has no translation for "greeting" at all.
+                    vec![resource("only-in-german = Nur auf Deutsch")]
+                } else {
+                    vec![resource("greeting = Hello!")]
+                }
+            },
+        );
+
+        let events = capture_events(|| {
+            let resolved = bundle.resolve(&crate::key!("greeting"), None);
+            assert_eq!(
+                resolved, "Hello!",
+                "should have fallen back to en-US's content for this key"
+            );
+        });
+
+        assert!(
+            events.iter().any(|(level, fields)| *level == tracing::Level::DEBUG
+                && fields.contains("fallback locale")),
+            "expected a DEBUG event about resolving via a fallback locale; captured events: {events:?}"
+        );
+    }
+
+    #[test]
+    fn resolving_via_the_primary_locale_does_not_emit_a_fallback_debug_event() {
+        // The "resolved via fallback" event should only fire when a
+        // *lower-priority* locale actually served the key -- not on
+        // every successful resolution.
+        let en = langid("en-US");
+        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+            vec![resource("greeting = Hello!")]
+        });
+
+        let events = capture_events(|| {
+            let resolved = bundle.resolve(&crate::key!("greeting"), None);
+            assert_eq!(resolved, "Hello!");
+        });
+
+        assert!(
+            events.is_empty(),
+            "expected no tracing events when the primary locale resolves the key directly; \
+             captured events: {events:?}"
+        );
     }
 }

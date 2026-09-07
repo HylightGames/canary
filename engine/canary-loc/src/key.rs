@@ -19,7 +19,8 @@
 
 /// A stable, validated reference to a piece of user-facing text, resolved
 /// at runtime against the active locale's loaded string table — never a
-/// literal string shown directly. Constructed only via [`key!`], which
+/// literal string shown directly. Constructed only via [`crate::key!`],
+/// which
 /// validates the key's *syntax* at compile time (see that macro's docs
 /// for exactly what "valid" means, and what's deliberately not checked
 /// yet).
