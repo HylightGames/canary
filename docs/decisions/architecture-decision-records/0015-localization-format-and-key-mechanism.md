@@ -1,6 +1,9 @@
 # 0015. Localization format and key mechanism: Fluent via `fluent-rs`, a `LocKey` newtype, not a raw string
 
-**Status:** Proposed
+**Status:** Accepted. `canary-loc` implements this design — see
+`docs/architecture/localization.md`'s "Status in this foundation" and
+[`v0.0.5-roadmap.md`](../../roadmap/v0.0.5-roadmap.md) for what's
+actually built versus still deferred.
 
 ## Context
 

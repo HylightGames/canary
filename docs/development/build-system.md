@@ -118,9 +118,11 @@ not to relax the workspace's actual `rust-toolchain.toml` floor, which
 stays `stable` for real contributors using `rustup` normally. Each pin
 carries an inline comment explaining why, pointing back here.
 
-**The `fluent-rs` family** (verified for the `v0.0.5` localization
-scoping pass — see [`v0.0.5-roadmap.md`](../roadmap/v0.0.5-roadmap.md)
-and [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md))
+**The `fluent-rs` family** (verified for `v0.0.5` localization — first
+during scoping, then re-verified and extended at implementation time,
+per this section's own "re-verify, don't assume it still holds"
+discipline; see [`v0.0.5-roadmap.md`](../roadmap/v0.0.5-roadmap.md) and
+[ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md))
 needed several pins, one of which wasn't the simple single-crate fix the
 `idna`/`hashbrown`-style pins above are:
 
@@ -136,6 +138,13 @@ needed several pins, one of which wasn't the simple single-crate fix the
   can take effect. `tinystr` then resolves to `0.7.6` on its own, via
   `unic-langid-impl 0.9.5`'s own `^0.7.0` requirement — no separate pin
   needed for it once the two above are in place.
+- **`unic-langid-macros = "=0.9.5"` and `unic-langid-macros-impl =
+  "=0.9.5"`, pinned together, for the same reason as the pair above** —
+  found only at implementation time, not during scoping: `canary-loc`
+  uses `unic-langid`'s `macros` feature (for the `langid!()` compile-time
+  locale constant its configured default locale needs), which wasn't
+  exercised by the scoping-phase spike and pulls in these two
+  additionally.
 - Only relevant if `fluent-templates`, `fluent-fallback`, or
   `i18n-embed` are reconsidered later (`v0.0.5` itself doesn't depend on
   them — see the ADR): **`block-buffer = "=0.10.4"`, `ignore =

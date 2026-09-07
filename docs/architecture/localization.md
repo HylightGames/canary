@@ -82,9 +82,12 @@ a blank string or a raw key. Locale-fallback-chain resolution is handled
 via `fluent-langneg` directly rather than `fluent-fallback`'s higher-level
 `Localization` abstraction — see
 [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md)
-for why. Missing-translation fallback firing should be logged
-(developer-facing, not player-facing) so gaps are discoverable during
-development rather than only reported by a confused player.
+for why. Missing-translation fallback firing is logged (developer-facing,
+not player-facing, via `tracing`) so gaps are discoverable during
+development rather than only reported by a confused player — implemented
+in `LocaleBundle::resolve`, with the logging itself verified to actually
+fire (via a real capturing `tracing` layer in `canary-loc`'s own tests),
+not just present in the source.
 
 ## Relationship to `CanaryUI` and to project state
 
@@ -112,14 +115,39 @@ development rather than only reported by a confused player.
 
 ## Status in this foundation
 
-Assigned to `v0.0.5` — see
+**Implemented, not just scoped** — see
 [`v0.0.5-roadmap.md`](../roadmap/v0.0.5-roadmap.md) and
 [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md).
-Deliberately scoped to not wait on `CanaryUI` (which still doesn't exist)
-or `canary-assets` (likewise): the `canary-loc` crate, its `LocKey`
-type, and `.ftl` resolution (including pluralization and locale
-fallback) are proven correct through direct tests against the crate
-itself, with a visibly temporary `std::fs`-based file loader standing
-in for the asset pipeline that will eventually replace it. See the
-roadmap doc for exactly what's in scope for this first cut versus
-deferred to when `CanaryUI`/`canary-assets` actually exist.
+`engine/canary-loc` is a real workspace crate:
+
+- **`LocKey` and `canary_loc::key!`** (the real macro path — this
+  document's earlier `loc::key!(...)` example assumes a `use
+  canary_loc as loc;` alias, which is the caller's choice, not something
+  this crate does for them), validating Fluent's identifier grammar at
+  **compile time**. Confirmed against `fluent-syntax`'s own parser
+  source, not assumed from the Fluent spec alone — a syntactically
+  invalid key is a real, proven build failure (a `compile_fail` doctest
+  checks this), not a documented intention.
+- **`LocaleBundle`**, resolving keys against a locale-fallback chain
+  computed via `fluent-langneg` — proven against real `.ftl` content in
+  direct tests, not `CanaryUI`: a plain message, a pluralized message
+  correctly branching between CLDR categories, string interpolation, an
+  unavailable requested locale correctly falling back to the configured
+  default, and a missing key returning the raw key string (not a panic,
+  not a blank string) while emitting a real, verified `tracing::warn!`
+  event — verified with an actual capturing `tracing` layer, not
+  inferred from the returned value, which caught two real bugs in the
+  test harness itself before it could pass honestly.
+- **The `std::fs`-based placeholder loader**
+  (`discover_available_locales`/`load_locale_resources`), doc-commented
+  as temporary and naming `canary-assets` as its intended replacement,
+  deliberately decoupled from `LocaleBundle` itself (which takes any
+  loader closure) so that replacement doesn't require touching
+  `LocaleBundle`'s own logic.
+
+**Still deliberately deferred**, per the roadmap and ADR 0015: `CanaryUI`
+integration (no widget API exists yet), compile-time validation that a
+key resolves against real `.ftl` content (only its syntax is checked),
+`fluent-templates`/`fluent-fallback`/`i18n-embed`, and any translator
+tooling (Weblate or otherwise) — real, intended, just not this crate's
+job yet.

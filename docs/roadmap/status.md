@@ -145,36 +145,80 @@ see `v0.0.4-roadmap.md`), mobile/console windowing, and a macOS/Windows
 equivalent of the real windowing integration test (Linux/`Xvfb`/XTEST
 only for now).
 
-## `v0.0.5`+ — sequenced, not deeply scoped yet
+## `v0.0.5` — Implemented, not yet tagged
+
+Full detail: [`v0.0.5-roadmap.md`](v0.0.5-roadmap.md) and
+[ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md)
+(now `Accepted`). Single focus: `canary-loc` — `LocKey` + Fluent (`.ftl`)
+resolution, moved ahead of rendering since it's a founding constraint
+that gets cheaper the earlier it's load-bearing.
+
+- [x] `LocKey` + the `key!` macro, validating Fluent's identifier
+      grammar at **compile time** — confirmed against `fluent-syntax`'s
+      own parser source, not assumed from the spec; a real
+      `compile_fail` doctest proves an invalid key genuinely fails to
+      build
+- [x] `LocaleBundle`, resolving keys against a fallback chain computed
+      via `fluent-langneg` — proven against real `.ftl` content, not
+      mocked: a plain message, a pluralized message correctly branching
+      between CLDR categories, string interpolation, an unavailable
+      requested locale falling back to the configured default, and a
+      real edge case (default locale configured but with zero
+      actually-loadable content) degrading gracefully rather than
+      panicking
+- [x] The missing-key/fallback `tracing::warn!`/`tracing::debug!` events
+      verified to actually fire, not just present in the source — a
+      real capturing `tracing` layer built specifically to check this,
+      which caught two genuine bugs in the test harness itself (a field
+      visitor only capturing the `message` field, and an
+      originally-wrong test scenario that exercised locale-negotiation
+      fallback instead of the per-key resolution fallback it claimed to
+      test) before either test could honestly pass
+- [x] The `std::fs`-based placeholder loader
+      (`discover_available_locales`/`load_locale_resources`),
+      doc-commented as temporary and naming `canary-assets` as its intended
+      replacement, deliberately decoupled from `LocaleBundle` (which
+      takes any loader closure) so that replacement won't require
+      touching `LocaleBundle`'s own logic
+- [x] Toolchain pins re-verified at implementation time, not trusted
+      from the roadmap's own scoping pass — and found genuinely
+      incomplete: two more pins needed (`unic-langid-macros`,
+      `unic-langid-macros-impl`, both `=0.9.5`) beyond what scoping
+      found, since `canary-loc` uses `unic-langid`'s `macros` feature
+      (for `langid!()`), which the scoping-phase spike never exercised
+      (`build-system.md`)
+- [x] `docs/architecture/localization.md`'s "Status in this foundation"
+      rewritten to match
+- [x] `cargo build`/`fmt --check`/`test`/`doc` clean; `clippy` clean
+      (`-D warnings`, matching CI exactly) across the full workspace
+      with `canary-loc` added as a new member
+
+**Explicitly not in `v0.0.5`**: `CanaryUI` integration (no widget API
+exists yet), compile-time validation that a key resolves against real
+`.ftl` content (only its syntax is checked), `fluent-templates`/
+`fluent-fallback`/`i18n-embed`, and any translator tooling (Weblate or
+otherwise) — see ADR 0015 for the reasoning behind each.
+
+## `v0.0.6`+ — sequenced, not deeply scoped yet
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release. `v0.0.5` and `v0.0.6` are both scoped and
-detailed below (implementation for both is still pending — `v0.0.4`
-above was implemented out of strict numeric order, since it was ready
-first); beyond them, later releases are intentionally not detailed yet,
-per [`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
+one focus per release. `v0.0.6` is scoped and detailed below
+(implementation is still pending); beyond it, later releases are
+intentionally not detailed yet, per
+[`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
 specificity" discipline:
 
-1. **Localization (`canary-loc`).** Scoped in
-   [`v0.0.5-roadmap.md`](v0.0.5-roadmap.md) and
-   [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md) —
-   deliberately moved ahead of rendering, since it's a founding
-   constraint ("no hardcoded user-facing text") that gets cheaper the
-   earlier it's load-bearing; see that roadmap's "Why this replaces
-   what was pencilled in as `v0.0.5`" for the full reasoning. Proven
-   standalone, ahead of `CanaryUI`/`canary-assets` existing to consume
-   it. Not yet implemented.
-2. **Rendering bootstrap: the RHI trait + `canary-render-vulkan`.**
+1. **Rendering bootstrap: the RHI trait + `canary-render-vulkan`.**
    Scoped in [`v0.0.6-roadmap.md`](v0.0.6-roadmap.md) and
    [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md) —
    native per-graphics-API backends (Vulkan first, via `ash`), not a
    `wgpu` bootstrap, per direct project direction superseding ADR 0004's
    original backend choice. Deliberately proven offscreen, not blocked
    on `v0.0.4` real windowing landing first (which has since landed
-   anyway) — same "prove it in isolation" pattern as `v0.0.5`. Not yet
-   implemented.
-3. Beyond this point, ordering is genuinely undecided among physics,
+   anyway) — same "prove it in isolation" pattern as `v0.0.5` used. Not
+   yet implemented.
+2. Beyond this point, ordering is genuinely undecided among physics,
    `CanaryUI`'s `egui` backend, and `canary-state`'s medium-term scope.
    **Networking is deliberately deprioritized toward the end of this
    sequence, per direct project direction** — not raced against the
@@ -197,7 +241,7 @@ about working code in `engine/`.
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
 | Rendering | ✅ | ❌ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first; `v0.0.6` |
-| Localization (`canary-loc`) | ✅ | ❌ | ADR 0015; `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
+| Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ❌ | Designed (2D+3D via Rapier); not yet scheduled |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |
 | Scripting system | ✅ | ❌ | Depends on Tier A |
