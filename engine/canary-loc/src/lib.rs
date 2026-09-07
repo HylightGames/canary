@@ -17,9 +17,11 @@
 //! resolved at runtime against the active locale's loaded `.ftl` string
 //! table via [`LocaleBundle`].
 
+mod bundle;
 mod key;
 mod loader;
 
+pub use bundle::LocaleBundle;
 pub use key::LocKey;
 pub use loader::{discover_available_locales, load_locale_resources, LoaderError};
 
