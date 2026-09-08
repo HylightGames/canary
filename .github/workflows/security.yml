@@ -8,9 +8,9 @@ name: Security
 
 on:
   push:
-    branches: [main, dev]
+    branches: [stable, dev]
   pull_request:
-    branches: [main, dev]
+    branches: [stable, dev]
   schedule:
     # Weekly, independent of any code change, since a new advisory can be
     # published for a dependency this repo hasn't touched in months.
