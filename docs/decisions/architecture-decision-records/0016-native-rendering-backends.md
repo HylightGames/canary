@@ -56,13 +56,27 @@ its native API's types (`ash::vk::*`, etc.) past the RHI trait boundary —
 the same "backends must never expose third-party types in public APIs"
 discipline this project already holds physics backends to.
 
-**Each backend is opt-in via a Cargo feature on the top-level
-`canary-render` crate; a game build only compiles and links the
-backend(s) it enables.** A Windows-only game that enables only `dx12`
-never pulls in `ash`, `metal`, or a GL loader — "nothing hardcoded, so
-it's not in the build if unused" applies to graphics backends exactly
-the way it already applies to everything else this project has decided
-this way (plugins, physics, and now this).
+**Each backend is a separate, independently-optional crate — not pulled
+in via a Cargo feature on `canary-render` itself, corrected from this
+ADR's own first draft once actually building `canary-render-vulkan`
+made the reason concrete: `canary-render-vulkan` depends on
+`canary-render` (for the RHI trait), so a feature on `canary-render`
+that optionally depended back on `canary-render-vulkan` would be a
+literal dependency cycle, which Cargo rejects outright regardless of
+feature-flag gating.** The property this was meant to guarantee still
+holds, and more strongly than a feature flag would have: `canary-render`
+has zero dependencies at all — confirmed directly (`cargo tree -p
+canary-render` shows nothing, not even transitively) rather than
+assumed — so it structurally cannot pull in `ash`/`metal`/a GL loader
+under any configuration, not just by default. A game build only
+compiles and links whichever backend crate(s) it actually adds as a
+dependency. A Windows-only game that only depends on
+`canary-render-dx12` never pulls in `ash`, `metal`, or a GL loader —
+"nothing hardcoded, so it's not in the build if unused" applies to
+graphics backends exactly the way it already applies to everything else
+this project has decided this way (plugins, physics, and now this) —
+achieved here through Cargo's own dependency graph rather than an
+explicit feature flag.
 
 **WGSL remains the material-authoring shading language, cross-compiled
 via `naga` used standalone — not through `wgpu`.** `naga` is

@@ -29,7 +29,7 @@ fn vertex_format_to_vk(format: VertexFormat) -> vk::Format {
 /// [`canary_render::PipelineDescriptor`]'s scope.
 ///
 /// Uses **dynamic** viewport/scissor state (set per render pass in
-/// [`crate::encoder::VulkanCommandEncoder::begin_render_pass`], not
+/// `VulkanCommandEncoder`'s `begin_render_pass` implementation, not
 /// baked in here) specifically because [`canary_render::PipelineDescriptor`]
 /// doesn't carry a target size — a pipeline is created independently of
 /// any specific [`crate::color_target::VulkanColorTarget`], and dynamic

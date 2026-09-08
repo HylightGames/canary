@@ -58,11 +58,20 @@ hardware and web targets) follow the same pattern — real, intended, and
 explicitly not sequenced on a timeline yet, per
 [`future-roadmap.md`](../roadmap/future-roadmap.md)'s "don't assign fake
 specificity" discipline. None of these four is structurally privileged:
-each is a separate crate behind the same trait, opt-in via a Cargo
-feature on `canary-render`, so a game build only compiles and links the
-backend(s) it actually enables — the same "no privileged built-ins"
-guarantee [`physics.md`](physics.md)'s `PhysicsBackend` trait already
-gives, applied here to rendering. A backend crate's public surface must
+each is a separate, independently-optional crate behind the same trait —
+confirmed directly, not just designed this way: `canary-render` itself
+has zero dependencies at all (`cargo tree` shows nothing, not even
+transitively), so it structurally cannot pull in a concrete backend's
+dependencies under any configuration, achieved through Cargo's
+dependency graph rather than a feature flag on `canary-render` (which
+would in fact be a literal dependency cycle — see
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)
+for why that specific mechanism doesn't work, corrected once actually
+building `canary-render-vulkan` made the reason concrete). A game build
+only compiles and links whichever backend crate(s) it actually depends
+on — the same "no privileged built-ins" guarantee
+[`physics.md`](physics.md)'s `PhysicsBackend` trait already gives,
+applied here to rendering. A backend crate's public surface must
 never leak its native API's types (`ash::vk::*`, etc.) past the RHI
 trait boundary, mirroring the existing rule against physics backends
 leaking third-party types.

@@ -19,7 +19,7 @@ use crate::device::{allocate_memory, VulkanDevice};
 /// once at creation and never updated — see
 /// [`canary_render::BufferDescriptor`]'s own docs for why. Uses raw
 /// `vkAllocateMemory` per buffer rather than a sub-allocator; see
-/// [`crate::device::allocate_memory`]'s docs for why that's fine at this
+/// this crate's `allocate_memory` helper docs for why that's fine at this
 /// scope.
 pub struct VulkanBuffer {
     device: Rc<ash::Device>,
