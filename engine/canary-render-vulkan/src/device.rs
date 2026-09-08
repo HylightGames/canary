@@ -30,7 +30,7 @@ use crate::pipeline::VulkanPipeline;
 pub(crate) const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 
 /// The Vulkan RHI backend. Owns the instance, logical device, queue, a
-/// single shared render pass (see [`COLOR_FORMAT`]'s docs for why one
+/// single shared render pass (see the crate-internal `COLOR_FORMAT` constant's docs for why one
 /// suffices for `v0.0.6`), and a command pool.
 ///
 /// The logical device handle is wrapped in an `Rc` so that every
@@ -134,7 +134,7 @@ impl VulkanDevice {
     /// Creates the Vulkan backend: instance, physical/logical device,
     /// graphics queue, command pool, and the single shared render pass
     /// every [`VulkanColorTarget`]/[`VulkanPipeline`] this device creates
-    /// will use (see [`COLOR_FORMAT`]).
+    /// will use (a fixed, crate-internal color format -- see COLOR_FORMAT).
     ///
     /// Picks the first enumerable physical device without preference —
     /// `v0.0.6`'s scope is proving the RHI trait and this backend work

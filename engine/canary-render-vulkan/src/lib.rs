@@ -23,4 +23,7 @@ mod device;
 mod encoder;
 mod pipeline;
 
+pub use buffer::VulkanBuffer;
+pub use color_target::VulkanColorTarget;
 pub use device::{VulkanDevice, VulkanInitError};
+pub use pipeline::VulkanPipeline;

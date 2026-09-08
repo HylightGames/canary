@@ -18,3 +18,14 @@ thiserror = "2.0.19"
 # in this project so far (see
 # docs/development/build-system.md#the-rustc-175-sandbox-validation-floor).
 ash = "0.38"
+
+[dev-dependencies]
+# WGSL -> SPIR-V, for this crate's own hello-triangle integration test
+# only -- canary_render::PipelineDescriptor takes precompiled SPIR-V, not
+# WGSL, so the backend itself never needs naga; whatever eventually
+# compiles WGSL for real games (a build step, an asset pipeline) is real
+# future work, out of this backend's own scope. See ADR 0016's "Verified,
+# not assumed" for why naga=22.1.0 + indexmap=2.11.4 is the confirmed
+# minimal pin set for this sandbox's rustc-1.75 floor.
+naga = { version = "=22.1.0", features = ["wgsl-in", "spv-out"] }
+indexmap = "=2.11.4"
