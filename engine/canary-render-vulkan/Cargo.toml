@@ -28,4 +28,4 @@ ash = "0.38"
 # not assumed" for why naga=22.1.0 + indexmap=2.11.4 is the confirmed
 # minimal pin set for this sandbox's rustc-1.75 floor.
 naga = { version = "=22.1.0", features = ["wgsl-in", "spv-out"] }
-indexmap = "=2.11.4"
+indexmap = "=2.14.2"
