@@ -19,7 +19,7 @@ canary-ecs = { path = "../canary-ecs" }
 # engine/canary-ecs/Cargo.toml). 0.8.6 is the newest release still
 # compatible with 1.75. Bump once building against a current `stable`
 # toolchain.
-libloading = "=0.8.6"
+libloading = "=0.9.0"
 
 # Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. wasmtime 21.0.2
 # is the newest release confirmed, empirically (a real `cargo build`, not
@@ -29,14 +29,14 @@ libloading = "=0.8.6"
 # for why this needed six pins, not one, and what to do once a current
 # toolchain is available.
 wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
-wasmtime-wasi = "=21.0.2"
+wasmtime-wasi = "=24.0.10"
 # Transitive-dependency pins required to actually build the above under
 # rustc 1.75 -- each independently drifted past that floor through its
 # own later releases since wasmtime 21.0.2 was originally published.
-idna = "=1.0.3"
-idna_adapter = "=1.2.0"
+idna = "=1.1.0"
+idna_adapter = "=1.2.2"
 hashbrown = "=0.16.1"
-indexmap = "=2.11.4"
+indexmap = "=2.14.2"
 litemap = "=0.7.3"
 
 [dev-dependencies]
@@ -51,4 +51,4 @@ litemap = "=0.7.3"
 wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
 # wat's own pin, for the same rustc-1.75 reason as the others above --
 # it drifted independently of wasmtime's core dependency tree.
-wat = "=1.207.0"
+wat = "=1.258.0"
