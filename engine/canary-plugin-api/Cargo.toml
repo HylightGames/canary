@@ -33,10 +33,10 @@ wasmtime-wasi = "=24.0.10"
 # Transitive-dependency pins required to actually build the above under
 # rustc 1.75 -- each independently drifted past that floor through its
 # own later releases since wasmtime 21.0.2 was originally published.
-idna = "=1.0.3"
-idna_adapter = "=1.2.0"
+idna = "=1.1.0"
+idna_adapter = "=1.2.2"
 hashbrown = "=0.16.1"
-indexmap = "=2.11.4"
+indexmap = "=2.14.2"
 litemap = "=0.7.3"
 
 [dev-dependencies]
@@ -51,4 +51,4 @@ litemap = "=0.7.3"
 wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
 # wat's own pin, for the same rustc-1.75 reason as the others above --
 # it drifted independently of wasmtime's core dependency tree.
-wat = "=1.207.0"
+wat = "=1.258.0"
