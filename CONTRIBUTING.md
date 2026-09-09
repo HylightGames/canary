@@ -68,7 +68,7 @@ When in doubt, **start with discussion rather than code** for changes that are d
 
 ## Development workflow
 
-Canary uses `dev` for active development and `main` for stable releases.
+Canary uses `dev` for active development and `stable` for stable releases.
 
 See [`docs/development/git-workflow.md`](docs/development/git-workflow.md) for the complete branching model.
 

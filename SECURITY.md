@@ -14,7 +14,7 @@ Before `v1.0.0`, Canary does not maintain a long-term support branch. Security f
 
 | Version                              | Supported                       |
 | ------------------------------------ | ------------------------------- |
-| `main` / current development version | ✅                               |
+| `stable` / current stable version    | ✅                               |
 | Latest released `v0.0.x`             | ✅ where practical               |
 | Older pre-releases                   | ❌ Upgrade to the latest version |
 
