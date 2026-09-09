@@ -29,7 +29,7 @@ libloading = "=0.8.6"
 # for why this needed six pins, not one, and what to do once a current
 # toolchain is available.
 wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
-wasmtime-wasi = "=21.0.2"
+wasmtime-wasi = "=24.0.10"
 # Transitive-dependency pins required to actually build the above under
 # rustc 1.75 -- each independently drifted past that floor through its
 # own later releases since wasmtime 21.0.2 was originally published.
