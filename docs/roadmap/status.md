@@ -199,31 +199,65 @@ exists yet), compile-time validation that a key resolves against real
 `fluent-fallback`/`i18n-embed`, and any translator tooling (Weblate or
 otherwise) — see ADR 0015 for the reasoning behind each.
 
-## `v0.0.6`+ — sequenced, not deeply scoped yet
+## `v0.0.6` — Implemented, not yet tagged
+
+Full detail: [`v0.0.6-roadmap.md`](v0.0.6-roadmap.md) and
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md).
+Single focus: the RHI trait (`canary-render`) and its first backend
+(`canary-render-vulkan`, via `ash`) — native per-graphics-API backends,
+not a `wgpu` bootstrap, superseding ADR 0004's original backend choice
+per direct project direction.
+
+- [x] `canary-render`'s RHI trait (`RenderDevice`/`CommandEncoder`),
+      deliberately minimal for this release's actual milestone — not a
+      speculatively complete GPU abstraction
+- [x] `canary-render-vulkan` implementing that trait, with real resource
+      cleanup (an `Rc<ash::Device>` shared across every resource type's
+      own `Drop` impl, not deferred to process exit)
+- [x] The real milestone: a hard-coded triangle, rendered to a real
+      offscreen color target on this sandbox's real `llvmpipe` Vulkan
+      device, via a real WGSL shader cross-compiled to SPIR-V through
+      standalone `naga` — read back and asserted on specific pixel
+      values, not "it compiled" or "it didn't panic"
+- [x] `canary-render` confirmed to have zero dependencies at all
+      (`cargo tree -p canary-render` shows nothing, not even
+      transitively) — checked mechanically, not just claimed
+- [x] A real, worthwhile correction caught by actually building rather
+      than assumed: ADR 0016's first draft described backend opt-in-ness
+      as "a Cargo feature on `canary-render`," which turns out to be
+      structurally impossible (`canary-render-vulkan` depends on
+      `canary-render` for the trait, so a feature flowing the other way
+      would be a literal dependency cycle, which Cargo rejects
+      outright). The actual property holds anyway, achieved through
+      Cargo's dependency graph rather than a feature flag — corrected in
+      ADR 0016, `rendering.md`, and the roadmap rather than left stale
+- [x] `cargo build`/`fmt --check`/`test`/`doc` clean; `clippy` clean
+      (`-D warnings`, matching CI exactly) across the full workspace
+      with both new crates added as members
+
+**Explicitly not in `v0.0.6`**: the render graph, a materials/shader-
+variant system, live window presentation (deferred until `v0.0.4`'s
+windowing — which has since landed anyway — is wired up to it),
+`canary-render-metal`/`canary-render-dx12`/`canary-render-gl`, 2D-specific
+rendering, textures/depth-testing/blending/multiple draw calls, and real
+GPU hardware validation (this release's automated coverage is
+`llvmpipe`-only) — see ADR 0016 and the roadmap for the reasoning behind
+each.
+
+## `v0.0.7`+ — sequenced, not deeply scoped yet
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release. `v0.0.6` is scoped and detailed below
-(implementation is still pending); beyond it, later releases are
-intentionally not detailed yet, per
-[`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
-specificity" discipline:
-
-1. **Rendering bootstrap: the RHI trait + `canary-render-vulkan`.**
-   Scoped in [`v0.0.6-roadmap.md`](v0.0.6-roadmap.md) and
-   [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md) —
-   native per-graphics-API backends (Vulkan first, via `ash`), not a
-   `wgpu` bootstrap, per direct project direction superseding ADR 0004's
-   original backend choice. Deliberately proven offscreen, not blocked
-   on `v0.0.4` real windowing landing first (which has since landed
-   anyway) — same "prove it in isolation" pattern as `v0.0.5` used. Not
-   yet implemented.
-2. Beyond this point, ordering is genuinely undecided among physics,
-   `CanaryUI`'s `egui` backend, and `canary-state`'s medium-term scope.
-   **Networking is deliberately deprioritized toward the end of this
-   sequence, per direct project direction** — not raced against the
-   others the way rendering was moved ahead of it for localization. See
-   [`future-roadmap.md`](future-roadmap.md) for the dependency graph
+one focus per release. Beyond `v0.0.6`, later releases are intentionally
+not detailed yet, per [`future-roadmap.md`](future-roadmap.md)'s own
+"don't assign fake specificity" discipline: ordering is genuinely
+undecided among the render graph/materials system, physics, `CanaryUI`'s
+`egui` backend, and `canary-state`'s medium-term scope. **Networking is
+deliberately deprioritized toward the end of this sequence, per direct
+project direction** — not raced against the others the way rendering was
+moved ahead of it for localization. See
+[`future-roadmap.md`](future-roadmap.md) for the dependency graph rather
+than a false ordering here.
    rather than a false ordering here.
 
 ## Full architecture-to-implementation map
@@ -240,7 +274,7 @@ about working code in `engine/`.
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2` |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
-| Rendering | ✅ | ❌ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first; `v0.0.6` |
+| Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6` |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ❌ | Designed (2D+3D via Rapier); not yet scheduled |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |

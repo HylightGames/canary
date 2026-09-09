@@ -9,6 +9,14 @@ the concrete backend-implementation decision is in
 [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md).
 This document covers the fuller design.
 
+**`v0.0.6` implemented the RHI trait's first real slice**: `canary-render`
+(the trait itself) and `canary-render-vulkan` (the first backend, via
+`ash`), proven with a real offscreen hello-triangle test — see
+[`v0.0.6-roadmap.md`](../roadmap/v0.0.6-roadmap.md) for exactly what's
+built versus still deferred (the render graph, materials, textures,
+multiple draw calls, and every backend beyond Vulkan all remain real,
+intended future work, not yet started).
+
 ## Two layers: RHI and render graph
 
 Rendering is split into two layers that must not be conflated:
