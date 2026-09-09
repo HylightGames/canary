@@ -19,7 +19,7 @@ canary-ecs = { path = "../canary-ecs" }
 # engine/canary-ecs/Cargo.toml). 0.8.6 is the newest release still
 # compatible with 1.75. Bump once building against a current `stable`
 # toolchain.
-libloading = "=0.8.6"
+libloading = "=0.9.0"
 
 # Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. wasmtime 21.0.2
 # is the newest release confirmed, empirically (a real `cargo build`, not
