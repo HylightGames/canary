@@ -65,10 +65,10 @@ tracing = { version = "0.1.44", default-features = false, features = ["std"], op
 #     wayland-protocols above.
 #   - quick-xml = "=0.39.4": wayland-scanner's own build-time dependency;
 #     0.41+ declares rust-version 1.79.
-wayland-protocols = { version = "=0.32.13", optional = true }
-wayland-protocols-plasma = { version = "=0.3.12", optional = true }
-wayland-protocols-wlr = { version = "=0.3.12", optional = true }
-wayland-scanner = { version = "=0.31.11", optional = true }
+wayland-protocols = { version = "=0.32.9", optional = true }
+wayland-protocols-plasma = { version = "=0.3.9", optional = true }
+wayland-protocols-wlr = { version = "=0.3.9", optional = true }
+wayland-scanner = { version = "=0.31.10", optional = true }
 quick-xml = { version = "=0.39.4", optional = true }
 
 [dev-dependencies]

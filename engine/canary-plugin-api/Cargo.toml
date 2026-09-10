@@ -19,7 +19,7 @@ canary-ecs = { path = "../canary-ecs" }
 # engine/canary-ecs/Cargo.toml). 0.8.6 is the newest release still
 # compatible with 1.75. Bump once building against a current `stable`
 # toolchain.
-libloading = "=0.9.0"
+libloading = "=0.8.6"
 
 # Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. wasmtime 21.0.2
 # is the newest release confirmed, empirically (a real `cargo build`, not
@@ -29,14 +29,26 @@ libloading = "=0.9.0"
 # for why this needed six pins, not one, and what to do once a current
 # toolchain is available.
 wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
-wasmtime-wasi = "=24.0.10"
+# wasmtime-wasi must be pinned to the exact same version as wasmtime
+# above -- the upstream project releases both in lockstep specifically
+# so their types stay compatible with each other. Learned the hard way,
+# not just asserted: an automated dependency bump once moved this to
+# 24.0.10 alone, leaving wasmtime at 21.0.2, which Cargo resolved by
+# pulling in a *second*, separate wasmtime 24.x purely to satisfy
+# wasmtime-wasi's own transitive requirement -- harmless only because
+# this crate doesn't currently use wasmtime-wasi's API surface at all
+# (confirmed: no `wasmtime_wasi::` reference anywhere in src/), so no
+# type-mismatch compile error ever actually surfaced. It would the
+# moment anyone did. See .github/dependabot.yml's ignore list, added
+# after this, for why this pairing needs a human to bump it, not a bot.
+wasmtime-wasi = "=21.0.2"
 # Transitive-dependency pins required to actually build the above under
 # rustc 1.75 -- each independently drifted past that floor through its
 # own later releases since wasmtime 21.0.2 was originally published.
-idna = "=1.1.0"
-idna_adapter = "=1.2.2"
+idna = "=1.0.3"
+idna_adapter = "=1.2.0"
 hashbrown = "=0.16.1"
-indexmap = "=2.14.2"
+indexmap = "=2.11.4"
 litemap = "=0.7.3"
 
 [dev-dependencies]
@@ -51,4 +63,5 @@ litemap = "=0.7.3"
 wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
 # wat's own pin, for the same rustc-1.75 reason as the others above --
 # it drifted independently of wasmtime's core dependency tree.
-wat = "=1.258.0"
+wat = "=1.207.0"
+encoding_rs = "=0.8.35"
