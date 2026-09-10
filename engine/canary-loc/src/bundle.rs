@@ -150,6 +150,27 @@ impl LocaleBundle {
 }
 
 #[cfg(test)]
+// clippy::cloned_ref_to_slice_refs (added in clippy for rustc 1.98,
+// newer than this sandbox's own clippy -- caught by CI, not locally)
+// suggests `std::slice::from_ref(&x)` in place of `&[x.clone()]`
+// throughout this module. Confirmed empirically, not just argued
+// abstractly, that the suggestion doesn't compile for these specific
+// call sites: every occurrence here clones a locale that's *also*
+// moved by value as a later argument to the same `LocaleBundle::new`
+// call (e.g. `&[en.clone()], &[en.clone()], en`), and
+// `std::slice::from_ref(&en)` would borrow `en` for the duration of
+// that call while the third argument simultaneously tries to move it
+// -- a real E0505 borrow-checker conflict, not a style preference. The
+// clone is genuinely necessary here, not merely idiomatic.
+//
+// `unknown_lints` is also allowed, deliberately: this sandbox's own
+// (older) clippy doesn't recognize `cloned_ref_to_slice_refs` at all
+// yet, and without this, the bare `#[allow(clippy::...)]` below would
+// itself become a hard error locally under `-D warnings` (confirmed
+// the direct way -- it did, before this line was added) even though
+// it's exactly what's needed for CI's newer clippy.
+#[allow(unknown_lints)]
+#[allow(clippy::cloned_ref_to_slice_refs)]
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
