@@ -24,7 +24,7 @@ fluent = "0.16"
 # `fluent` does *not* re-export this one -- needed directly for
 # `ParserError`, surfaced in this crate's own `LoaderError` when a
 # `.ftl` file fails to parse.
-fluent-syntax = "0.11"
+fluent-syntax = "0.12"
 
 # Locale-fallback-chain resolution -- already a transitive dependency of
 # `fluent`, listed explicitly here since this crate calls it directly
