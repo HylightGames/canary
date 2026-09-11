@@ -64,4 +64,4 @@ wasmtime = { version = "=21.0.2", default-features = false, features = ["compone
 # wat's own pin, for the same rustc-1.75 reason as the others above --
 # it drifted independently of wasmtime's core dependency tree.
 wat = "=1.207.0"
-encoding_rs = "=0.8.35"
+encoding_rs = "=0.8.40"
