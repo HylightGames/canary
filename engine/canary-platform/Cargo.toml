@@ -33,7 +33,6 @@ winit-backend = [
     "dep:wayland-protocols-plasma",
     "dep:wayland-protocols-wlr",
     "dep:wayland-scanner",
-    "dep:quick-xml",
 ]
 
 [dependencies]
@@ -43,33 +42,23 @@ winit = { version = "0.30", optional = true }
 thiserror = { version = "2.0.19", optional = true }
 tracing = { version = "0.1.44", default-features = false, features = ["std"], optional = true }
 
-# Transitive-dependency pins, needed only when `winit-backend` is active,
-# for this sandbox's rustc-1.75 validation floor (see
-# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor).
-# `winit` 0.30.13 itself has no MSRV issue; five of its *transitive*
-# Wayland-protocol dependencies do, and this pin set had already drifted
-# once by the time this was implemented (re-verified empirically, not
-# carried forward from the v0.0.4 roadmap's own scoping pass, which
-# itself found only three of these five):
-#   - wayland-protocols = "=0.32.9": newer releases require rustc 1.79+
-#     (declared via `edition = "2024"`, a hard Cargo-1.75 parse wall).
-#   - wayland-protocols-plasma = "=0.3.9" and
-#     wayland-protocols-wlr = "=0.3.9": both hard-require
-#     `wayland-protocols = "^0.32.<their-own-patch>"` in lockstep with
-#     their own version number, so pinning wayland-protocols alone
-#     isn't sufficient -- these two have to be pinned to the specific
-#     patch release whose own requirement is "^0.32.9", or newer
-#     releases of *these* crates silently demand a newer
-#     wayland-protocols than the pin above allows.
-#   - wayland-scanner = "=0.31.10": same edition-2024 wall as
-#     wayland-protocols above.
-#   - quick-xml = "=0.39.4": wayland-scanner's own build-time dependency;
-#     0.41+ declares rust-version 1.79.
-wayland-protocols = { version = "=0.32.9", optional = true }
-wayland-protocols-plasma = { version = "=0.3.9", optional = true }
-wayland-protocols-wlr = { version = "=0.3.9", optional = true }
-wayland-scanner = { version = "=0.31.10", optional = true }
-quick-xml = { version = "=0.39.4", optional = true }
+# These five were previously exact-pinned below their real latest
+# releases for this sandbox's old rustc-1.75 validation floor (their
+# newer releases need rustc 1.79+, an edition-2024 parse wall). Unpinned
+# now that this sandbox can reach rustc 1.91 (see
+# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor)
+# -- the old quick-xml pin (=0.39.4) also carried two real RustSec
+# advisories (RUSTSEC-2026-0194, RUSTSEC-2026-0195), fixed in 0.41+.
+wayland-protocols = { version = "0.32", optional = true }
+wayland-protocols-plasma = { version = "0.3", optional = true }
+wayland-protocols-wlr = { version = "0.3", optional = true }
+# >=0.31.11 specifically: 0.31.10 and earlier pull in quick-xml 0.39.4
+# as a build-time (proc-macro) dependency, which carries RUSTSEC-2026-0194
+# and RUSTSEC-2026-0195; 0.31.11 bumped its own requirement to quick-xml
+# 0.41 internally, which isn't affected. Not declared as our own
+# dependency here since nothing in this crate's source uses quick_xml
+# directly -- it's pulled in solely by wayland-scanner's choice.
+wayland-scanner = { version = "0.31.11", optional = true }
 
 [dev-dependencies]
 

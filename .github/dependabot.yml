@@ -23,21 +23,24 @@ updates:
           - "minor"
           - "patch"
     # Every package below is pinned with an exact ("=") version somewhere
-    # in this workspace specifically because its own newer releases
-    # already violate this sandbox's rustc-1.75 validation floor (see
+    # in this workspace. For most of them it's because their own newer
+    # releases already violate this sandbox's rustc-1.75 validation floor
+    # (see
     # docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
-    # for the full reasoning behind each). These are floor pins tied to
-    # an external toolchain constraint dependabot has no way to know
-    # about -- unlike ordinary dependencies, even a routine patch bump
-    # here is a real, proven risk, not a hypothetical one: an earlier
-    # attempt at exactly this kind of "safe" grouped patch/minor bump
-    # (PR #5) silently reintroduced multiple already-fixed MSRV breaks in
-    # one pass (unic-langid-impl and unic-langid-macros-impl both moved
-    # to 0.9.6, which calls the rustc-1.82-only `Option::is_none_or`;
-    # rustc-hash moved to 2.1.3, which needs rustc 1.77+), and PR #6
-    # bumped wasmtime-wasi alone, ahead of wasmtime, which the upstream
-    # project releases in lockstep specifically so their types stay
-    # compatible with each other.
+    # for the full reasoning behind each) -- floor pins tied to an
+    # external toolchain constraint dependabot has no way to know about.
+    # wasmtime/wasmtime-wasi are the one exception: they're off that
+    # floor now, but stay exact-pinned because the two must move in
+    # lockstep with each other (see the ignore entry below) -- a
+    # different, non-floor reason dependabot also has no way to know
+    # about. Either way: even a routine patch bump here is a real, proven
+    # risk, not a hypothetical one: an earlier attempt at exactly this
+    # kind of "safe" grouped patch/minor bump (PR #5) silently
+    # reintroduced multiple already-fixed MSRV breaks in one pass
+    # (unic-langid-impl and unic-langid-macros-impl both moved to 0.9.6,
+    # which calls the rustc-1.82-only `Option::is_none_or`; rustc-hash
+    # moved to 2.1.3, which needs rustc 1.77+), and PR #6 bumped
+    # wasmtime-wasi alone, ahead of wasmtime.
     #
     # Fully ignored (no `update-types` filter), not just excluded from
     # the group above: these need a human to re-verify the *specific*
@@ -47,32 +50,24 @@ updates:
     # Revisit removing an entry once this sandbox's rustc floor moves
     # past the version that entry's newer releases need.
     ignore:
-      # wasmtime family (v0.0.3, Tier A WASM loading) -- wasmtime and
-      # wasmtime-wasi must move together; idna/idna_adapter/hashbrown/
-      # indexmap/litemap are wasmtime's own transitive floor pins.
+      # wasmtime + wasmtime-wasi (v0.0.3, Tier A WASM loading) must move
+      # together -- the upstream project releases both in lockstep
+      # specifically so their types stay compatible with each other, and
+      # PR #6 already demonstrated dependabot will bump one without the
+      # other if left ungrouped. This is an upstream API-compatibility
+      # fact, independent of any toolchain floor, so it stays a
+      # human-verified bump even now that both are off the old rustc-1.75
+      # floor pin (currently 36.0.15 -- see
+      # engine/canary-plugin-api/Cargo.toml for why that version
+      # specifically, and
+      # docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
+      # for the floor itself).
       - dependency-name: "wasmtime"
       - dependency-name: "wasmtime-wasi"
-      - dependency-name: "wat"
-      - dependency-name: "idna"
-      - dependency-name: "idna_adapter"
-      - dependency-name: "hashbrown"
-      - dependency-name: "litemap"
       # v0.0.1 floor pins (canary-ecs/canary-plugin-api).
       - dependency-name: "libloading"
       - dependency-name: "proptest"
       - dependency-name: "tempfile"
-      # winit/Wayland family (v0.0.4, real windowing).
-      - dependency-name: "wayland-protocols"
-      - dependency-name: "wayland-protocols-plasma"
-      - dependency-name: "wayland-protocols-wlr"
-      - dependency-name: "wayland-scanner"
-      - dependency-name: "quick-xml"
-      - dependency-name: "block-buffer"
-      - dependency-name: "ignore"
-      - dependency-name: "globset"
-      - dependency-name: "rust-embed"
-      - dependency-name: "rust-embed-impl"
-      - dependency-name: "rust-embed-utils"
       # fluent-rs / unic-langid family (v0.0.5, localization) --
       # unic-langid and unic-langid-impl must move together, likewise
       # unic-langid-macros and unic-langid-macros-impl; rustc-hash is
@@ -82,8 +77,9 @@ updates:
       - dependency-name: "unic-langid-impl"
       - dependency-name: "unic-langid-macros"
       - dependency-name: "unic-langid-macros-impl"
-      # Rendering (v0.0.6) -- naga and indexmap are shared with the
-      # wasmtime family's own indexmap pin above; only one entry needed.
+      # Rendering (v0.0.6) -- canary-render-vulkan's own naga/indexmap
+      # floor pins (see that crate's Cargo.toml); unrelated to wasmtime's
+      # own indexmap resolution now that wasmtime is off the 1.75 floor.
       - dependency-name: "naga"
       - dependency-name: "indexmap"
     labels:

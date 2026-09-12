@@ -21,14 +21,23 @@ canary-ecs = { path = "../canary-ecs" }
 # toolchain.
 libloading = "=0.8.6"
 
-# Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. wasmtime 21.0.2
-# is the newest release confirmed, empirically (a real `cargo build`, not
-# just its declared rust-version), to compile under this sandbox's
-# apt-installed rustc 1.75 -- see
-# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
-# for why this needed six pins, not one, and what to do once a current
-# toolchain is available.
-wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
+# Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. Pinned to
+# 36.0.15 -- not "latest" (48.x) and not the original 21.0.2 -- for two
+# independent reasons that both point at the same version:
+#   1. Security: 21.0.2 accumulated 18 real RustSec advisories over its
+#      lifetime, including two CRITICAL (9.0) wasmtime sandbox-escape
+#      bugs (RUSTSEC-2026-0095, RUSTSEC-2026-0096) and one HIGH (8.8)
+#      filesystem sandbox escape (RUSTSEC-2026-0269) -- serious for a
+#      crate whose entire job is sandboxing untrusted plugin code.
+#      36.0.15 is the earliest 36.x patch that closes all of them
+#      (cargo-audit-confirmed); earlier 36.x patches don't cover
+#      RUSTSEC-2026-0269 (needs >=36.0.14).
+#   2. Toolchain reach: 36.x needs rustc >=1.86 -- within reach of the
+#      rustc-1.91 apt package (see
+#      docs/development/build-system.md#the-rustc-175-sandbox-validation-floor,
+#      updated below), but 46.x/47.x/48.x need >=1.94, which isn't
+#      apt-installable here yet. Move up when it is.
+wasmtime = { version = "=36.0.15", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
 # wasmtime-wasi must be pinned to the exact same version as wasmtime
 # above -- the upstream project releases both in lockstep specifically
 # so their types stay compatible with each other. Learned the hard way,
@@ -41,15 +50,7 @@ wasmtime = { version = "=21.0.2", default-features = false, features = ["compone
 # type-mismatch compile error ever actually surfaced. It would the
 # moment anyone did. See .github/dependabot.yml's ignore list, added
 # after this, for why this pairing needs a human to bump it, not a bot.
-wasmtime-wasi = "=21.0.2"
-# Transitive-dependency pins required to actually build the above under
-# rustc 1.75 -- each independently drifted past that floor through its
-# own later releases since wasmtime 21.0.2 was originally published.
-idna = "=1.0.3"
-idna_adapter = "=1.2.0"
-hashbrown = "=0.16.1"
-indexmap = "=2.11.4"
-litemap = "=0.7.3"
+wasmtime-wasi = "=36.0.15"
 
 [dev-dependencies]
 # The `wat` feature (WAT text-format parsing) is dev-only on purpose:
@@ -60,8 +61,10 @@ litemap = "=0.7.3"
 # `cargo-component`/`wit-bindgen` toolchain -- see `tier_a.rs`'s test
 # module docs. Cargo unifies this feature in for `cargo test` builds
 # without it affecting `cargo build --release`.
-wasmtime = { version = "=21.0.2", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
-# wat's own pin, for the same rustc-1.75 reason as the others above --
-# it drifted independently of wasmtime's core dependency tree.
-wat = "=1.207.0"
-encoding_rs = "=0.8.35"
+wasmtime = { version = "=36.0.15", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
+# Used directly in tier_a.rs's tests (wat::parse_str), not just pulled
+# in transitively via wasmtime's own "wat" feature above -- needs an
+# explicit dependency entry. Left unpinned (unlike the old =1.207.0)
+# since nothing here requires rustc 1.75 anymore; cargo resolves
+# whatever's compatible with wasmtime 36.x's own wat requirement.
+wat = "1"

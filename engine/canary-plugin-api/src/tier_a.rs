@@ -61,7 +61,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use canary_ecs::World;
-use wasmtime::component::{Component, Linker};
+use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 
 use crate::capability::Capability;
@@ -389,16 +389,22 @@ impl WasmPluginLoader {
     ) -> Result<WasmComponentPlugin, PluginError> {
         let mut linker = Linker::new(&self.engine);
         if capabilities.contains(&Capability::ReadEcsWorld) {
-            canary::plugin::ecs_read::add_to_linker(&mut linker, |state: &mut HostState| state)
-                .map_err(|source| PluginError::WasmEngineSetup {
-                    source: source.into(),
-                })?;
+            canary::plugin::ecs_read::add_to_linker::<_, HasSelf<_>>(
+                &mut linker,
+                |state: &mut HostState| state,
+            )
+            .map_err(|source| PluginError::WasmEngineSetup {
+                source: source.into(),
+            })?;
         }
         if capabilities.contains(&Capability::WriteEcsWorld) {
-            canary::plugin::ecs_write::add_to_linker(&mut linker, |state: &mut HostState| state)
-                .map_err(|source| PluginError::WasmEngineSetup {
-                    source: source.into(),
-                })?;
+            canary::plugin::ecs_write::add_to_linker::<_, HasSelf<_>>(
+                &mut linker,
+                |state: &mut HostState| state,
+            )
+            .map_err(|source| PluginError::WasmEngineSetup {
+                source: source.into(),
+            })?;
         }
         // `Filesystem`/`Network` have no corresponding Tier A interface
         // yet (see `wit/plugin.wit`'s module docs), so there is nothing
@@ -425,10 +431,12 @@ impl WasmPluginLoader {
                 source: source.into(),
             })?;
 
-        let (bindings, _instance) = TierAPlugin::instantiate(&mut store, &component, &linker)
-            .map_err(|source| PluginError::WasmInstantiate {
-                path: path_for_errors,
-                source: source.into(),
+        let bindings =
+            TierAPlugin::instantiate(&mut store, &component, &linker).map_err(|source| {
+                PluginError::WasmInstantiate {
+                    path: path_for_errors,
+                    source: source.into(),
+                }
             })?;
 
         Ok(WasmComponentPlugin {
