@@ -72,4 +72,4 @@ wayland-scanner = { version = "0.31.11", optional = true }
 # inherently X11-specific (see winit_backend.rs's test module docs for
 # why macOS/Windows don't get an equivalent live-window test yet).
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-x11rb = { version = "0.13", features = ["xtest"] }
+x11rb = { version = "0.14", features = ["xtest"] }
