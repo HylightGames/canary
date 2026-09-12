@@ -21,6 +21,13 @@
 //! matching `docs/architecture/rendering.md`'s "Materials & shaders":
 //! WGSL is the authoring language, `canary_render::PipelineDescriptor`
 //! itself takes precompiled SPIR-V.
+//!
+//! `#[ignore]`d by default: this needs a real (if software) Vulkan ICD,
+//! which isn't guaranteed in every environment `cargo test` runs in --
+//! same reasoning as `canary-platform`'s `winit_backend_window.rs`. Run
+//! explicitly with `mesa-vulkan-drivers` installed (this sandbox has it;
+//! see `docs/architecture/platform-abstraction.md`) via
+//! `cargo test -p canary-render-vulkan --test hello_triangle -- --ignored`.
 
 use canary_render::{
     BufferDescriptor, ColorTargetDescriptor, CommandEncoder, PipelineDescriptor, RenderDevice,
@@ -94,6 +101,7 @@ fn pixel_at(pixels: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
 }
 
 #[test]
+#[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
 fn renders_a_real_triangle_to_an_offscreen_target_and_reads_back_real_pixels() {
     const WIDTH: u32 = 64;
     const HEIGHT: u32 = 64;

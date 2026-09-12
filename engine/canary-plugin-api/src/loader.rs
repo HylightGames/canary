@@ -212,7 +212,7 @@ mod tests {
     static DESTROYED: AtomicBool = AtomicBool::new(false);
 
     unsafe extern "C" fn fake_name(_context: *mut c_void) -> *const c_char {
-        b"fake-plugin\0".as_ptr() as *const c_char
+        c"fake-plugin".as_ptr()
     }
     unsafe extern "C" fn fake_noop(_context: *mut c_void) {}
     unsafe extern "C" fn fake_destroy(_context: *mut c_void) {

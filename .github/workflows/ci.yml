@@ -101,6 +101,32 @@ jobs:
           cargo test -p canary-platform --features winit-backend
           --test winit_backend_window -- --ignored
 
+  rendering-integration:
+    name: Real Vulkan rendering integration test (llvmpipe)
+    runs-on: ubuntu-latest
+    # Linux-only, same reasoning as windowing-integration above: this
+    # exercises canary-render-vulkan against a real (if software) Vulkan
+    # device -- a WGSL shader compiled to SPIR-V, an actual offscreen
+    # render, and a readback asserted against real pixel values -- none
+    # of which `lint-and-test` above actually runs, since no CI runner
+    # has a real GPU and no Vulkan ICD is installed by default. Previously
+    # this test ran unguarded inside `cargo test --workspace` on every OS
+    # in that matrix, which is why it failed there instead of being
+    # skipped: see this test's own module docs (`#[ignore]`d, same
+    # pattern as `winit_backend_window.rs`).
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install stable
+      - name: Install a software Vulkan ICD (Mesa llvmpipe/lavapipe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers
+      - name: Run the real Vulkan rendering integration test
+        run: >
+          cargo test -p canary-render-vulkan
+          --test hello_triangle -- --ignored
+
   wasm-target-check:
     name: WASM component target compiles
     runs-on: ubuntu-latest
