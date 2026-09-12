@@ -29,7 +29,7 @@ fluent-syntax = "0.11"
 # Locale-fallback-chain resolution -- already a transitive dependency of
 # `fluent`, listed explicitly here since this crate calls it directly
 # (see ADR 0015 for why this, not fluent-fallback's Localization type).
-fluent-langneg = "0.13"
+fluent-langneg = "0.14"
 
 # Locale identifiers (the `LanguageIdentifier` type fluent-langneg's API
 # is built around), with the `langid!()` const macro for compile-time-
