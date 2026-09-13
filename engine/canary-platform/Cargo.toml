@@ -42,10 +42,24 @@ winit = { version = "0.30", optional = true }
 thiserror = { version = "2.0.19", optional = true }
 tracing = { version = "0.1.44", default-features = false, features = ["std"], optional = true }
 
-# These five were previously exact-pinned below their real latest
-# releases for this sandbox's old rustc-1.75 validation floor (their
-# newer releases need rustc 1.79+, an edition-2024 parse wall). Unpinned
-# now that this sandbox can reach rustc 1.91 (see
+# These four exist purely to override the versions winit's own
+# dependency graph would otherwise resolve to -- nothing in this
+# crate's own source imports any of them directly. Scoped to exactly
+# the same target-cfg winit itself uses for these same four crates
+# (see winit's own Cargo.toml) -- Wayland doesn't exist on
+# Windows/macOS/wasm/Android/iOS, and unlike most of this Cargo.toml
+# being wrong about that was silent everywhere except Windows: macOS is
+# also `unix`, so `wayland-sys`'s own `use std::os::unix::io::RawFd`
+# happened to still compile there even though the crate would never
+# actually be used, while Windows -- which has no `std::os::unix` at
+# all -- failed outright with `error[E0433]: cannot find 'unix' in
+# 'os'`. Previously plain (untargeted) [dependencies], which is exactly
+# why this compiled on Linux and macOS but not Windows.
+[target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dependencies]
+# Previously exact-pinned below their real latest releases for this
+# sandbox's old rustc-1.75 validation floor (their newer releases need
+# rustc 1.79+, an edition-2024 parse wall). Unpinned now that this
+# sandbox can reach rustc 1.91 (see
 # docs/development/build-system.md#the-rustc-175-sandbox-validation-floor)
 # -- the old quick-xml pin (=0.39.4) also carried two real RustSec
 # advisories (RUSTSEC-2026-0194, RUSTSEC-2026-0195), fixed in 0.41+.
