@@ -244,42 +244,78 @@ GPU hardware validation (this release's automated coverage is
 `llvmpipe`-only) — see ADR 0016 and the roadmap for the reasoning behind
 each.
 
-## `v0.0.7`+ — partially resolved by the September 2026 review triage
+## `v0.0.7` — Implemented, not yet tagged
+
+Full detail: [`v0.0.7-roadmap.md`](v0.0.7-roadmap.md) and
+[`docs/architecture/execution-model.md`](../architecture/execution-model.md).
+Single focus: the ECS data-access architecture a scheduler needs,
+decided (rather than picked from the previously-open render-graph/
+physics/UI/state options) by the September 2026 external review triage
+([`docs/decisions/2026-09-review-triage.md`](../decisions/2026-09-review-triage.md)) —
+two independent reviews converged on the same gap `core-runtime.md`'s
+own "Threading & the job system" section had already implied but never
+made load-bearing.
+
+- [x] `Tick(u32)` → `Tick(u64)` — a plain `Ord`-derived `tick > since`
+      comparison is only correct if `Tick` never wraps during a
+      `World`'s lifetime; at `u32`, a long-lived server advancing the
+      tick once per frame at 60Hz wraps in about 2.3 years of continuous
+      uptime. Mirrors the same reasoning already applied to
+      `Entity::generation`
+- [x] Typed resource storage (`World::insert_resource`/`resource`/
+      `resource_mut`/`remove_resource`/`contains_resource`/
+      `resource_changed_since`) — globally-unique, engine-owned state
+      addressed by type, with the same `Tick`-based change detection
+      every component column already has
+- [x] Multi-component queries: `World::query2`/`query3` (read-only
+      archetype-set intersection across 2–3 component types) and
+      `World::query2_mut` (one mutable, one shared — the "update `A`
+      based on `B`" shape) — deliberately narrow, hand-written methods
+      rather than a fully generic `Query<D>` over arbitrary tuples,
+      mirroring this crate's own established "manual impl before derive
+      macro" precedent ([ADR
+      0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md))
+- [x] `docs/architecture/execution-model.md` — the design document these
+      implement a first cut of, including the "five invariants"
+      (ownership, access, time, identity, side-effects) adopted from the
+      second review's closing argument
+- [x] `canary-ecs`'s first `unsafe` code (`Archetype::column_pair_mut`,
+      needed for `query2_mut`'s simultaneous mutable+shared column
+      access), reasoned through explicitly rather than reached for by
+      default — flagged prominently in `execution-model.md` ("On
+      `unsafe`") since
+      [`coding-standards.md`](../development/coding-standards.md#unsafe-code)
+      names `canary-ecs` as outside the two boundaries where `unsafe` is
+      expected
+- [x] `cargo build`/`fmt --check`/`test`/`clippy -D warnings` clean
+      across the full workspace, with and without `winit-backend`,
+      re-verified against this sandbox's `rustc`/`cargo` 1.91 (see
+      [`build-system.md`](../development/build-system.md#the-rustc-175-sandbox-validation-floor))
+      after every change
+
+**Explicitly not in `v0.0.7`**: the scheduler/job-stealing system itself
+(the entire point of this release is its prerequisite, not the thing
+itself), command buffers and events (nothing parallel exists yet to need
+either from), first-class time types (`WallClock`/`FrameTime`/
+`SimulationTime` — no frame loop sophisticated enough to need them yet),
+a fully generic `Query<D>` trait or query-composed filters, mechanical
+enforcement of the five invariants, and mixed-mutability query shapes
+beyond `query2_mut`'s one-mutable-one-shared — see the roadmap doc for
+the reasoning behind each.
+
+## `v0.0.8`+ — sequenced, not deeply scoped yet
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release.
+one focus per release. Beyond `v0.0.7`, later releases are intentionally
+not detailed yet, per [`future-roadmap.md`](future-roadmap.md)'s own
+"don't assign fake specificity" discipline: ordering is genuinely still
+undecided among the scheduler itself (the natural next step after
+`v0.0.7`'s prerequisite work, though not automatically owed the very
+next release), the render graph/materials system, physics, `CanaryUI`'s
+`egui` backend, and `canary-state`'s medium-term scope. **Networking is
+deliberately deprioritized toward the end of this sequence, per direct
 
-**`v0.0.7` is now decided: the ECS execution-model work**, not one of the
-previously-open options below. Two external architecture reviews
-(triaged in
-[`docs/decisions/2026-09-review-triage.md`](../decisions/2026-09-review-triage.md))
-independently converged on the same finding this project's own
-`core-runtime.md` had already implied but never made load-bearing: the
-ECS has archetype storage but not yet the *data-access* architecture a
-scheduler needs (multi-component queries, typed resources, a formal
-system/access model), and building the next layer of systems around it
-before fixing that risks needing a redesign later rather than now. Scope
-for `v0.0.7`: multi-component queries, typed `Resource` storage,
-`Tick(u32)` → `Tick(u64)` (a small, independent, real wraparound-safety
-fix — see the triage doc), and a new
-`docs/architecture/execution-model.md` codifying queries, resources,
-commands, events, tick/time, and the "five invariants" (ownership,
-access, time, identity, side-effects) the second review's own closing
-argument converges on. Deliberately *not* in `v0.0.7`'s scope: the
-scheduler/job system itself, command buffers (nothing parallel exists
-yet to need them from), or any of the two reviews' more speculative
-additions (replay, reflection, VFS, ...) — see the triage doc's
-"Accept (deferred)" list for why each of those waits for a later
-milestone that actually needs it.
-
-Beyond `v0.0.7`, later releases are intentionally not detailed yet, per
-[`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
-specificity" discipline: ordering is genuinely still undecided among the
-render graph/materials system, physics, `CanaryUI`'s `egui` backend, and
-`canary-state`'s medium-term scope — the review triage bears on what
-comes *right after* `v0.0.6`, not on that longer-term ordering. **Networking
-is deliberately deprioritized toward the end of this sequence, per direct
 project direction** — not raced against the others the way rendering was
 moved ahead of it for localization. See
 [`future-roadmap.md`](future-roadmap.md) for the dependency graph rather
@@ -296,7 +332,7 @@ about working code in `engine/`.
 | Repository/governance | ✅ | ✅ | `v0.0.1` |
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
 | Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
-| ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2` |
+| ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
 | Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6` |

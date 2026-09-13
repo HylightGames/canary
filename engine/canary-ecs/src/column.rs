@@ -24,8 +24,25 @@ use std::any::Any;
 /// call is simply never reported as "changed since `Tick(0)`" by
 /// [`crate::World::query_changed_since`], which is the conservative,
 /// safe direction for that edge case to fail in.
+///
+/// `Tick` is a `u64`, not a `u32`, on purpose -- the same reasoning as
+/// [`crate::Entity::generation`] (see that type's docs), just found
+/// later: a plain `PartialOrd`/`Ord`-derived `tick > since` comparison
+/// (see [`crate::World::query_changed_since`]) is only correct if `Tick`
+/// never wraps around during a `World`'s lifetime. At `u32`, a
+/// long-lived server calling [`crate::World::advance_tick`] once per
+/// frame at 60Hz wraps in about 2.3 years of continuous uptime -- past
+/// that point, a stale `since` value captured before the wrap would
+/// compare *greater* than a genuinely more recent tick, silently hiding
+/// real changes from [`crate::World::query_changed_since`] rather than
+/// erroring. Found during the September 2026 external architecture
+/// review triage (`docs/decisions/2026-09-review-triage.md`, review #1
+/// item 3); `u64` doesn't eliminate the theoretical possibility, but --
+/// like `Entity::generation` -- moves it from "plausible over a real
+/// long-lived server's uptime" to "not reachable by any realistic
+/// amount of runtime."
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub struct Tick(u32);
+pub struct Tick(u64);
 
 impl Tick {
     /// Advances to the next tick. The inner representation stays
@@ -120,6 +137,19 @@ impl<T: 'static> TypedColumn<T> {
         &self.values
     }
 
+    /// A mutable slice over every row's value -- used by
+    /// [`crate::World::query2_mut`] to yield disjoint `&mut T` per row
+    /// via a genuine `IterMut` rather than repeated indexed
+    /// [`TypedColumn::get_mut`] calls, which the borrow checker can't
+    /// verify are non-overlapping across loop iterations the way a real
+    /// slice iterator can. See
+    /// `docs/architecture/execution-model.md#queries` for why this
+    /// column-level split is where the actual complexity lives, not
+    /// here.
+    pub(crate) fn values_mut(&mut self) -> &mut [T] {
+        &mut self.values
+    }
+
     pub(crate) fn changed_ticks(&self) -> &[Tick] {
         &self.changed_ticks
     }
@@ -142,6 +172,15 @@ impl<T: 'static> TypedColumn<T> {
     /// and must conservatively assume the caller writes through it.
     pub(crate) fn mark_changed(&mut self, row: usize, tick: Tick) {
         self.changed_ticks[row] = tick;
+    }
+
+    /// Stamps *every* row's changed-tick at once -- the whole-column
+    /// analogue of [`TypedColumn::mark_changed`], used by
+    /// [`crate::World::query2_mut`], which hands out `&mut T` for every
+    /// row it yields and, like [`crate::World::get_mut`], conservatively
+    /// assumes each one is written through.
+    pub(crate) fn mark_all_changed(&mut self, tick: Tick) {
+        self.changed_ticks.fill(tick);
     }
 }
 

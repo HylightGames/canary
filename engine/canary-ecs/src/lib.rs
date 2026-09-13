@@ -32,7 +32,17 @@
 //! value. See each method's own doc comment for the specific safety
 //! properties involved.
 //!
+//! Since `v0.0.7`: [`World::insert_resource`]/[`World::resource`]/
+//! [`World::resource_mut`] add typed, globally-unique resource storage,
+//! and [`World::query2`]/[`World::query3`]/[`World::query2_mut`] add
+//! multi-component queries alongside the original single-component
+//! [`World::query`] — see
+//! `docs/architecture/execution-model.md` for the design this belongs
+//! to, including why these are deliberately narrow, hand-written methods
+//! rather than a fully generic `Query<D>` over arbitrary tuples yet.
+//!
 //! **Not yet here**: the parallel job-stealing scheduler — see
+//! `docs/architecture/execution-model.md` and
 //! `docs/architecture/core-runtime.md#threading--the-job-system` — still
 //! the one piece of the target ECS design this crate doesn't implement.
 

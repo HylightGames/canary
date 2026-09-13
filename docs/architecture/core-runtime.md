@@ -98,7 +98,7 @@ Target-design commitments:
   networking replication (only send what changed) and for editor tooling
   (only re-cook what changed).
 
-### What's implemented as of `v0.0.2`
+### What's implemented as of `v0.0.7`
 
 `canary-ecs`'s `World` now matches the target design above on every point
 except the scheduler itself:
@@ -109,12 +109,20 @@ except the scheduler itself:
 - **Cached queries**: `World::query`/`World::query_changed_since` resolve
   which archetypes to scan via a `TypeId -> Archetype` index maintained
   incrementally as archetypes are created, rather than checking every
-  archetype's signature on every call.
+  archetype's signature on every call. Since `v0.0.7`,
+  `World::query2`/`World::query3`/`World::query2_mut` extend this to real
+  multi-component joins (archetype-set intersection, not union) — see
+  [`docs/architecture/execution-model.md`](execution-model.md) for the
+  design these are a deliberately narrow first cut of.
 - **Change detection** is a first-class query filter —
   `World::query_changed_since` — backed by a per-column, per-row tick
   that survives archetype moves caused by unrelated components (moving
   an entity because a *different* component was added or removed doesn't
-  make its untouched components look freshly written).
+  make its untouched components look freshly written). Since `v0.0.7`,
+  `Tick` is a `u64` (was `u32`; see `execution-model.md` for the
+  wraparound reasoning), and the same change-detection story extends to
+  typed resource storage (`World::insert_resource`/`resource`/
+  `resource_mut`/`resource_changed_since`) alongside components.
 - **Component identity**: a first cut of
   [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)'s
   proposed direction — `CanaryComponent::SCHEMA_ID` plus
@@ -128,15 +136,21 @@ except the scheduler itself:
 
 Still not here, in this crate specifically: the work-stealing scheduler
 itself (see [Threading & the job system](#threading--the-job-system)
-below, deliberately deferred). Tier A's own loader, capability
-enforcement, resource budget, and data ABI are real as of `v0.0.3`, but
-live in `canary-plugin-api`, not here — see
+below, deliberately deferred — `execution-model.md` is now where its
+access-declaration story should be written when that work starts, not a
+new document). Tier A's own loader, capability enforcement, resource
+budget, and data ABI are real as of `v0.0.3`, but live in
+`canary-plugin-api`, not here — see
 [`docs/roadmap/v0.0.3-roadmap.md`](../roadmap/v0.0.3-roadmap.md) for
 exact scope and what's explicitly excluded there.
 
-The public API surface (`spawn`, `insert`, `query`, ...) is unchanged from
-`v0.0.1-pre1` — the migration changed the *implementation* behind these
-calls, as intended, not the call sites that use them.
+The public API surface present since `v0.0.1-pre1` (`spawn`, `insert`,
+single-component `query`, ...) is unchanged in behavior — the `v0.0.2`
+archetype migration changed the *implementation* behind these calls, not
+the call sites that use them. `v0.0.7`'s additions
+(`query2`/`query3`/`query2_mut`, resource storage) are genuinely new
+surface, not a reimplementation of existing calls — see
+`execution-model.md` for why each is scoped the way it is.
 
 ## Threading & the job system
 
@@ -147,10 +161,15 @@ same pool rather than spawning ad hoc OS threads, so the engine has one
 place to reason about CPU utilization instead of N subsystems each guessing
 how many threads they're "allowed."
 
-v0.0.1-pre1 has no job system at all — `canary-runtime` runs everything on
-the main thread. This is intentionally deferred rather than half-built: a
+`canary-runtime` has no job system at all today — everything runs on the
+main thread. This is intentionally deferred rather than half-built: a
 job system designed before the ECS's real data-access declarations exist
-would likely need redesigning anyway once those declarations land.
+would likely need redesigning anyway once those declarations land. As of
+`v0.0.7`, a first cut of those declarations exists (multi-component
+queries, typed resources — see
+[`docs/architecture/execution-model.md`](execution-model.md)); the
+scheduler itself remains the next real step once its own milestone comes
+up in the roadmap, not an automatic continuation of `v0.0.7`.
 
 ## Error handling conventions
 
@@ -170,9 +189,12 @@ for the enforced version of these conventions.
 
 ## Known limitations
 
-No open known limitations for `canary-ecs`'s ECS design as of `v0.0.2` —
-see the two resolution notes below for what the August 2026 review and
-the `v0.0.2` archetype migration each closed out.
+No open known limitations for `canary-ecs`'s ECS design as of `v0.0.7` —
+see [`execution-model.md`](execution-model.md#known-limitations) for
+what's still deliberately deferred (the scheduler itself chief among
+them) rather than an open gap, and the two resolution notes below for
+what the August 2026 review and the `v0.0.2` archetype migration each
+closed out.
 
 Resolved since the August 2026 review, for `v0.0.1`: component storage
 now requires `T: Send + Sync` (was previously unbounded, contradicting

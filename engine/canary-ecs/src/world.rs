@@ -30,6 +30,15 @@ struct Slot {
     location: Option<EntityLocation>,
 }
 
+/// A single resource's storage: its value plus the [`Tick`] it was last
+/// written at, mirroring what [`crate::column::TypedColumn`] tracks
+/// per-row for components -- see
+/// `docs/architecture/execution-model.md#resources`.
+struct ResourceEntry {
+    value: Box<dyn Any + Send + Sync>,
+    changed_tick: Tick,
+}
+
 /// Where one entity's row currently lives: which archetype, and which
 /// row within it. Updated every time an entity's component set changes
 /// (moving it to a different archetype) or another entity's
@@ -97,6 +106,12 @@ pub struct World {
     /// host's `TypeId` for that type, populated by
     /// [`World::register_component`].
     schema_registry: HashMap<&'static str, TypeId>,
+    /// Globally-unique, engine-owned state addressed by type rather
+    /// than by entity -- see
+    /// `docs/architecture/execution-model.md#resources` (`v0.0.7`).
+    /// A single-slot analogue of a component column: one value, one
+    /// [`Tick`], per type, rather than a `Vec` of them.
+    resources: HashMap<TypeId, ResourceEntry>,
 }
 
 impl World {
@@ -113,6 +128,7 @@ impl World {
             empty_archetype: ArchetypeId(0),
             current_tick: Tick::default(),
             schema_registry: HashMap::new(),
+            resources: HashMap::new(),
         }
     }
 
@@ -440,6 +456,151 @@ impl World {
             .filter_map(move |(entity, value, tick)| (tick > since).then_some((entity, value)))
     }
 
+    /// Shared downcast helper for [`World::query2`]/[`World::query3`]:
+    /// `archetype`'s column of type `T`, downcast from the type-erased
+    /// [`crate::column::ColumnOps`] storage. Panics (an internal
+    /// invariant violation, not a user-facing error -- see
+    /// [`crate::column::ColumnOps::push_any`]'s matching convention) if
+    /// `archetype` doesn't actually have a `T` column; every call site
+    /// only calls this after confirming presence via
+    /// [`crate::archetype::Archetype::has_component`] or the
+    /// `type_to_archetypes` cache, so a panic here means those two
+    /// disagreed with the archetype's real columns, not a normal
+    /// "entity doesn't have this component" case.
+    fn typed_column<T: 'static>(archetype: &Archetype) -> &TypedColumn<T> {
+        archetype
+            .column(TypeId::of::<T>())
+            .and_then(|c| c.as_any().downcast_ref::<TypedColumn<T>>())
+            .expect("archetype signature and columns must agree on stored types")
+    }
+
+    /// Iterates every currently-alive entity that has *both* a
+    /// component of type `A` and one of type `B`, yielding
+    /// `(Entity, &A, &B)` -- a real archetype-set intersection, not a
+    /// union: an entity with only one of the two is never yielded. See
+    /// `docs/architecture/execution-model.md#queries` for why this is a
+    /// hand-written method rather than a generic `Query<D>` over
+    /// tuples, and [`World::query2_mut`] for the "one mutable, one
+    /// shared" counterpart.
+    pub fn query2<A: 'static, B: 'static>(&self) -> impl Iterator<Item = (Entity, &A, &B)> {
+        let type_b = TypeId::of::<B>();
+        self.type_to_archetypes
+            .get(&TypeId::of::<A>())
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(move |id| self.archetypes[id.0].has_component(type_b))
+            .flat_map(move |archetype_id| {
+                let archetype = &self.archetypes[archetype_id.0];
+                let column_a = Self::typed_column::<A>(archetype);
+                let column_b = Self::typed_column::<B>(archetype);
+                archetype
+                    .entities()
+                    .iter()
+                    .copied()
+                    .zip(column_a.values().iter())
+                    .zip(column_b.values().iter())
+                    .map(|((entity, a), b)| (entity, a, b))
+            })
+    }
+
+    /// Like [`World::query2`], for three components at once: entities
+    /// with `A`, `B`, *and* `C` all present, yielding
+    /// `(Entity, &A, &B, &C)`.
+    pub fn query3<A: 'static, B: 'static, C: 'static>(
+        &self,
+    ) -> impl Iterator<Item = (Entity, &A, &B, &C)> {
+        let type_b = TypeId::of::<B>();
+        let type_c = TypeId::of::<C>();
+        self.type_to_archetypes
+            .get(&TypeId::of::<A>())
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(move |id| {
+                let archetype = &self.archetypes[id.0];
+                archetype.has_component(type_b) && archetype.has_component(type_c)
+            })
+            .flat_map(move |archetype_id| {
+                let archetype = &self.archetypes[archetype_id.0];
+                let column_a = Self::typed_column::<A>(archetype);
+                let column_b = Self::typed_column::<B>(archetype);
+                let column_c = Self::typed_column::<C>(archetype);
+                archetype
+                    .entities()
+                    .iter()
+                    .copied()
+                    .zip(column_a.values().iter())
+                    .zip(column_b.values().iter())
+                    .zip(column_c.values().iter())
+                    .map(|(((entity, a), b), c)| (entity, a, b, c))
+            })
+    }
+
+    /// Like [`World::query2`], but yields a mutable reference to `A`
+    /// alongside a shared reference to `B` -- the "update `A` based on
+    /// `B`" shape (a `Position` updated from a `Velocity`) that's the
+    /// canonical reason multi-component queries exist. Marks every
+    /// yielded entity's `A` as changed at the current
+    /// [`World::change_tick`], the same conservative "assume the caller
+    /// writes through it" policy [`World::get_mut`] already uses.
+    ///
+    /// Eagerly collects into a `Vec` internally (returning its
+    /// `IntoIter`) rather than lazily streaming per archetype -- unlike
+    /// [`World::query2`]/[`World::query3`], yielding a `&mut A`
+    /// alongside a `&B` from the same archetype needs
+    /// [`crate::archetype::Archetype::column_pair_mut`]'s `unsafe`
+    /// split (see `docs/architecture/execution-model.md#queries`, "On
+    /// `unsafe`"), and doing that split once per archetype inside this
+    /// method's own body -- rather than lazily, across an opaque
+    /// `Iterator`'s repeated calls into `self.archetypes` at
+    /// caller-controlled points -- is what keeps the *rest* of this
+    /// method ordinary safe Rust (a real `IterMut` over each archetype,
+    /// not repeated indexed access the borrow checker can't verify is
+    /// disjoint). One `Vec` allocation per call, proportional to the
+    /// matched entity count -- fine for a first correct implementation,
+    /// per this crate's existing `Archetype::extract_row` precedent for
+    /// naming a similar tradeoff rather than hiding it.
+    pub fn query2_mut<A: 'static, B: 'static>(
+        &mut self,
+    ) -> impl Iterator<Item = (Entity, &mut A, &B)> {
+        let type_a = TypeId::of::<A>();
+        let type_b = TypeId::of::<B>();
+        let current_tick = self.current_tick;
+
+        let mut results: Vec<(Entity, &mut A, &B)> = Vec::new();
+        for archetype in &mut self.archetypes {
+            if !archetype.has_component(type_a) || !archetype.has_component(type_b) {
+                continue;
+            }
+            // `Entity` is `Copy`; cloning the (typically small) row list
+            // up front avoids holding an immutable borrow of `archetype`
+            // across the `column_pair_mut` call just below, which needs
+            // `&mut archetype`.
+            let entities: Vec<Entity> = archetype.entities().to_vec();
+            let (column_a, column_b) = archetype
+                .column_pair_mut(type_a, type_b)
+                .expect("has_component confirmed both types are present above");
+            let column_a = column_a
+                .as_any_mut()
+                .downcast_mut::<TypedColumn<A>>()
+                .expect("archetype signature and columns must agree on stored types");
+            let column_b = column_b
+                .as_any()
+                .downcast_ref::<TypedColumn<B>>()
+                .expect("archetype signature and columns must agree on stored types");
+            column_a.mark_all_changed(current_tick);
+            for ((entity, a_ref), b_ref) in entities
+                .into_iter()
+                .zip(column_a.values_mut().iter_mut())
+                .zip(column_b.values().iter())
+            {
+                results.push((entity, a_ref, b_ref));
+            }
+        }
+        results.into_iter()
+    }
+
     /// The tick that will be stamped on the *next* write ([`World::insert`]
     /// moving an entity into a component for the first time, an
     /// [`World::insert`] overwrite, or a [`World::get_mut`] access).
@@ -458,6 +619,78 @@ impl World {
     /// system") suits them.
     pub fn advance_tick(&mut self) {
         self.current_tick.increment();
+    }
+
+    /// Inserts (or replaces) the resource of type `T`, stamping the
+    /// current [`World::change_tick`] -- see
+    /// `docs/architecture/execution-model.md#resources`. Unlike
+    /// [`World::insert`] for components, there's no entity to attach
+    /// this to and no archetype transition: a resource is global to the
+    /// `World`, at most one value per type.
+    pub fn insert_resource<T: Send + Sync + 'static>(&mut self, resource: T) {
+        self.resources.insert(
+            TypeId::of::<T>(),
+            ResourceEntry {
+                value: Box::new(resource),
+                changed_tick: self.current_tick,
+            },
+        );
+    }
+
+    /// Returns a reference to the resource of type `T`, if one has been
+    /// inserted.
+    pub fn resource<T: 'static>(&self) -> Option<&T> {
+        self.resources
+            .get(&TypeId::of::<T>())?
+            .value
+            .downcast_ref::<T>()
+    }
+
+    /// Returns a mutable reference to the resource of type `T`, if one
+    /// has been inserted. Marks it as changed at the current
+    /// [`World::change_tick`] unconditionally -- the same conservative
+    /// convention as [`World::get_mut`] for components, since a caller
+    /// receiving `&mut T` is assumed to write through it.
+    pub fn resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        let current_tick = self.current_tick;
+        let entry = self.resources.get_mut(&TypeId::of::<T>())?;
+        entry.changed_tick = current_tick;
+        entry.value.downcast_mut::<T>()
+    }
+
+    /// Removes and returns the resource of type `T`, if one has been
+    /// inserted.
+    pub fn remove_resource<T: 'static>(&mut self) -> Option<T> {
+        let entry = self.resources.remove(&TypeId::of::<T>())?;
+        // `resources` is keyed by `TypeId::of::<T>()` and every entry is
+        // only ever constructed by `insert_resource::<T>` for that same
+        // `T` (see that method), so this downcast cannot fail -- an
+        // internal invariant, not a caller-facing error, per the same
+        // convention as `ColumnOps::push_any`.
+        Some(
+            *entry
+                .value
+                .downcast::<T>()
+                .expect("resources map key and stored value type must agree"),
+        )
+    }
+
+    /// Whether a resource of type `T` has been inserted.
+    pub fn contains_resource<T: 'static>(&self) -> bool {
+        self.resources.contains_key(&TypeId::of::<T>())
+    }
+
+    /// Whether the resource of type `T` has been written (via
+    /// [`World::insert_resource`] or [`World::resource_mut`]) at a tick
+    /// strictly later than `since` -- the resource analogue of
+    /// [`World::query_changed_since`]. Returns `false`, not an error or
+    /// panic, if no resource of type `T` has been inserted at all,
+    /// matching this crate's existing "missing is `None`/`false`, not a
+    /// distinct error case" convention (see [`World::has_component_erased`]).
+    pub fn resource_changed_since<T: 'static>(&self, since: Tick) -> bool {
+        self.resources
+            .get(&TypeId::of::<T>())
+            .is_some_and(|entry| entry.changed_tick > since)
     }
 
     /// Registers `T`'s stable [`CanaryComponent::SCHEMA_ID`] against its
@@ -819,6 +1052,174 @@ mod tests {
         let mut expected = vec![just_position, both];
         expected.sort_by_key(|e| e.index());
         assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn query2_only_returns_entities_with_both_components() {
+        let mut world = World::new();
+
+        let just_position = world.spawn();
+        world
+            .insert(just_position, Position { x: 1.0, y: 1.0 })
+            .unwrap();
+
+        let both = world.spawn();
+        world.insert(both, Position { x: 2.0, y: 2.0 }).unwrap();
+        world.insert(both, Velocity { dx: 3.0, dy: 3.0 }).unwrap();
+
+        let just_velocity = world.spawn();
+        world
+            .insert(just_velocity, Velocity { dx: 9.0, dy: 9.0 })
+            .unwrap();
+
+        let found: Vec<(Entity, Position, Velocity)> = world
+            .query2::<Position, Velocity>()
+            .map(|(e, p, v)| (e, *p, *v))
+            .collect();
+
+        assert_eq!(
+            found,
+            vec![(
+                both,
+                Position { x: 2.0, y: 2.0 },
+                Velocity { dx: 3.0, dy: 3.0 }
+            )]
+        );
+    }
+
+    #[test]
+    fn query2_is_order_independent_in_the_type_parameters() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, Position { x: 1.0, y: 2.0 }).unwrap();
+        world.insert(e, Velocity { dx: 3.0, dy: 4.0 }).unwrap();
+
+        let a: Vec<Entity> = world
+            .query2::<Position, Velocity>()
+            .map(|(e, _, _)| e)
+            .collect();
+        let b: Vec<Entity> = world
+            .query2::<Velocity, Position>()
+            .map(|(e, _, _)| e)
+            .collect();
+        assert_eq!(a, vec![e]);
+        assert_eq!(b, vec![e]);
+    }
+
+    #[test]
+    fn query3_requires_all_three_components() {
+        let mut world = World::new();
+
+        let all_three = world.spawn();
+        world
+            .insert(all_three, Position { x: 1.0, y: 1.0 })
+            .unwrap();
+        world
+            .insert(all_three, Velocity { dx: 2.0, dy: 2.0 })
+            .unwrap();
+        world.insert(all_three, Health { hp: 100.0 }).unwrap();
+
+        let missing_health = world.spawn();
+        world
+            .insert(missing_health, Position { x: 9.0, y: 9.0 })
+            .unwrap();
+        world
+            .insert(missing_health, Velocity { dx: 9.0, dy: 9.0 })
+            .unwrap();
+
+        let found: Vec<Entity> = world
+            .query3::<Position, Velocity, Health>()
+            .map(|(e, _, _, _)| e)
+            .collect();
+        assert_eq!(found, vec![all_three]);
+    }
+
+    #[test]
+    fn query2_mut_writes_through_and_leaves_the_shared_component_untouched() {
+        let mut world = World::new();
+
+        let both = world.spawn();
+        world.insert(both, Position { x: 0.0, y: 0.0 }).unwrap();
+        world.insert(both, Velocity { dx: 1.0, dy: 2.0 }).unwrap();
+
+        let just_position = world.spawn();
+        world
+            .insert(just_position, Position { x: 5.0, y: 5.0 })
+            .unwrap();
+
+        for (_, position, velocity) in world.query2_mut::<Position, Velocity>() {
+            position.x += velocity.dx;
+            position.y += velocity.dy;
+        }
+
+        assert_eq!(
+            world.get::<Position>(both),
+            Some(&Position { x: 1.0, y: 2.0 })
+        );
+        assert_eq!(
+            world.get::<Velocity>(both),
+            Some(&Velocity { dx: 1.0, dy: 2.0 })
+        );
+        // Untouched: not yielded by query2_mut (missing Velocity), so
+        // must be completely unaffected by the loop above.
+        assert_eq!(
+            world.get::<Position>(just_position),
+            Some(&Position { x: 5.0, y: 5.0 })
+        );
+    }
+
+    #[test]
+    fn query2_mut_marks_only_the_mutable_component_as_changed() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, Position { x: 0.0, y: 0.0 }).unwrap();
+        world.insert(e, Velocity { dx: 1.0, dy: 1.0 }).unwrap();
+
+        let since = world.change_tick();
+        world.advance_tick();
+
+        for (_, position, _velocity) in world.query2_mut::<Position, Velocity>() {
+            position.x += 1.0;
+        }
+
+        let position_changed = world
+            .query_changed_since::<Position>(since)
+            .any(|(entity, _)| entity == e);
+        let velocity_changed = world
+            .query_changed_since::<Velocity>(since)
+            .any(|(entity, _)| entity == e);
+        assert!(position_changed);
+        assert!(!velocity_changed);
+    }
+
+    #[test]
+    fn query2_mut_spans_multiple_archetypes() {
+        let mut world = World::new();
+
+        let e1 = world.spawn();
+        world.insert(e1, Position { x: 0.0, y: 0.0 }).unwrap();
+        world.insert(e1, Velocity { dx: 1.0, dy: 0.0 }).unwrap();
+
+        // A different archetype (Position + Velocity + Health), still
+        // matched by a query2::<Position, Velocity> -- extra components
+        // beyond the two queried for must not exclude an entity.
+        let e2 = world.spawn();
+        world.insert(e2, Position { x: 0.0, y: 0.0 }).unwrap();
+        world.insert(e2, Velocity { dx: 2.0, dy: 0.0 }).unwrap();
+        world.insert(e2, Health { hp: 50.0 }).unwrap();
+
+        for (_, position, velocity) in world.query2_mut::<Position, Velocity>() {
+            position.x += velocity.dx;
+        }
+
+        assert_eq!(
+            world.get::<Position>(e1),
+            Some(&Position { x: 1.0, y: 0.0 })
+        );
+        assert_eq!(
+            world.get::<Position>(e2),
+            Some(&Position { x: 2.0, y: 0.0 })
+        );
     }
 
     /// The trickiest part of a `swap_remove`-based archetype move: when
@@ -1217,5 +1618,79 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    struct FrameCount(u64);
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    struct GravityConstant(f32);
+
+    #[test]
+    fn resources_round_trip_through_insert_get_and_remove() {
+        let mut world = World::new();
+
+        assert!(world.resource::<FrameCount>().is_none());
+        assert!(!world.contains_resource::<FrameCount>());
+
+        world.insert_resource(FrameCount(0));
+        assert!(world.contains_resource::<FrameCount>());
+        assert_eq!(world.resource::<FrameCount>(), Some(&FrameCount(0)));
+
+        world.resource_mut::<FrameCount>().unwrap().0 = 5;
+        assert_eq!(world.resource::<FrameCount>(), Some(&FrameCount(5)));
+
+        assert_eq!(world.remove_resource::<FrameCount>(), Some(FrameCount(5)));
+        assert!(world.resource::<FrameCount>().is_none());
+    }
+
+    #[test]
+    fn inserting_a_resource_of_an_already_present_type_overwrites() {
+        let mut world = World::new();
+        world.insert_resource(GravityConstant(9.8));
+        world.insert_resource(GravityConstant(3.7));
+        assert_eq!(
+            world.resource::<GravityConstant>(),
+            Some(&GravityConstant(3.7))
+        );
+    }
+
+    #[test]
+    fn distinct_resource_types_do_not_interfere() {
+        let mut world = World::new();
+        world.insert_resource(FrameCount(1));
+        world.insert_resource(GravityConstant(9.8));
+
+        assert_eq!(world.resource::<FrameCount>(), Some(&FrameCount(1)));
+        assert_eq!(
+            world.resource::<GravityConstant>(),
+            Some(&GravityConstant(9.8))
+        );
+
+        world.remove_resource::<FrameCount>();
+        assert!(world.resource::<FrameCount>().is_none());
+        assert_eq!(
+            world.resource::<GravityConstant>(),
+            Some(&GravityConstant(9.8))
+        );
+    }
+
+    #[test]
+    fn resource_mut_marks_the_resource_as_changed() {
+        let mut world = World::new();
+        world.insert_resource(FrameCount(0));
+
+        let since = world.change_tick();
+        assert!(!world.resource_changed_since::<FrameCount>(since));
+
+        world.advance_tick();
+        world.resource_mut::<FrameCount>().unwrap().0 += 1;
+        assert!(world.resource_changed_since::<FrameCount>(since));
+    }
+
+    #[test]
+    fn resource_changed_since_is_false_for_a_resource_that_was_never_inserted() {
+        let world = World::new();
+        assert!(!world.resource_changed_since::<FrameCount>(Tick::default()));
     }
 }

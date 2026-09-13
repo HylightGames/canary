@@ -98,6 +98,54 @@ impl Archetype {
         }
     }
 
+    /// Returns simultaneous mutable access to the column for
+    /// `mutable_id` and shared access to the column for `shared_id`, or
+    /// `None` if either type isn't present in this archetype -- what
+    /// [`crate::World::query2_mut`] needs to yield `(&mut A, &B)` per
+    /// row without cloning `B`'s column. See
+    /// `docs/architecture/execution-model.md#queries` ("On `unsafe`")
+    /// for the full rationale; the short version is in the `SAFETY`
+    /// comment below.
+    ///
+    /// # Panics
+    /// If `mutable_id == shared_id` -- requesting the same column as
+    /// both mutable and shared would be a real aliasing violation this
+    /// method exists specifically to prevent, not a case it can resolve
+    /// safely on the caller's behalf.
+    pub(crate) fn column_pair_mut(
+        &mut self,
+        mutable_id: TypeId,
+        shared_id: TypeId,
+    ) -> Option<(&mut dyn ColumnOps, &dyn ColumnOps)> {
+        assert_ne!(
+            mutable_id, shared_id,
+            "column_pair_mut: mutable_id and shared_id must name different component types"
+        );
+        if !self.columns.contains_key(&mutable_id) || !self.columns.contains_key(&shared_id) {
+            return None;
+        }
+        // SAFETY: `mutable_id != shared_id` is asserted above, so
+        // `mutable_id` and `shared_id` are two different keys into
+        // `self.columns`, each owning a separate `Box<dyn ColumnOps>`
+        // heap allocation -- taking a `&mut` into one and a `&` into
+        // the other cannot alias the same memory, even though the
+        // borrow checker can't derive that fact from two ordinary
+        // accesses into the same `HashMap` (it reasons about the map as
+        // a whole, not about the disjointness of two specific keys).
+        // Both calls below go through a raw pointer purely to sidestep
+        // that limitation, not to bypass any real invariant: neither
+        // call inserts, removes, or otherwise structurally mutates
+        // `self.columns` (which could invalidate the other reference or
+        // relocate its allocation), and both keys are confirmed present
+        // by the `contains_key` checks above before this block runs.
+        unsafe {
+            let columns_ptr: *mut HashMap<TypeId, Box<dyn ColumnOps>> = &mut self.columns;
+            let mutable_column = (*columns_ptr).get_mut(&mutable_id)?.as_mut();
+            let shared_column = (*columns_ptr).get(&shared_id)?.as_ref();
+            Some((mutable_column, shared_column))
+        }
+    }
+
     /// The row index a value just appended by [`Archetype::insert_row`]
     /// now occupies.
     pub(crate) fn last_row_index(&self) -> usize {
