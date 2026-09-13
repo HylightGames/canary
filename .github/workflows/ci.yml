@@ -94,7 +94,7 @@ jobs:
       - name: Install X11 dev libraries and Xvfb
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config xvfb
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxkbcommon-x11-0 libxrandr-dev libxi-dev libxcursor-dev pkg-config xvfb
       - name: Run the real windowing integration test under Xvfb
         run: >
           xvfb-run --auto-servernum
