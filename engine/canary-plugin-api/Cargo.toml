@@ -12,6 +12,23 @@ workspace = true
 [dependencies]
 thiserror = "2.0.19"
 canary-ecs = { path = "../canary-ecs" }
+
+# Host-only: the native (Tier B) and WASM (Tier A) plugin *loaders*
+# (loader.rs / tier_a.rs, cfg-gated the same way in lib.rs) run on the
+# engine side and depend on libloading/wasmtime, neither of which
+# belongs in a wasm32-wasip2 build -- wasmtime in particular is the
+# *host* runtime that loads and executes a wasm component, which has no
+# meaning running as one. This is also why `cargo check -p
+# canary-plugin-api --target wasm32-wasip2` (CI's "WASM component
+# target compiles" job) was failing: it checked the whole crate,
+# including these, so wasmtime-wasi's own transitive `io-lifetimes`
+# dependency was being asked to compile for wasm32-wasip2 too, which
+# fails on `error[E0658]: use of unstable library feature "wasip2"`
+# regardless of this crate's own code -- io-lifetimes 2.0.4 references
+# unstable `std::os::wasi` items internally. Gating these out entirely
+# rather than chasing that error directly, since letting them build for
+# wasm32-wasip2 was never correct to begin with.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Pinned below latest for this sandbox's validation build: libloading's own
 # latest release (0.9.0) has raised its MSRV to rustc 1.88, newer than the
 # apt-installed rustc 1.75 available here (see

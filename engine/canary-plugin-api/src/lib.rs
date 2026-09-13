@@ -37,13 +37,30 @@
 //! See `docs/roadmap/v0.0.3-roadmap.md` for what's explicitly out of
 //! scope even now: a plugin manifest format, Tier B signing, and safe
 //! hot-unloading with full resource reclamation.
+//!
+//! **Host-only vs. shared surface:** [`abi`], [`Capability`],
+//! [`ComponentValue`]/[`ComponentValueCodec`]/[`CodecRegistry`],
+//! [`PluginError`], and [`Plugin`] itself have no host-specific
+//! dependency and compile for `wasm32-wasip2` (checked in CI —
+//! `cargo check -p canary-plugin-api --target wasm32-wasip2`) alongside
+//! their native build, since a plugin's own build may want these types
+//! directly rather than redefining them against the WIT world. The
+//! *loaders* ([`NativePluginLoader`], [`WasmPluginLoader`],
+//! [`WasmComponentPlugin`]) are host-only — `libloading` and
+//! `wasmtime`/`wasmtime-wasi` are both engine-side-only dependencies
+//! that never belong in a `wasm32-wasip2` build (`wasmtime` is the
+//! *host* runtime that loads and executes a wasm component; it has no
+//! meaning running as one), so `mod loader` and `mod tier_a` are
+//! `cfg(not(target_family = "wasm"))`-gated below.
 
 pub mod abi;
 mod capability;
 mod component_value;
 mod error;
+#[cfg(not(target_family = "wasm"))]
 mod loader;
 mod plugin;
+#[cfg(not(target_family = "wasm"))]
 mod tier_a;
 
 pub use capability::Capability;
@@ -51,6 +68,8 @@ pub use component_value::{
     CodecRegistry, ComponentValue, ComponentValueCodec, ComponentValueError, PrimitiveValue,
 };
 pub use error::PluginError;
+#[cfg(not(target_family = "wasm"))]
 pub use loader::NativePluginLoader;
 pub use plugin::Plugin;
+#[cfg(not(target_family = "wasm"))]
 pub use tier_a::{ResourceBudget, WasmComponentPlugin, WasmPluginLoader};
