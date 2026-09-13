@@ -244,21 +244,46 @@ GPU hardware validation (this release's automated coverage is
 `llvmpipe`-only) — see ADR 0016 and the roadmap for the reasoning behind
 each.
 
-## `v0.0.7`+ — sequenced, not deeply scoped yet
+## `v0.0.7`+ — partially resolved by the September 2026 review triage
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release. Beyond `v0.0.6`, later releases are intentionally
-not detailed yet, per [`future-roadmap.md`](future-roadmap.md)'s own
-"don't assign fake specificity" discipline: ordering is genuinely
-undecided among the render graph/materials system, physics, `CanaryUI`'s
-`egui` backend, and `canary-state`'s medium-term scope. **Networking is
-deliberately deprioritized toward the end of this sequence, per direct
+one focus per release.
+
+**`v0.0.7` is now decided: the ECS execution-model work**, not one of the
+previously-open options below. Two external architecture reviews
+(triaged in
+[`docs/decisions/2026-09-review-triage.md`](../decisions/2026-09-review-triage.md))
+independently converged on the same finding this project's own
+`core-runtime.md` had already implied but never made load-bearing: the
+ECS has archetype storage but not yet the *data-access* architecture a
+scheduler needs (multi-component queries, typed resources, a formal
+system/access model), and building the next layer of systems around it
+before fixing that risks needing a redesign later rather than now. Scope
+for `v0.0.7`: multi-component queries, typed `Resource` storage,
+`Tick(u32)` → `Tick(u64)` (a small, independent, real wraparound-safety
+fix — see the triage doc), and a new
+`docs/architecture/execution-model.md` codifying queries, resources,
+commands, events, tick/time, and the "five invariants" (ownership,
+access, time, identity, side-effects) the second review's own closing
+argument converges on. Deliberately *not* in `v0.0.7`'s scope: the
+scheduler/job system itself, command buffers (nothing parallel exists
+yet to need them from), or any of the two reviews' more speculative
+additions (replay, reflection, VFS, ...) — see the triage doc's
+"Accept (deferred)" list for why each of those waits for a later
+milestone that actually needs it.
+
+Beyond `v0.0.7`, later releases are intentionally not detailed yet, per
+[`future-roadmap.md`](future-roadmap.md)'s own "don't assign fake
+specificity" discipline: ordering is genuinely still undecided among the
+render graph/materials system, physics, `CanaryUI`'s `egui` backend, and
+`canary-state`'s medium-term scope — the review triage bears on what
+comes *right after* `v0.0.6`, not on that longer-term ordering. **Networking
+is deliberately deprioritized toward the end of this sequence, per direct
 project direction** — not raced against the others the way rendering was
 moved ahead of it for localization. See
 [`future-roadmap.md`](future-roadmap.md) for the dependency graph rather
 than a false ordering here.
-   rather than a false ordering here.
 
 ## Full architecture-to-implementation map
 
