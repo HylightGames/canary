@@ -1,0 +1,29 @@
+[package]
+name = "spinning-cube"
+description = "Example: a rotating cube rendered offscreen via canary-render-vulkan, encoded to an animated GIF."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-render = { path = "../../engine/canary-render" }
+canary-render-vulkan = { path = "../../engine/canary-render-vulkan" }
+
+# WGSL -> SPIR-V, the same reasoning and the same confirmed-minimal pin
+# set as canary-render-vulkan's own hello-triangle test dependency (see
+# that crate's Cargo.toml) -- this example needs it for the same reason:
+# canary_render::PipelineDescriptor takes precompiled SPIR-V, not WGSL.
+naga = { version = "=22.1.0", features = ["wgsl-in", "spv-out"] }
+indexmap = "=2.11.4"
+
+# GIF encoding for this example's output only -- not a rendering-engine
+# dependency, deliberately kept out of canary-render-vulkan itself.
+# Chosen over the much larger `image` crate: this example only ever
+# needs to encode one format, and `gif` pulls in exactly two small
+# dependencies (color_quant, weezl) to do it.
+gif = "0.14"

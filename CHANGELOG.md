@@ -6,6 +6,33 @@ Canary's version numbers follow the project's versioning scheme defined in [ADR 
 
 This file records **meaningful changes between released versions**. It intentionally does not reproduce the full development history of each release. For dated milestones, pre-releases, architecture reviews, and the work that led to each release, see [`docs/roadmap/milestones.md`](docs/roadmap/milestones.md).
 
+## [Unreleased]
+
+`v0.0.3` through `v0.0.8` are all implemented (see
+[`docs/roadmap/status.md`](docs/roadmap/status.md) for current,
+authoritative status) but not yet formally tagged — each has its own
+roadmap document with full scope, verification, and definition-of-done
+detail; this section summarizes rather than duplicates them.
+
+### Added
+
+* **Sandboxed WebAssembly Component plugins (Tier A)** — `canary-plugin-api`'s `wasmtime`-backed loader, with structural capability enforcement (`ReadEcsWorld`/`WriteEcsWorld`), a resource budget, and a versioned ECS data ABI across the host/guest boundary. (`v0.0.3`)
+* **Real windowing** — `canary-platform`'s `winit`-backed backend, behind an off-by-default `winit-backend` feature; a real OS window, real keyboard/mouse input, and a genuine close signal. (`v0.0.4`)
+* **Localization** — `canary-loc`: Fluent-backed message bundles, compile-time-checked `LocKey`/`key!` identifiers, real fallback-chain resolution, and tracing events for missing keys/fallbacks. (`v0.0.5`)
+* **Rendering bootstrap** — the `canary-render` RHI trait (confirmed zero dependencies) and its first backend, `canary-render-vulkan` (via `ash`), proven with a real offscreen triangle render: WGSL compiled to SPIR-V via `naga`, rendered and read back on a real (if software) Vulkan device. (`v0.0.6`)
+* **Multi-component queries and typed resources** — `World::query2`/`query3`/`query2_mut`, and `World::insert_resource`/`resource`/`resource_mut`, alongside the existing single-component `World::query`. `Tick` widened from `u32` to `u64` to close a real wraparound risk. New `docs/architecture/execution-model.md` design document. (`v0.0.7`)
+* **ECS scheduler** — a new crate, `canary-scheduler`: `SystemAccess` (declared component/resource reads and writes) and `Schedule` (stage-based execution, running non-conflicting read-only systems concurrently). (`v0.0.8`)
+
+### Changed
+
+* Two external architecture reviews (September 2026) were triaged against the actual codebase — see [`docs/decisions/2026-09-review-triage.md`](docs/decisions/2026-09-review-triage.md) — resolving `v0.0.7`'s and `v0.0.8`'s scope rather than picking from `future-roadmap.md`'s previously-open options.
+* [ADR 0016](docs/decisions/architecture-decision-records/0016-native-rendering-backends.md) superseded [ADR 0004](docs/decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)'s original `wgpu`-backed RHI plan with native, per-graphics-API backend crates instead.
+
+### Fixed
+
+* A real cargo-audit finding: `wasmtime`/`wasmtime-wasi` bumped to close 18 RustSec advisories (including two critical sandbox-escape bugs), and `wayland-scanner` bumped to close two more via a transitive `quick-xml` dependency.
+* Several real CI gaps found and fixed during the same pass: a Vulkan-dependent test that ran unguarded on every CI platform, a Windows-only compile failure from unscoped Wayland dependencies, and `canary-plugin-api`'s host-only loader code being incorrectly checked against the `wasm32-wasip2` target.
+
 ## [v0.0.2] — 2026-08-18
 
 ### Archetype ECS foundation

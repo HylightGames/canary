@@ -27,7 +27,7 @@ canary/
 ├── tools/
 │   └── xtask/                    build orchestration (see docs/development/build-system.md)
 │
-├── examples/                     will hold runnable example games/scenes (empty for now — see examples/README.md)
+├── examples/                     runnable example games/scenes (spinning-cube as of v0.0.6; see examples/README.md)
 ├── tests/                        cross-crate integration tests (empty for now — see tests/README.md)
 └── scripts/                      small standalone dev scripts (see scripts/README.md)
 ```
@@ -80,15 +80,17 @@ exactly why they're separated rather than combined:
   separate so the decision documents themselves stay focused on the
   decision rather than becoming literature reviews.
 
-## Why `examples/`, `tests/`, and `scripts/` are currently near-empty
+## `examples/`, `tests/`, and `scripts/`
 
-They're part of the suggested top-level structure and are created now so
-their *purpose* is documented and their location is settled — but populating
-them meaningfully depends on there being a renderer to build an example
-around, cross-subsystem integration to test, or a recurring dev task worth
-scripting, none of which exist yet in this foundation. Each directory has
-its own `README.md` explaining this rather than being silently empty with
-no explanation.
+Part of the suggested top-level structure, created early so their
+*purpose* was documented and their location settled even before they
+had content — each has its own `README.md` explaining this rather than
+being silently empty with no explanation. As of `v0.0.6`, `examples/`
+has real content (`spinning-cube`, once there was a renderer to build
+an example around) and `scripts/` does too (`setup-check.sh`).
+`tests/` remains genuinely empty — cross-subsystem integration worth a
+top-level test for, as opposed to what already lives in each crate's
+own `tests/`, doesn't exist yet.
 
 ## Known limitations (added by the August 2026 architecture review)
 

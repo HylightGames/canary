@@ -17,10 +17,10 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href=".github/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=github-actions&logoColor=white"></a>
   <a href="rust-toolchain.toml"><img alt="Rust" src="https://img.shields.io/badge/language-Rust-orange.svg?logo=rust"></a>
-  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.2-yellow.svg"></a>
+  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.8-yellow.svg"></a>
 </p>
 
-> **Early development:** Canary is currently at `v0.0.2` and is not yet
+> **Early development:** Canary is currently at `v0.0.8` and is not yet
 > production-ready. The engine foundation and extensibility systems are under
 > active development.
 
@@ -28,17 +28,32 @@
 
 Implemented:
 
-- Archetype-based ECS
-- Cached ECS queries and change detection
+- Archetype-based ECS, with multi-component queries, typed resources, and change detection
+- A stage-based scheduler that runs non-conflicting systems concurrently
 - Native C-ABI plugins
 - Sandboxed WebAssembly Component plugins
+- Real windowing (behind an opt-in feature) and a first rendering backend (Vulkan)
+- Fluent-backed localization
 - Core runtime and platform abstractions
 
-Rendering, UI, physics, audio, networking, localization, project state, and
-the editor are still in development or planned.
+A full renderer (materials, lighting, post-processing), UI, physics, audio,
+networking, and project state/the editor are still in development or planned.
 
 See [`docs/roadmap/status.md`](docs/roadmap/status.md) for the complete,
 living implementation status.
+
+## Visual progress
+
+The rendering bootstrap (`v0.0.6`): a real Vulkan pipeline, rendering
+and reading back real pixels, offscreen. No swapchain/window
+presentation yet — see
+[`examples/spinning-cube`](examples/spinning-cube) for how this was
+made and what it does and doesn't demonstrate about the RHI's current
+scope.
+
+<p align="center">
+  <img src="misc/screenshots/spinning_cube.gif" width="360" alt="A spinning, colored cube rendered through canary-render-vulkan">
+</p>
 
 ## Getting started
 

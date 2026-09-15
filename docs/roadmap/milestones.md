@@ -191,14 +191,40 @@ Full detail: [`RELEASE_NOTES_v0.0.2.md`](../../RELEASE_NOTES_v0.0.2.md).
 
 ## Beyond `v0.0.2`
 
-`v0.0.3` — Tier A (sandboxed WASM/Wasmtime) plugin loading — is now
-scoped: see [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Not started. This
-was scoped alongside a broader architecture discussion that produced
-[ADR 0014](../decisions/architecture-decision-records/0014-change-detection-as-shared-primitive.md)
-(change detection as the shared primitive behind replication, live
-collaboration, and hot-reload) — recorded as its own ADR rather than
-folded in here, since it's a cross-cutting principle for later releases,
-not a `v0.0.3`-specific decision.
+`v0.0.3` through `v0.0.8` have since all been implemented — this section
+originally said `v0.0.3` was "not started"; it wasn't updated as each
+one shipped, which is exactly the kind of staleness this document
+exists to avoid, so it's corrected here rather than left to mislead the
+next reader. Full narrative detail for each lives in its own roadmap
+doc, matching the depth `v0.0.1`/`v0.0.2` get above, rather than
+duplicated here:
+
+- **`v0.0.3`** — Tier A (sandboxed WASM/Wasmtime) plugin loading. See
+  [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Scoped alongside
+  [ADR 0014](../decisions/architecture-decision-records/0014-change-detection-as-shared-primitive.md)
+  (change detection as the shared primitive behind replication, live
+  collaboration, and hot-reload).
+- **`v0.0.4`** — real windowing (`winit`), behind an off-by-default
+  feature. See [`v0.0.4-roadmap.md`](v0.0.4-roadmap.md).
+- **`v0.0.5`** — `canary-loc`: Fluent-backed localization with
+  compile-time-checked keys and real fallback-chain resolution. See
+  [`v0.0.5-roadmap.md`](v0.0.5-roadmap.md).
+- **`v0.0.6`** — rendering bootstrap: the `canary-render` RHI trait plus
+  its first backend, `canary-render-vulkan`. See
+  [`v0.0.6-roadmap.md`](v0.0.6-roadmap.md).
+- **`v0.0.7`** — the ECS execution model: multi-component queries,
+  typed resources, and the `Tick(u64)` fix, decided by triaging two
+  external architecture reviews rather than picked from this document's
+  own previously-open options. See
+  [`v0.0.7-roadmap.md`](v0.0.7-roadmap.md) and
+  [`docs/decisions/2026-09-review-triage.md`](../decisions/2026-09-review-triage.md).
+- **`v0.0.8`** — the ECS scheduler (`canary-scheduler`): access
+  declarations and stage-based concurrent execution, `v0.0.7`'s direct
+  payoff. See [`v0.0.8-roadmap.md`](v0.0.8-roadmap.md).
+
+[`docs/roadmap/status.md`](status.md) is the single source of truth for
+current implementation status; treat any version claim here as
+secondary to it if the two ever disagree again.
 
 See [`future-roadmap.md`](future-roadmap.md) and the era-based narrative in
 [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md) for

@@ -8,29 +8,41 @@ version number, a date) to work this far out would cost more in false
 confidence than it would deliver in planning value; this document is
 deliberately organized by *dependency* rather than by date.
 
-The one exception: [`v0.0.1-roadmap.md`](v0.0.1-roadmap.md#definition-of-done-for-the-unqualified-v001--revised)
+The one exception:
+[`v0.0.1-roadmap.md`](v0.0.1-roadmap.md#definition-of-done-for-the-unqualified-v001--revised)
 names the archetype ECS migration, the Wasmtime-backed Tier A plugin
 loader, and a real windowing backend as the concrete near-term
-candidates that were scoped *out* of `v0.0.1`. Per the release cadence in
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-these now have an explicit order rather than being one undifferentiated
-group: the archetype ECS migration is `v0.0.2` (see
-[`v0.0.2-roadmap.md`](v0.0.2-roadmap.md) for its scope), Tier A WASM
-plugin loading is next (`v0.0.3`), and real windowing follows after that
-— each its own release, not bundled. Everything below remains genuinely
-unassigned.
+candidates that were scoped *out* of `v0.0.1`. All three have since
+shipped (`v0.0.2`, `v0.0.3`, `v0.0.4` respectively — see
+[`milestones.md`](milestones.md#beyond-v002) for the full sequence
+through `v0.0.8`); this paragraph is kept as history of how they were
+originally sequenced, not as a claim that they're still upcoming.
 
 ## Blocked on the ECS reaching its target (archetype) design
 
-- Parallel job-stealing scheduler (`docs/architecture/core-runtime.md`)
-- Networking replication (`docs/architecture/networking.md`) — archetype
-  storage and change detection (both `v0.0.2`) are no longer what block
-  this; see [ADR 0014](../decisions/architecture-decision-records/0014-change-detection-as-shared-primitive.md)
-  for how it's meant to consume `World::query_changed_since` once built.
-  What's actually blocking it now is simply that Era 4 hasn't started.
-- Rollback-netcode support — depends on networking above
+This blocking condition is now satisfied — archetype storage
+(`v0.0.2`), multi-component queries and typed resources (`v0.0.7`), and
+the scheduler itself (`v0.0.8`, `canary-scheduler`) all exist. What's
+left in this dependency group:
+
+- Networking replication (`docs/architecture/networking.md`) — not
+  blocked by the ECS (change detection has existed since `v0.0.2`; see
+  [ADR 0014](../decisions/architecture-decision-records/0014-change-detection-as-shared-primitive.md)
+  for how it's meant to consume `World::query_changed_since` once
+  built). What's actually blocking it is simply that Era 4 hasn't
+  started.
+- Rollback-netcode support — depends on networking above.
+- Concurrent *disjoint* writes in `canary-scheduler` itself, and wiring
+  `Schedule` into `canary-core`'s `App`/`Subsystem` tick loop — both
+  named as deliberately out of `v0.0.8`'s scope in
+  [`v0.0.8-roadmap.md`](v0.0.8-roadmap.md), not blocked on anything
+  else architecturally, just not yet needed by a real consumer.
 
 ## Blocked on the Tier A (WASM) plugin loader existing
+
+This blocking condition is also now satisfied (`v0.0.3`). What's left in
+this dependency group — each still genuinely unbuilt, just no longer
+waiting on Tier A itself:
 
 - Gameplay scripting hot reload (`docs/architecture/scripting-system.md`)
 - The community marketplace (Era 6,
@@ -41,16 +53,27 @@ unassigned.
 
 ## Blocked on a real windowing/GPU environment to build against
 
-- `winit`-backed `canary-platform` implementation
-- The `wgpu`-backed RHI (`docs/architecture/rendering.md`)
+Real windowing (`v0.0.4`, `canary-platform`'s `winit-backend` feature)
+and a first RHI backend (`v0.0.6`, `canary-render` + `canary-render-vulkan`)
+both now exist, satisfying this blocking condition. Two corrections
+while updating this section: the RHI backend that shipped is **not**
+the `wgpu`-backed one originally planned in
+[ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md) —
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)
+superseded that with native, per-graphics-API backend crates instead
+(`canary-render-vulkan` via `ash`, the same "no privileged built-ins"
+pattern `physics.md` uses for physics backends), and "`winit`-backed
+`canary-platform` implementation" below is `v0.0.4`'s completed work,
+not an open item. What's left in this dependency group:
+
 - The render graph and materials system
 - The `egui`-backed `CanaryUI` implementation (`docs/architecture/ui-toolkit.md`,
   [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md)) —
   the `canary-ui-core` trait layer itself is not blocked on this and could
   start earlier
 - The editor (`docs/ui/editor-design.md`) — additionally blocked on the
-  plugin system, since the editor is meant to be built as a plugin host,
-  and on `CanaryUI` having a real backend
+  plugin system (satisfied, `v0.0.3`) and on `CanaryUI` having a real
+  backend (not yet)
 
 ## Blocked on the asset pipeline existing
 

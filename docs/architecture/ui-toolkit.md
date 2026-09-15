@@ -10,9 +10,9 @@ past this pattern — see
 See
 [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md)
 for the decision record; this document is the fuller design. Nothing
-here is implemented in `v0.0.1` — this is architecture for `v0.0.2`+,
-written now for the same reason every other subsystem doc in this
-project is written ahead of its code.
+here is implemented yet, as of `v0.0.8` — this is architecture written
+ahead of its code, the same reason every other subsystem doc in this
+project is written ahead of its code, not a claim that it's imminent.
 
 ## The mistake this is designed to avoid
 

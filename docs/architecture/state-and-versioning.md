@@ -70,7 +70,7 @@ Google-Docs-style real-time collaborative editing" into one effort is a
 mistake — they have very different costs and very different urgency.
 This document deliberately separates them:
 
-### Near-term (informs `v0.0.2`+ data-format decisions, doesn't require a new crate yet)
+### Near-term (informs data-format decisions for whenever `canary-state` is scoped, doesn't require a new crate yet)
 
 - Author-facing formats (scenes, project manifests) should prefer
   structured, diffable, mergeable text (e.g. a stable-key-ordered
