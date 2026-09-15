@@ -19,7 +19,7 @@ tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 # FluentValue), so fluent-bundle isn't listed separately here -- adding
 # it as its own direct dependency would just resolve a second, redundant
 # copy without giving access to anything `fluent` doesn't already expose.
-fluent = "0.16"
+fluent = "0.17"
 
 # `fluent` does *not* re-export this one -- needed directly for
 # `ParserError`, surfaced in this crate's own `LoaderError` when a
