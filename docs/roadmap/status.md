@@ -303,21 +303,56 @@ enforcement of the five invariants, and mixed-mutability query shapes
 beyond `query2_mut`'s one-mutable-one-shared — see the roadmap doc for
 the reasoning behind each.
 
-## `v0.0.8`+ — sequenced, not deeply scoped yet
+## `v0.0.8` — Implemented, not yet tagged
+
+Full detail: [`v0.0.8-roadmap.md`](v0.0.8-roadmap.md) and
+[`docs/architecture/execution-model.md`](../architecture/execution-model.md#the-scheduler).
+Single focus: the scheduler `v0.0.7`'s access-model work was explicitly
+the prerequisite for — picked over the render graph/physics/`CanaryUI`/
+`canary-state` options `v0.0.7` had left open, since the access-model
+work would otherwise sit unused for a release.
+
+- [x] New crate `canary-scheduler`, depending only on `canary-ecs`'s
+      public API (no privileged access to `World`'s internals)
+- [x] `SystemAccess` — a system's declared reads/writes, component and
+      resource types tracked separately, built as an explicit chainable
+      declaration rather than inferred from a system function's
+      signature
+- [x] `Schedule` — greedily batches systems, in registration order,
+      into stages (one or more read-only systems, or exactly one
+      system that writes anything), running multi-system stages'
+      systems concurrently via `std::thread::scope`
+- [x] Real, measured concurrent execution for read-only stages — proven
+      with a timing-based test and a concurrency counter, not just
+      exercised
+- [x] `cargo build`/`fmt --check`/`test`/`clippy -D warnings` clean
+      across the full workspace, with and without `winit-backend`,
+      after adding the new crate
+
+**Explicitly not in `v0.0.8`**: concurrent execution of two *write*
+systems, even with provably-disjoint access (found during
+implementation to need a substantially larger `unsafe` undertaking than
+this release's scope justifies — see the roadmap doc), automatic access
+inference from a system's signature, wiring `Schedule` into
+`canary-core`'s `App`/`Subsystem` tick loop, a persistent work-stealing
+thread pool, and command buffers/events (this scheduler's specific
+design still means neither has a live race to prevent yet) — see the
+roadmap doc for the reasoning behind each.
+
+## `v0.0.9`+ — sequenced, not deeply scoped yet
 
 Per the release cadence in
 [`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release. Beyond `v0.0.7`, later releases are intentionally
+one focus per release. Beyond `v0.0.8`, later releases are intentionally
 not detailed yet, per [`future-roadmap.md`](future-roadmap.md)'s own
 "don't assign fake specificity" discipline: ordering is genuinely still
-undecided among the scheduler itself (the natural next step after
-`v0.0.7`'s prerequisite work, though not automatically owed the very
-next release), the render graph/materials system, physics, `CanaryUI`'s
-`egui` backend, and `canary-state`'s medium-term scope. **Networking is
-deliberately deprioritized toward the end of this sequence, per direct
-
-project direction** — not raced against the others the way rendering was
-moved ahead of it for localization. See
+undecided among the render graph/materials system, physics, `CanaryUI`'s
+`egui` backend, and `canary-state`'s medium-term scope, plus the
+scheduler's own two named gaps (concurrent disjoint writes;
+`App`/`Subsystem` integration) whenever a real consumer makes either one
+worth closing. **Networking is deliberately deprioritized toward the end
+of this sequence, per direct project direction** — not raced against the
+others the way rendering was moved ahead of it for localization. See
 [`future-roadmap.md`](future-roadmap.md) for the dependency graph rather
 than a false ordering here.
 
@@ -333,6 +368,7 @@ about working code in `engine/`.
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
 | Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
+| Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
 | Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6` |

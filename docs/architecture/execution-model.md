@@ -13,9 +13,10 @@ scheduler needs, and building the next layer of systems around it before
 fixing that risks a redesign later instead of a decision now. See the
 full triage: [`docs/decisions/2026-09-review-triage.md`](../decisions/2026-09-review-triage.md).
 
-This is v0.0.7's document. It covers what's real today, what v0.0.7 adds,
-and what's deliberately still out of scope — the scheduler itself chief
-among them.
+This is v0.0.7 and v0.0.8's shared document — it grows with each release
+that adds to this contract rather than starting a new one per release.
+It covers what's real today, what each release added, and what's still
+deliberately out of scope.
 
 ## The five invariants
 
@@ -162,19 +163,86 @@ component column rather than a new storage concept — consistent with
 "primitives that compound rather than accumulating as separate
 features."
 
+## The scheduler
+
+### What's implemented as of `v0.0.8`
+
+`canary-scheduler` (a new crate, depending only on `canary-ecs`'s public
+API — no privileged access to `World`'s internals, per "no privileged
+built-ins") implements the Access invariant concretely:
+
+- `SystemAccess` (`engine/canary-scheduler/src/access.rs`) — a system's
+  declared reads/writes, component and resource types tracked
+  separately. Built as an explicit, chainable declaration
+  (`.reads::<T>()`/`.writes::<T>()`/`.reads_resource::<T>()`/
+  `.writes_resource::<T>()`) rather than inferred automatically from a
+  system function's parameter types — inferring access the way a fuller
+  `SystemParam`-style framework would is real future work, but doing it
+  correctly for arbitrary query shapes is a substantially bigger
+  undertaking than this first release attempts.
+- `Schedule` (`engine/canary-scheduler/src/schedule.rs`) — greedily
+  batches systems, in registration order, into *stages*: a stage is
+  either one or more read-only systems (always safe to run concurrently
+  with each other, regardless of what they read — multiple shared
+  borrows never conflict) or exactly one system that writes anything.
+  Multi-system stages run each system on its own thread via
+  `std::thread::scope`, joined before the next stage starts.
+
+This is a genuine, tested case of the Ownership and Access invariants
+being mechanically enforced rather than just documented: two systems
+that both write the same component type cannot end up in the same
+stage — `Schedule::compute_stages` is built (and tested) so that's not
+representable, not just discouraged by convention.
+
+**The one deliberately narrow limitation**: two *write* systems never
+run concurrently, even when their `SystemAccess` can prove they're
+disjoint (one writes only `Position`, the other only `Velocity`, say).
+Doing that safely means handing each system its own provably-disjoint
+view of `World` rather than an exclusive `&mut World` — a real,
+substantially larger `unsafe` undertaking than `query2_mut`'s
+already-narrow column-pair split (see "Queries" above), closer in scope
+to Bevy's `UnsafeWorldCell`/`SystemParam` machinery than to anything
+this project has built so far. Every write system runs alone,
+sequentially relative to everything else, which is always *correct*,
+just not maximally parallel. Revisit once profiling actually shows this
+mattering, not before — consistent with this crate's own "don't
+over-optimize archetype storage yet" precedent (review #1, item 6).
+
+Threads are spawned fresh per multi-system stage rather than pulled from
+a persistent work-stealing pool — real spawn overhead on every parallel
+stage of every tick, correct but not what
+`docs/architecture/core-runtime.md#threading--the-job-system`'s "one
+worker per physical core" target design ultimately wants. Swapping in a
+persistent pool (hand-rolled or an external work-stealing crate) later
+is an internal change to `Schedule::run`, not a change to `SystemAccess`
+or how systems are registered.
+
+### What's still deliberately not here
+
+- Concurrent disjoint writes (above).
+- Automatic access inference from a system function's signature.
+- Integration with `canary-core`'s `Subsystem`/`App` — `Schedule` is
+  usable standalone today (see its own tests); wiring one into the
+  `App` tick loop, replacing `Subsystem::tick`'s current "everything
+  sequential on the main thread" default, is real next work once a
+  second real subsystem beyond the ECS itself has systems worth
+  scheduling this way.
+- A persistent work-stealing thread pool (above).
+
 ## Commands and events
 
-Named here, not built here. Review #1's own sequencing is right and is
-adopted as-is: command buffers (deferred writes, so a system reading `A`
-can queue an insert/despawn without racing a system writing `A`
-concurrently) matter once something actually runs concurrently, and
-`canary-runtime` is single-threaded today — there is no live race for a
-command buffer to prevent yet. Building one now would mean guessing at
-an API shape the eventual scheduler's real access-model should determine
-instead. Same reasoning for `EventWriter`/`EventReader` (review #2, item
-1) — real, useful, vocabulary worth having, deferred to whenever the
-first real cross-system signal (not a direct component read) actually
-needs it.
+Named here, not fully built here. `canary-scheduler`'s specific design
+(above) still means there's no *live race* a command buffer would need
+to prevent: concurrently-running systems are, by construction, always
+all read-only (multiple reads never race each other), and anything that
+writes always runs alone. A command buffer becomes necessary the moment
+concurrent *writes* become possible (the deliberately-deferred
+limitation above) — building one now would still mean guessing at an
+API shape that milestone's real access patterns should determine.
+Review #1's sequencing is otherwise adopted as-is. Same reasoning for
+`EventWriter`/`EventReader` (review #2, item 1) — real, useful
+vocabulary worth having, deferred to whenever the first real
+cross-system signal (not a direct component read) actually needs it.
 
 ## Shutdown ordering
 
@@ -190,17 +258,20 @@ isn't lost, not designed here.
 
 ## Known limitations
 
-- **Nothing mechanically enforces the five invariants above.** They're
-  written rules, not compiler-checked ones. Review #2's suggestion of
-  `cargo-deny`-style dependency-direction checks (item 15/16 in the
-  triage) is the right *kind* of answer for at least the Ownership and
-  Identity invariants — worth real scoping as its own CI/xtask work,
-  separate from this document.
-- **The scheduler itself is still entirely unbuilt.** Everything above
-  is the access-model prerequisite the triage concluded should exist
-  *before* it, not a replacement for designing it. When that work
-  starts, this document is where its access-declaration story should be
-  written, not a new one.
+- **Nothing mechanically enforces the five invariants above, except
+  Ownership/Access within `canary-scheduler` itself.** `Schedule`
+  proves two conflicting systems can't share a concurrent stage; Time,
+  Identity, and Side-effects remain written rules, not compiler-checked
+  ones, and Ownership/Access enforcement doesn't extend beyond one
+  `Schedule`'s own systems (nothing stops two *separate* schedules, or a
+  schedule and code outside it, from touching the same `World` data
+  concurrently). Review #2's suggestion of `cargo-deny`-style
+  dependency-direction checks (item 15/16 in the triage) is the right
+  *kind* of answer for the rest — worth real scoping as its own CI/xtask
+  work, separate from this document.
+- **The scheduler exists but doesn't parallelize concurrent writes, and
+  isn't wired into `canary-core`'s `App` tick loop yet.** See "The
+  scheduler" above for both.
 - **`query2_mut` is the only mixed-mutability query shape.** No
   `query3_mut`, no two-mutable-one-shared, no arbitrary permutation —
   see "What's still deliberately not here" above.

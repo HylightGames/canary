@@ -1,6 +1,6 @@
 [package]
 name = "canary-ecs"
-description = "Canary Engine ECS: entities, components, and the World (v0.0.1-pre1 minimal implementation)."
+description = "Canary Engine ECS: entities, components, resources, and the World."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

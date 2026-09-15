@@ -1,0 +1,13 @@
+[package]
+name = "canary-scheduler"
+description = "Canary Engine ECS scheduler: system access declarations and stage-based execution."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-ecs = { path = "../canary-ecs" }

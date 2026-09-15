@@ -134,13 +134,14 @@ except the scheduler itself:
   [`docs/architecture/plugin-system.md`](plugin-system.md) for that side
   of it, which lives in a different crate than this one.
 
-Still not here, in this crate specifically: the work-stealing scheduler
-itself (see [Threading & the job system](#threading--the-job-system)
-below, deliberately deferred — `execution-model.md` is now where its
-access-declaration story should be written when that work starts, not a
-new document). Tier A's own loader, capability enforcement, resource
-budget, and data ABI are real as of `v0.0.3`, but live in
-`canary-plugin-api`, not here — see
+This section covers `canary-ecs` specifically, so it stays at "as of
+`v0.0.7`" even though the engine as a whole has since moved to `v0.0.8`
+— the scheduler that milestone added,
+[Threading & the job system](#threading--the-job-system) below, lives
+in a new crate (`canary-scheduler`), not here, and doesn't change
+anything about `canary-ecs`'s own API. Tier A's own loader, capability
+enforcement, resource budget, and data ABI are real as of `v0.0.3`, but
+live in `canary-plugin-api`, not here — see
 [`docs/roadmap/v0.0.3-roadmap.md`](../roadmap/v0.0.3-roadmap.md) for
 exact scope and what's explicitly excluded there.
 
@@ -161,15 +162,19 @@ same pool rather than spawning ad hoc OS threads, so the engine has one
 place to reason about CPU utilization instead of N subsystems each guessing
 how many threads they're "allowed."
 
-`canary-runtime` has no job system at all today — everything runs on the
-main thread. This is intentionally deferred rather than half-built: a
-job system designed before the ECS's real data-access declarations exist
-would likely need redesigning anyway once those declarations land. As of
-`v0.0.7`, a first cut of those declarations exists (multi-component
-queries, typed resources — see
-[`docs/architecture/execution-model.md`](execution-model.md)); the
-scheduler itself remains the next real step once its own milestone comes
-up in the roadmap, not an automatic continuation of `v0.0.7`.
+`canary-runtime`'s own tick loop has no job system wired in yet —
+everything `App`/`Subsystem` runs still executes on the main thread. The
+job system itself, though, exists as of `v0.0.8`: `canary-scheduler`'s
+`Schedule` implements exactly the "systems declare access, the scheduler
+runs non-conflicting ones concurrently" model this section describes,
+for the ECS specifically — see
+[`docs/architecture/execution-model.md#the-scheduler`](execution-model.md#the-scheduler)
+for what it does and its two named gaps (no concurrent disjoint writes
+yet; not wired into `App`/`Subsystem` yet). What's still deferred is the
+broader "one pool for everything" version of this target design —
+longer-running, coarse-grained work (asset cooking, physics
+broad-phase) submitting to the *same* pool `Schedule` uses, once either
+of those has real jobs worth submitting.
 
 ## Error handling conventions
 
