@@ -41,8 +41,12 @@ impl Subsystem for EcsSubsystem {
         "ecs"
     }
 
-    fn tick(&mut self) {
-        tracing::debug!(entities = self.world.entity_count(), "ecs tick");
+    fn tick(&mut self, dt: std::time::Duration) {
+        tracing::debug!(
+            entities = self.world.entity_count(),
+            dt_ms = dt.as_secs_f64() * 1000.0,
+            "ecs tick"
+        );
     }
 
     fn shutdown(&mut self) {
@@ -88,11 +92,25 @@ fn main() -> anyhow::Result<()> {
     }
 
     // --- App bootstrap: register the ECS as a subsystem and run a few
-    // ticks, proving canary-core's init/tick/shutdown lifecycle.
+    // fixed-dt ticks, proving canary-core's init/tick/shutdown lifecycle
+    // deterministically (see `App::run_for`'s own docs for why a boot
+    // harness -- and CI -- want fixed, not real, dt).
     let mut app = App::new();
     app.add_subsystem(EcsSubsystem { world });
     app.add_plugin_dir("plugins");
-    app.run_for(3)?;
+    app.run_for(3, std::time::Duration::from_millis(16))?;
+
+    // --- A second, separate App proves the real-timed loop added in
+    // v0.0.9 (App::run) actually elapses real wall-clock time between
+    // ticks, not just that it type-checks -- run for a short, fixed
+    // real-world duration rather than an unbounded loop, so this boot
+    // harness still terminates on its own.
+    let mut timed_app = App::new();
+    timed_app.add_subsystem(EcsSubsystem {
+        world: World::new(),
+    });
+    let start = std::time::Instant::now();
+    timed_app.run(|| start.elapsed() < std::time::Duration::from_millis(50))?;
 
     // --- Plugin loader: no plugins ship with this foundation, but prove
     // the native (Tier B) loader is constructible and that checking a

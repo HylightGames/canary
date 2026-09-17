@@ -29,15 +29,27 @@ pub trait Subsystem: 'static {
         Ok(())
     }
 
-    /// Called once per [`App::run_for`](crate::App::run_for) tick, in
-    /// registration order.
+    /// Called once per tick, in registration order, with how much time
+    /// elapsed since the previous tick.
     ///
-    /// v0.0.1-pre1 runs every subsystem's `tick` sequentially on the
-    /// calling thread. See
-    /// `docs/architecture/core-runtime.md#threading--the-job-system` for
-    /// the parallel, dependency-scheduled target design this is expected
-    /// to grow into.
-    fn tick(&mut self) {}
+    /// [`App::run_for`](crate::App::run_for) passes a caller-specified,
+    /// fixed `dt` (deterministic, for tests and headless/CI use);
+    /// [`App::run`](crate::App::run) passes the real wall-clock elapsed
+    /// time each iteration. Either way, a subsystem should treat `dt` as
+    /// the only source of truth for elapsed time — reading the system
+    /// clock directly inside `tick` would silently break determinism
+    /// under `run_for`, which is the entire reason it exists.
+    ///
+    /// Ticks are still sequential, on the calling thread, in
+    /// registration order — see `canary_scheduler::Schedule` for the
+    /// actual concurrent-execution model this is expected to delegate
+    /// to internally once a subsystem has systems worth scheduling that
+    /// way (see `docs/architecture/execution-model.md#the-scheduler`);
+    /// `Subsystem::tick` itself stays this simple on purpose; it's the
+    /// per-subsystem entry point, not the scheduler.
+    fn tick(&mut self, dt: std::time::Duration) {
+        let _ = dt;
+    }
 
     /// Called once during shutdown, in **reverse** registration order (the
     /// last subsystem started is the first shut down), mirroring the usual
