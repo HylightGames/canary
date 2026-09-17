@@ -339,22 +339,24 @@ thread pool, and command buffers/events (this scheduler's specific
 design still means neither has a live race to prevent yet) — see the
 roadmap doc for the reasoning behind each.
 
-## `v0.0.9`+ — sequenced, not deeply scoped yet
+## `v0.0.9`+ — decided: the `v0.1.0` plan
 
-Per the release cadence in
-[`long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete),
-one focus per release. Beyond `v0.0.8`, later releases are intentionally
-not detailed yet, per [`future-roadmap.md`](future-roadmap.md)'s own
-"don't assign fake specificity" discipline: ordering is genuinely still
-undecided among the render graph/materials system, physics, `CanaryUI`'s
-`egui` backend, and `canary-state`'s medium-term scope, plus the
-scheduler's own two named gaps (concurrent disjoint writes;
-`App`/`Subsystem` integration) whenever a real consumer makes either one
-worth closing. **Networking is deliberately deprioritized toward the end
-of this sequence, per direct project direction** — not raced against the
-others the way rendering was moved ahead of it for localization. See
-[`future-roadmap.md`](future-roadmap.md) for the dependency graph rather
-than a false ordering here.
+Superseded by direct project-owner instruction (September 2026): the
+"genuinely undecided" framing this section previously had is resolved.
+`v0.1.0`'s bar is now "a competent developer could write a real, small
+game directly against Canary's runtime" — full reasoning in
+[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#v010-sharpened-integration-not-a-checklist),
+concrete dependency-ordered sequence in
+[`docs/roadmap/v0.1.0-plan.md`](v0.1.0-plan.md). Short version:
+`v0.0.9` (real-time `App`/`Subsystem` loop, `Transform`, ECS-driven
+rendering) → `v0.0.10` (asset loading) → `v0.0.11` (physics, 2D first)
+→ `v0.0.12` (audio) → `v0.0.13` (`CanaryUI`) → `v0.0.14` (project state)
+→ `v0.0.15` (networking) → `v0.0.16` (live collaboration) → `v0.1.0`
+(a real sample game proving the whole set actually integrates). The
+editor, marketplace, and beginner-friendly tooling remain explicitly
+deferred past `v0.1.0`, unchanged from this document's prior framing.
+
+**`v0.0.9` is in progress.**
 
 ## Full architecture-to-implementation map
 

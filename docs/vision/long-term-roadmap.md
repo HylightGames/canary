@@ -57,11 +57,46 @@ slice of work move the project toward "the documented architecture is
 real" as directly as possible, without scope creep into things not yet
 documented at all.
 
+## `v0.1.0`, sharpened: integration, not a checklist
+
+Recorded at the project owner's explicit direction (September 2026),
+refining rather than replacing the target above. The bar for `v0.1.0` is
+not "every subsystem in `docs/architecture/` has an API" — it's:
+**a competent developer could write a real, small game directly against
+Canary's runtime, without bypassing the engine or implementing
+fundamental engine systems themselves.** No editor, no visual tooling,
+no beginner-friendly workflow required — those are explicitly `v0.2.0`+
+concerns. Ugly, verbose, manually-configured, and rough are all fine at
+`v0.1.0`; *not integrated* is not.
+
+Concretely: a subsystem counts as done for `v0.1.0` when **another part
+of Canary actually uses it**, not when it compiles and has tests in
+isolation. Physics moving an ECS `Transform`, rendering drawing actual
+`World` state instead of hand-fed vertex buffers, networking
+replicating real component data, project state saving/loading a real
+`World` — that standard, not "the crate exists." See
+[`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md) for the
+concrete, dependency-ordered sequence of `0.0.x` releases this implies,
+and why each is sequenced where it is (what it needs from earlier
+releases, and what would need redoing if built out of order).
+
+This doesn't change Era 3/4's substance below, but it does compress
+their *timing* relative to how this document originally implied they'd
+unfold: physics, a minimal asset pipeline, audio, `CanaryUI`, project
+state, and a first cut of networking/live-collaboration all need to
+exist and interoperate before `v0.1.0`, not spread across Eras 3 and 4
+at whatever pace those eras' own fuller scope would otherwise suggest.
+Era 5 (Editor) and Era 6 (Marketplace) are unaffected — both were
+already sequenced after this point.
+
 ## Era 3 — Rendering & Content
 
-The RHI trait gets its first real backend (wgpu, per
-[ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)),
-a render graph, and a materials system. The asset pipeline
+The RHI trait gets its first real backend — native per-graphics-API
+backend crates rather than `wgpu` as an intermediary (`canary-render-vulkan`
+via `ash`; [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)
+superseded [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)'s
+original `wgpu` plan before this era's own work shipped) — plus a render
+graph and a materials system. The asset pipeline
 (`docs/architecture/asset-system.md`) grows a real cook/import step with
 hot-reload. This is the era where Canary becomes usable for an actual small
 game, even without an editor.
