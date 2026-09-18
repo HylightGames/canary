@@ -49,6 +49,7 @@ or through explicit, documented interfaces — never through ad hoc globals.
 | Platform abstraction | `canary-platform` | [platform-abstraction.md](platform-abstraction.md) |
 | Core runtime (App, logging, error conventions) | `canary-core` | [core-runtime.md](core-runtime.md) |
 | ECS | `canary-ecs` | [core-runtime.md](core-runtime.md) |
+| Transform & hierarchy | *(planned: `canary-transform`)* | [transform.md](transform.md) |
 | Plugin trait & loader | `canary-plugin-api` | [plugin-system.md](plugin-system.md) |
 | Scripting / language-agnostic runtime | *(planned: `canary-script`)* | [scripting-system.md](scripting-system.md) |
 | Rendering | *(planned: `canary-render`)* | [rendering.md](rendering.md) |
