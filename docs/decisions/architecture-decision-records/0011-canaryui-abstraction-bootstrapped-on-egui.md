@@ -1,6 +1,6 @@
 # 0011. `CanaryUI`: a UI abstraction from day one, bootstrapped on `egui`
 
-**Status:** Accepted (architecture only — no code in `v0.0.1`; see
+**Status:** Accepted (architecture only — no code as of `v0.0.9`; see
 [`docs/architecture/ui-toolkit.md`](../../architecture/ui-toolkit.md) for
 the full design). One supporting detail below — "`wgpu` integration
 precedent... directly consistent with ADR 0004's choice of `wgpu`" — is
@@ -8,6 +8,43 @@ superseded by [ADR 0016](0016-native-rendering-backends.md): rendering
 no longer bootstraps on `wgpu`. The actual decision (`egui` as the first
 backend) is unaffected — see `ui-toolkit.md`'s "Why `egui` specifically"
 section for why, restated without that now-inaccurate detail.
+
+**Reconsidered and reaffirmed, September 2026** (project owner asked
+directly whether to build `CanaryUI` from scratch, now or before
+`v0.3.0`, for "full control and backwards compatibility"): the
+"Consequences" section below already answers the backwards-compatibility
+half of that concern — a future native, `canary-render`-backed backend
+is a new crate satisfying `canary-ui-core`'s existing traits, not a
+rewrite of every panel or game's UI code that used `CanaryUI` in the
+meantime, *provided* real consumers go through `canary-ui-core` and
+never depend on `egui` directly (the one mistake this ADR calls out
+below as the failure mode to avoid). That property was already designed
+in; nothing about it needed to change.
+
+The "build it now instead" half is rejected for the same reason the
+original "build a complete custom toolkit immediately" alternative was:
+a competitive UI toolkit's hard parts (text shaping, layout, hit
+testing, styling) are a multi-year effort on their own, and the
+project-wide `v0.1.0` bar this was weighed against explicitly accepts
+"ugly/debug UI... verbose Rust APIs... limited tooling" as fine, judging
+`v0.1.0` on whether a developer can build a real game, not on UI
+polish or ownership — see
+[`docs/roadmap/v0.1.0-plan.md`](../../roadmap/v0.1.0-plan.md). Building
+a from-scratch UI system before `v0.1.0` would be exactly the kind of
+feature-rush that plan's own sequencing exists to prevent, spending the
+whole `v0.1.0` timeline on one subsystem's ceiling instead of on making
+every subsystem exist and interoperate at all.
+
+`v0.3.0` (this project's own "it's pleasant" milestone, not `v0.1.0`'s
+"it works") is a real, standing point to revisit this — but by evidence,
+not by calendar: reconsider once real friction with `egui` actually
+shows up in practice (a specific styling/animation/integration
+limitation Canary games or its own tooling hit), or once there's a
+second real `canary-ui-core` consumer to design a native backend's trait
+conformance against, the same "don't design ahead of a second real
+consumer" standard [ADR 0010](0010-component-identity-across-language-boundary.md)
+already applies elsewhere in this project. Not before either condition
+holds, regardless of how close `v0.3.0` is on the calendar.
 
 ## Context
 
@@ -78,8 +115,15 @@ because most engines don't do this.
   partially built well before the editor itself starts, the same way
   `canary-plugin-api`'s trait surface preceded a WASM runtime to back it.
 - The concrete `egui`-backed implementation (`canary-ui-egui` or similar)
-  is `v0.0.2`+ scope at the earliest, gated on the editor's own work
-  starting (Era 5) — not part of `v0.0.1`.
+  no longer waits on the editor (Era 5) to justify starting it — the
+  September 2026 `v0.1.0` plan schedules it as `v0.0.13`
+  ([`docs/roadmap/v0.1.0-plan.md`](../../roadmap/v0.1.0-plan.md)),
+  specifically so game-facing UI (a HUD, a menu) is real before
+  `v0.1.0`, independent of whenever editor work actually starts. This
+  ADR's original sequencing assumed the editor would be `CanaryUI`'s
+  first real consumer; a game is now expected to be first instead — the
+  "editor and games share one system" decision above is unaffected by
+  which one exercises it first.
 - A future decision to build a fully custom, `canary-render`-backed UI
   toolkit is a new crate satisfying the existing `canary-ui-core` traits,
   not a rewrite of every panel or every game's UI code that used

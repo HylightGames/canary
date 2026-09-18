@@ -45,9 +45,9 @@ library and keeping a replacement path open; `CanaryUI` does the same.
 ```
 canary-ui-core            <- the trait/API layer (starts now)
       |
-canary-ui-egui            <- the concrete backend (starts when the editor does, v0.0.2+)
-      |
-    egui
+canary-ui-egui            <- the concrete backend (v0.0.13 per the v0.1.0
+      |                       plan -- a game's UI, not the editor, is its
+    egui                      first real consumer; see ADR 0011)
 ```
 
 A later, fully custom backend replaces only the bottom of this stack:
