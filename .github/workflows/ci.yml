@@ -127,6 +127,29 @@ jobs:
           cargo test -p canary-render-vulkan
           --test hello_triangle -- --ignored
 
+  render-ecs-integration:
+    name: Real ECS-driven rendering integration test (llvmpipe)
+    runs-on: ubuntu-latest
+    # Same reasoning as rendering-integration above: this exercises
+    # canary-render-ecs's bridge (extract + CPU-bake + draw) against a
+    # real (if software) Vulkan device -- multi-entity scenes, moved-
+    # entity redraws, and empty-scene clears asserted against real
+    # pixel values. These tests are `#[ignore]`-gated like
+    # hello_triangle (no Vulkan ICD on the default runners), so without
+    # this job nothing in CI would ever run them.
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install stable
+      - name: Install a software Vulkan ICD (Mesa llvmpipe/lavapipe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers
+      - name: Run the real ECS-driven rendering integration test
+        run: >
+          cargo test -p canary-render-ecs
+          --test render_ecs_readback -- --ignored
+
   wasm-target-check:
     name: WASM component target compiles
     runs-on: ubuntu-latest

@@ -91,15 +91,18 @@ fn main() -> anyhow::Result<()> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "Canary Engine booting");
 
     // --- Platform abstraction: prove the trait boundary compiles and runs
-    // headless (see docs/architecture/platform-abstraction.md). No real
-    // window exists yet, by design.
+    // headless (see docs/architecture/platform-abstraction.md). This
+    // harness stays headless on purpose -- real `winit`-backed
+    // windowing exists behind `canary-platform`'s `winit-backend`
+    // feature (see v0.0.4), it just isn't what a deterministic boot
+    // harness and CI want.
     let mut window = HeadlessWindow::new(WindowDescriptor::default());
     let mut input = HeadlessInput::new();
     window.poll_events();
     let _ = input.poll();
     tracing::info!(
         title = %window.descriptor().title,
-        "platform layer initialized (headless — no real window backend yet)"
+        "platform layer initialized (headless by harness choice -- see canary-platform's winit-backend feature for real windowing)"
     );
 
     // --- ECS: spawn a few demo entities and prove both the insert and the

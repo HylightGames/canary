@@ -252,6 +252,19 @@ pub fn bake_scene_to_vertices(items: &[RenderItem]) -> Vec<f32> {
 /// argument right is a correctness obligation on the draw path (Task 6 wires
 /// it to the real target dimensions).
 pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f32) -> Vec<f32> {
+    debug_assert!(
+        aspect_ratio > 0.0 && aspect_ratio.is_finite(),
+        "aspect_ratio must be a positive finite width/height; got {aspect_ratio}"
+    );
+    // A zero/negative/non-finite aspect would divide into `inf`/`NaN`
+    // NDC vertices below and poison the uploaded buffer, so fall back
+    // to the neutral square aspect rather than propagating garbage to
+    // the GPU. (Debug builds already failed loudly above.)
+    let aspect_ratio = if aspect_ratio > 0.0 && aspect_ratio.is_finite() {
+        aspect_ratio
+    } else {
+        DEFAULT_ASPECT_RATIO
+    };
     /// One triangle in camera space, awaiting the painter-sort: its average
     /// depth (the sort key), its three corner positions (the project inputs),
     /// and the flat color all three vertices share.

@@ -110,7 +110,11 @@ impl VulkanColorTarget {
     /// `queue_wait_idle` this implies on every call.
     pub(crate) fn read_rgba8(&self, vk_device: &VulkanDevice) -> Vec<u8> {
         let device = &vk_device.device;
-        let size = (self.width * self.height * 4) as u64;
+        // Widen *before* multiplying: `width * height * 4` in `u32`
+        // wraps past ~2048px-square targets in release (panics in
+        // debug), silently staging a too-small buffer. `u64` holds
+        // any `u32 × u32 × 4` product exactly.
+        let size = u64::from(self.width) * u64::from(self.height) * 4;
 
         let staging_buffer_ci = vk::BufferCreateInfo::default()
             .size(size)

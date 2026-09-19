@@ -101,11 +101,23 @@ impl Schedule {
     /// Registers a system that needs to write at least one component or
     /// resource type. Always runs alone in its own stage -- see
     /// [`Schedule`]'s own docs for why.
+    ///
+    /// # Panics
+    /// If `access.is_read_only()` is true -- the mirror of
+    /// [`Schedule::add_read_system`]'s eager check: a write system whose
+    /// own declared access claims it writes nothing would silently get a
+    /// solo stage it never needed while readers around it lose a chance
+    /// to batch, so the mismatch fails loudly at registration rather
+    /// than silently costing parallelism.
     pub fn add_write_system(
         &mut self,
         access: SystemAccess,
         body: impl FnMut(&mut World) + Send + 'static,
     ) -> &mut Self {
+        assert!(
+            !access.is_read_only(),
+            "add_write_system: access declares no writes; use add_read_system instead"
+        );
         self.systems.push(RegisteredSystem {
             access,
             body: SystemBody::Write(Box::new(body)),

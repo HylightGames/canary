@@ -38,7 +38,9 @@
 //! `.ftl` file directly inside that subdirectory is loaded, in
 //! directory-listing order (not sorted -- a real asset pipeline would
 //! want a stable, explicit manifest instead, another reason this is a
-//! placeholder rather than a design worth hardening further).
+//! placeholder rather than a design worth hardening further). The
+//! *locale list* itself ([`discover_available_locales`]) is sorted,
+//! so fallback-chain negotiation never depends on filesystem order.
 
 use std::path::Path;
 
@@ -98,12 +100,16 @@ pub fn discover_available_locales(base_dir: &Path) -> Vec<LanguageIdentifier> {
     let Ok(entries) = std::fs::read_dir(base_dir) else {
         return Vec::new();
     };
-    entries
+    let mut locales: Vec<LanguageIdentifier> = entries
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
         .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
         .filter_map(|name| name.parse::<LanguageIdentifier>().ok())
-        .collect()
+        .collect();
+    // Filesystem iteration order is unspecified; negotiation downstream
+    // must not depend on it.
+    locales.sort();
+    locales
 }
 
 /// Loads every `.ftl` file directly inside `base_dir/<locale>/` as a

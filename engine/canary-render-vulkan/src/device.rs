@@ -37,10 +37,21 @@ pub(crate) const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 /// resource this creates ([`VulkanBuffer`], [`VulkanColorTarget`],
 /// [`VulkanPipeline`]) can clean itself up in its own `Drop`
 /// implementation without needing an explicit lifetime tying it back to
-/// `VulkanDevice` — real resource cleanup, not deferred to process exit,
-/// matching this project's standards elsewhere even though this
-/// release's own tests are short-lived enough that it wouldn't be
-/// immediately visible if it leaked.
+/// `VulkanDevice`.
+///
+/// # Drop order contract
+///
+/// `VulkanDevice` must be dropped **after** every resource created
+/// from it: this `Drop` impl destroys the render pass, command pool,
+/// device, and instance unconditionally, and the `Rc` only keeps the
+/// host-side `ash::Device` handle alive -- it cannot defer the
+/// `destroy_device` call itself. Dropping the device while a buffer,
+/// target, or pipeline still exists destroys the very `VkDevice`
+/// those resources' own `Drop` impls then call into (use-after-
+/// destroy). Debug builds fail loudly on this via the
+/// `debug_assert!` below; release builds cannot detect it, so treat
+/// "resources first, device last" as a hard ordering rule at every
+/// call site.
 pub struct VulkanDevice {
     _entry: ash::Entry,
     pub(crate) instance: ash::Instance,
@@ -272,13 +283,19 @@ impl RenderDevice for VulkanDevice {
 
 impl Drop for VulkanDevice {
     fn drop(&mut self) {
+        // See the drop-order contract on `VulkanDevice`'s own docs:
+        // every live resource holds one `Rc` clone of `device`, so a
+        // count above 1 here means a buffer, target, or pipeline still
+        // exists and is about to be left pointing at a destroyed
+        // `VkDevice`. Loud in debug; callers must uphold the order in
+        // release.
+        debug_assert_eq!(
+            Rc::strong_count(&self.device),
+            1,
+            "VulkanDevice dropped while resources created from it still exist; \
+             drop all buffers, color targets, and pipelines first"
+        );
         unsafe {
-            // Resources created via this device (buffers, color targets,
-            // pipelines) must already be dropped by this point -- Rust's
-            // ownership rules enforce this automatically, since they all
-            // hold their own `Rc<ash::Device>` clone rather than a
-            // borrow of `VulkanDevice` itself, so nothing here needs to
-            // (or safely could) reach into them.
             self.device.destroy_render_pass(self.render_pass, None);
             self.device.destroy_command_pool(self.command_pool, None);
             self.device.destroy_device(None);

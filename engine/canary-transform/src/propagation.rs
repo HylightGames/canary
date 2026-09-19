@@ -114,6 +114,22 @@ pub fn propagate_transforms(world: &mut World) {
     }
 
     for (entity, global) in composed {
+        // Read-then-maybe-write, not blind `get_mut`: `get_mut` stamps
+        // the current tick unconditionally (a caller holding `&mut T`
+        // is conservatively assumed to write through it), so an
+        // unconditional write would mark every `GlobalTransform`
+        // changed on every run -- even with zero edits -- and any
+        // downstream `query_changed_since::<GlobalTransform>`
+        // consumer would re-run every tick. The recomposition above is
+        // deterministic in its inputs, so exact inequality here means
+        // "something actually changed," not a float-comparison
+        // shortcut.
+        let needs_write = world
+            .get::<GlobalTransform>(entity)
+            .is_none_or(|slot| *slot != GlobalTransform(global));
+        if !needs_write {
+            continue;
+        }
         match world.get_mut::<GlobalTransform>(entity) {
             Some(slot) => {
                 *slot = GlobalTransform(global);
@@ -387,6 +403,46 @@ mod tests {
         assert!(
             (global_translation(&world, child) - glam::Vec3::new(5.0, 0.0, 0.0)).length() < 1e-5,
             "registered system must propagate through Schedule::run"
+        );
+    }
+
+    #[test]
+    fn rerun_without_edits_marks_no_global_transform_changed() {
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(3.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+
+        propagate_transforms(&mut world);
+        // Two ticks pass with zero edits in between: the baseline is
+        // captured *before* the final tick advance, so any write the
+        // second propagation performs stamps a tick strictly newer
+        // than the baseline and shows up in the query. Without the
+        // read-before-write above, this fails (every global stamped
+        // at the newest tick); with it, nothing is stamped at all.
+        world.advance_tick();
+        let baseline = world.change_tick();
+        world.advance_tick();
+        propagate_transforms(&mut world);
+
+        assert!(
+            world
+                .query_changed_since::<GlobalTransform>(baseline)
+                .next()
+                .is_none(),
+            "a no-op re-propagation must not dirty change detection"
         );
     }
 }

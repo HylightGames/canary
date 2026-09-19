@@ -30,4 +30,16 @@ pub enum EcsError {
     /// condition worth retrying.
     #[error("schema id {0:?} is already registered to a different component type")]
     DuplicateSchemaId(&'static str),
+
+    /// [`crate::World`] itself has no hierarchy concept, but hierarchy
+    /// helpers (e.g. `canary-transform`'s `set_parent`) reject parent
+    /// assignments that would create a cycle — an entity parented to
+    /// itself, or to one of its own descendants — through this variant,
+    /// rather than letting a malformed hierarchy silently degrade
+    /// downstream (e.g. to local-transform fallback at propagation
+    /// time). Cycles are a caller bug, not game-content drift, so they
+    /// fail at write time instead of being tolerated at read time the
+    /// way a stale link to a despawned entity is.
+    #[error("parent assignment would create a hierarchy cycle")]
+    HierarchyCycle,
 }

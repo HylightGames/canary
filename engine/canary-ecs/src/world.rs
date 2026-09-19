@@ -148,7 +148,17 @@ impl World {
                 generation: slot.generation,
             }
         } else {
-            let index = self.slots.len() as u32;
+            // `slots` only grows (despawned slots are recycled via
+            // `free_indices`, never removed), so its length is the
+            // total number of slots ever created. Past `u32::MAX`
+            // slots, two slots would share an index and corrupt
+            // `is_alive`/location bookkeeping -- unreachable in any
+            // realistic workload (4.29B spawns), but a silent `as`
+            // truncation would hide it entirely, so this fails loudly
+            // instead, matching the `u64`-generation reasoning on
+            // `Entity` (fail visibly at the limit rather than alias).
+            let index = u32::try_from(self.slots.len())
+                .expect("entity slot index space exhausted (2^32 slots ever created)");
             self.slots.push(Slot {
                 generation: 0,
                 alive: true,
@@ -548,10 +558,9 @@ impl World {
     /// Eagerly collects into a `Vec` internally (returning its
     /// `IntoIter`) rather than lazily streaming per archetype -- unlike
     /// [`World::query2`]/[`World::query3`], yielding a `&mut A`
-    /// alongside a `&B` from the same archetype needs
-    /// [`crate::archetype::Archetype::column_pair_mut`]'s `unsafe`
-    /// split (see `docs/architecture/execution-model.md#queries`, "On
-    /// `unsafe`"), and doing that split once per archetype inside this
+    /// alongside a `&B` from the same archetype needs the archetype's
+    /// `unsafe` column-pair split (see
+    /// `docs/architecture/execution-model.md#queries`, "On `unsafe`"), and doing that split once per archetype inside this
     /// method's own body -- rather than lazily, across an opaque
     /// `Iterator`'s repeated calls into `self.archetypes` at
     /// caller-controlled points -- is what keeps the *rest* of this
@@ -561,6 +570,14 @@ impl World {
     /// matched entity count -- fine for a first correct implementation,
     /// per this crate's existing `Archetype::extract_row` precedent for
     /// naming a similar tradeoff rather than hiding it.
+    ///
+    /// # Panics
+    /// If `A` and `B` are the same type. Yielding `(&mut T, &T)` to the
+    /// same column would be a real aliasing violation, so the
+    /// archetype's column-pair split rejects it with an assertion
+    /// rather than resolving it on the caller's behalf --
+    /// a one-character typo (`query2_mut::<Position, Position>`) fails
+    /// loudly here instead of compiling into undefined behavior.
     pub fn query2_mut<A: 'static, B: 'static>(
         &mut self,
     ) -> impl Iterator<Item = (Entity, &mut A, &B)> {
@@ -1220,6 +1237,16 @@ mod tests {
             world.get::<Position>(e2),
             Some(&Position { x: 2.0, y: 0.0 })
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "must name different component types")]
+    fn query2_mut_with_the_same_type_twice_panics_instead_of_aliasing() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, Position { x: 0.0, y: 0.0 }).unwrap();
+
+        let _ = world.query2_mut::<Position, Position>().count();
     }
 
     /// The trickiest part of a `swap_remove`-based archetype move: when

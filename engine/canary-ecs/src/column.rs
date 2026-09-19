@@ -51,7 +51,14 @@ impl Tick {
     /// field, so `Tick` only ever changes by exactly one defined
     /// operation.
     pub(crate) fn increment(&mut self) {
-        self.0 += 1;
+        // `wrapping_add`, matching `Entity::generation`'s own recycle
+        // path (`World::despawn`): `u64` makes a wrap unreachable in
+        // practice (see this type's docs), but release and debug builds
+        // must agree on what happens if one ever occurs -- a `+=`
+        // here would panic in debug while silently wrapping in
+        // release, which is exactly the kind of configuration-
+        // dependent behavior this crate avoids elsewhere.
+        self.0 = self.0.wrapping_add(1);
     }
 }
 

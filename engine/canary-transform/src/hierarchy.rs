@@ -38,7 +38,13 @@ pub struct Children(pub Vec<Entity>);
 /// when missing.
 ///
 /// Returns [`EcsError::StaleOrUnknownEntity`] when `child` (or, when
-/// `Some`, `parent`) is not alive.
+/// `Some`, `parent`) is not alive, and [`EcsError::HierarchyCycle`]
+/// when `parent` is `child` itself or a descendant of `child` (which
+/// would close a parent/child loop). Cycles fail here, at write time:
+/// propagation degrades a cyclic link to a local-transform fallback
+/// rather than looping forever, but silently accepting a caller bug
+/// and producing subtly wrong world-space matrices is worse than
+/// rejecting it loudly.
 pub fn set_parent(
     world: &mut World,
     child: Entity,
@@ -50,6 +56,9 @@ pub fn set_parent(
     if let Some(new_parent) = parent {
         if !world.is_alive(new_parent) {
             return Err(EcsError::StaleOrUnknownEntity);
+        }
+        if new_parent == child || is_descendant_of(world, new_parent, child) {
+            return Err(EcsError::HierarchyCycle);
         }
     }
 
@@ -86,6 +95,30 @@ pub fn set_parent(
     }
 
     Ok(())
+}
+
+/// Whether `candidate` names `ancestor` anywhere in its parent chain.
+/// Walks `Parent` links upward; a stale link (despawned or unknown
+/// entity) ends the walk rather than erroring, matching propagation's
+/// own fallback. The walk is bounded by the number of times it can
+/// advance without revisiting an entity, so a pre-existing cycle in the
+/// stored data still terminates instead of looping.
+fn is_descendant_of(world: &World, candidate: Entity, ancestor: Entity) -> bool {
+    let mut current = candidate;
+    let mut visited: Vec<Entity> = Vec::new();
+    loop {
+        if current == ancestor {
+            return true;
+        }
+        if visited.contains(&current) {
+            return false;
+        }
+        visited.push(current);
+        match world.get::<Parent>(current) {
+            Some(link) => current = link.0,
+            None => return false,
+        }
+    }
 }
 
 /// Detaches `child` from its parent, if it has one.
@@ -219,5 +252,44 @@ mod tests {
         remove_parent(&mut world, child).unwrap();
 
         assert_eq!(world.get::<Parent>(child), None);
+    }
+
+    #[test]
+    fn set_parent_rejects_parenting_an_entity_to_itself() {
+        let mut world = World::new();
+        let entity = world.spawn();
+
+        assert_eq!(
+            set_parent(&mut world, entity, Some(entity)),
+            Err(EcsError::HierarchyCycle),
+            "a self-parent would close a one-link cycle"
+        );
+        assert_eq!(world.get::<Parent>(entity), None);
+    }
+
+    #[test]
+    fn set_parent_rejects_closing_a_cycle_through_a_descendant() {
+        let mut world = World::new();
+        let root = world.spawn();
+        let child = world.spawn();
+        let grandchild = world.spawn();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        set_parent(&mut world, grandchild, Some(child)).unwrap();
+
+        assert_eq!(
+            set_parent(&mut world, root, Some(grandchild)),
+            Err(EcsError::HierarchyCycle),
+            "parenting a root under its own grandchild must fail"
+        );
+        assert_eq!(
+            set_parent(&mut world, root, Some(child)),
+            Err(EcsError::HierarchyCycle),
+            "parenting a root under its own child must fail"
+        );
+        assert_eq!(
+            world.get::<Parent>(root),
+            None,
+            "a rejected attach must leave the existing relationship untouched"
+        );
     }
 }

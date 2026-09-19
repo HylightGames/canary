@@ -16,9 +16,10 @@
 //! it and is deliberately small.
 //!
 //! See `docs/architecture/core-runtime.md` for the full design, and
-//! `docs/roadmap/v0.0.1-roadmap.md` for what's implemented today versus
-//! planned (notably: there is no job system / parallel scheduler yet —
-//! [`App::run_for`] runs subsystems sequentially).
+//! `docs/roadmap/status.md` for what's implemented today versus
+//! planned (notably: the stage-based scheduler lives in the standalone
+//! `canary-scheduler` crate -- [`App::run_for`] itself still runs
+//! subsystems sequentially and is not wired into a `Schedule`).
 
 mod app;
 mod error;

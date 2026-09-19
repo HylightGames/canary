@@ -57,8 +57,8 @@ use crate::{bake_scene_to_vertices, extract_scene, BakedFrame, Renderable};
 ///
 /// # Why an App-level scheduler is not introduced here
 ///
-/// The plan (` .omo/plans/v0.0.9-rendering.md`, decision D4) defers the
-/// App-level `Schedule` to v0.0.10+: this task wires ordering *within* the
+/// The plan (`docs/architecture/rendering.md`, "the ECS-to-render
+/// bridge") defers the App-level `Schedule` to v0.0.10+: this task wires ordering *within* the
 /// ECS-owning subsystem's own `Schedule` only. Introducing a second scheduler
 /// at the `App` layer now would split ordering authority across two schedules
 /// with no cross-schedule conflict analysis to keep them consistent — a larger

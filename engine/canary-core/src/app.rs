@@ -48,10 +48,9 @@ impl App {
 
     /// Registers a directory that plugins may be loaded from.
     ///
-    /// v0.0.1-pre1 only records this path; nothing walks it automatically
+    /// Only records this path; nothing walks it automatically
     /// yet (see `canary-plugin-api` and `docs/architecture/plugin-system.md`
-    /// for the loader itself, and `docs/roadmap/v0.0.1-roadmap.md` for what
-    /// wiring it into `App` automatically would require).
+    /// for the loader itself).
     pub fn add_plugin_dir(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
         self.plugin_dirs.push(dir.into());
         self

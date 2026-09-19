@@ -55,19 +55,13 @@ libloading = "=0.8.6"
 #      updated below), but 46.x/47.x/48.x need >=1.94, which isn't
 #      apt-installable here yet. Move up when it is.
 wasmtime = { version = "=36.0.15", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
-# wasmtime-wasi must be pinned to the exact same version as wasmtime
-# above -- the upstream project releases both in lockstep specifically
-# so their types stay compatible with each other. Learned the hard way,
-# not just asserted: an automated dependency bump once moved this to
-# 24.0.10 alone, leaving wasmtime at 21.0.2, which Cargo resolved by
-# pulling in a *second*, separate wasmtime 24.x purely to satisfy
-# wasmtime-wasi's own transitive requirement -- harmless only because
-# this crate doesn't currently use wasmtime-wasi's API surface at all
-# (confirmed: no `wasmtime_wasi::` reference anywhere in src/), so no
-# type-mismatch compile error ever actually surfaced. It would the
-# moment anyone did. See .github/dependabot.yml's ignore list, added
-# after this, for why this pairing needs a human to bump it, not a bot.
-wasmtime-wasi = "=36.0.15"
+# NOTE: `wasmtime-wasi` is deliberately *not* a dependency: nothing in
+# `src/` references `wasmtime_wasi::`, and adding it pulls a second full
+# wasmtime build graph for no coverage. When a real `wasmtime_wasi::`
+# call site lands, pin it to the exact same version as `wasmtime` above
+# (upstream releases both in lockstep): a past automated bump moved only
+# one of the pair and Cargo silently resolved a second, separate wasmtime
+# to satisfy the other. See .github/dependabot.yml's ignore list.
 
 [dev-dependencies]
 # The `wat` feature (WAT text-format parsing) is dev-only on purpose:
