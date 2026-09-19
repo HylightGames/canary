@@ -10,15 +10,29 @@
 //! existing `canary-render` device interface. `canary-render` itself stays
 //! dependency-free; all ECS and math coupling lives here.
 //!
-//! # Current status: stub
+//! # Current status
 //!
-//! This crate is a scaffold only — no `Renderable` component, extract, bake, or
-//! draw logic exists yet (Tasks 2-3 of the v0.0.9 stage plan). Known target
-//! limits carried forward from the plan: convex-only painter sort (concave
-//! self-occlusion needs a depth buffer), a fixed camera (no camera component),
-//! and any RHI upgrades (push constants, depth, `write_buffer`, textures,
-//! materials, swapchain) deferred to v0.0.10+.
+//! [`Renderable`] (Task 2) plus extract + CPU-bake + draw (Task 3) are
+//! landed: [`extract::extract_scene`] snapshots the [`World`](canary_ecs::World),
+//! [`extract::bake_scene_to_vertices`] turns the snapshot into NDC floats, and
+//! [`pipeline::draw_baked_frame`] issues one buffer plus one draw per frame.
+//! Still deferred: Schedule wiring and the subsystem tick (Task 4),
+//! offscreen pixel tests (Task 5), the spinning-cube rewrite (Task 6), and
+//! any RHI upgrades — push constants, depth, `write_buffer`, textures,
+//! materials, swapchain — all v0.0.10+. Known target limits: convex-only
+//! painter sort (concave self-occlusion needs a depth buffer) and a fixed
+//! camera (no camera component yet).
 
+mod extract;
+mod pipeline;
 mod renderable;
 
+pub use extract::{
+    bake_scene_to_vertices, bake_scene_to_vertices_with_aspect, extract_scene, BakedFrame,
+    RenderItem,
+};
+pub use pipeline::{
+    draw_baked_frame, render_vertex_attributes, render_vertex_stride, DEFAULT_CLEAR_COLOR,
+    RENDER_WGSL,
+};
 pub use renderable::Renderable;
