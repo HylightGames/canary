@@ -262,6 +262,12 @@ pub trait PhysicsBackend {
     /// Component inputs arrive by reference (not by value) even though
     /// they are `Copy`: if a later shape (compound colliders, joint
     /// descriptors) outgrows `Copy`, no game-facing signature moves.
+    ///
+    /// Solver semantics worth knowing at this seam: a colliderless
+    /// dynamic body has no mass (Rapier derives mass from colliders), so
+    /// gravity cannot move it until `attach_collider` runs. That is the
+    /// solver's rule, not an implementor's bug — but it surprises every
+    /// first caller, hence stated here rather than discovered.
     fn create_body(
         &mut self,
         body: &RigidBody,

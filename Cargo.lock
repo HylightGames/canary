@@ -315,7 +315,9 @@ dependencies = [
  "canary-scheduler",
  "canary-transform",
  "glam 0.30.10",
+ "proptest",
  "rapier2d",
+ "tempfile",
  "thiserror 2.0.20",
 ]
 
@@ -382,6 +384,7 @@ dependencies = [
  "canary-assets",
  "canary-core",
  "canary-ecs",
+ "canary-physics",
  "canary-platform",
  "canary-plugin-api",
  "canary-render-ecs",

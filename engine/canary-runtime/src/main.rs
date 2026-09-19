@@ -19,6 +19,7 @@
 use canary_assets::{AssetStore, Mesh, Texture};
 use canary_core::{App, Subsystem};
 use canary_ecs::World;
+use canary_physics::{register_physics_step, FrameDelta};
 use canary_platform::{HeadlessInput, HeadlessWindow, InputSource, Window, WindowDescriptor};
 use canary_plugin_api::NativePluginLoader;
 use canary_render_ecs::{
@@ -39,37 +40,62 @@ struct Position {
 /// demonstrating how a real engine subsystem is expected to be registered
 /// with [`App`]. See `docs/architecture/core-runtime.md#the-appengine-bootstrap`.
 ///
-/// The schedule owns the per-tick ECS pipeline: transform propagation first,
-/// soup bake second, mesh bake third (see [`register_render_bake`]'s docs
-/// for why that order is load-bearing). Registration order is the ordering
-/// mechanism — the constructor below registers propagation before both
-/// bakes and the mesh bake after the soup bake, and the scheduler's
-/// solo-write staging turns that order into separate, ordered stages. The
-/// mesh bake appends file-loaded geometry onto the soup-baked frame (a
-/// mesh-empty tick leaves it untouched), so soup-only worlds render
-/// exactly as before. The GPU never enters this schedule: device, target,
-/// and pipeline stay in `main()`'s frame scope and the baked frame is
-/// drawn explicitly after `tick()`'s `schedule.run()` returns, per
+/// The schedule owns the per-tick ECS pipeline: physics step first,
+/// transform propagation second, soup bake third, mesh bake fourth,
+/// textured bake fifth. Registration order is the ordering mechanism —
+/// the constructor below registers in exactly that order, and the
+/// scheduler's solo-write staging turns the order into separate, ordered
+/// stages:
+///
+/// - Physics MUST precede propagation: the physics system writes
+///   `Transform` (stepped 2D poses) and propagation reads it. Reversed,
+///   the bakes snapshot one-tick-stale globals every tick — proven by
+///   `canary-physics`'s `step_before_propagation_sees_fresh_global` /
+///   `reversed_registration_bakes_stale_global` order tests, which pin
+///   both directions (mirroring the render-ecs precedent).
+/// - Propagation precedes the soup bake (see [`register_render_bake`]'s
+///   docs for why that order is load-bearing).
+/// - The mesh bake appends file-loaded geometry onto the soup-baked frame
+///   (a mesh-empty tick leaves it untouched), so soup-only worlds render
+///   exactly as before.
+/// - The textured bake runs last (see
+///   [`register_textured_render_bake`]'s docs).
+///
+/// The GPU never enters this schedule: device, target, and pipeline stay
+/// in `main()`'s frame scope and the baked frame is drawn explicitly
+/// after `tick()`'s `schedule.run()` returns, per
 /// `docs/architecture/rendering.md`'s "Extract, don't query" rule.
+///
+/// [`register_render_bake`]: canary_render_ecs::register_render_bake
+/// [`register_textured_render_bake`]: canary_render_ecs::register_textured_render_bake
 struct EcsSubsystem {
     world: World,
     schedule: Schedule,
 }
 
 impl EcsSubsystem {
-    /// Builds the subsystem with the canonical system order: propagation
-    /// first, soup bake second, mesh bake third. Swapping the first two
-    /// bakes stale `GlobalTransform`s — proven by
-    /// `canary-render-ecs`'s `bake_runs_after_propagation_sees_fresh_global`
-    /// order test, which fails when bake is registered first — and
-    /// registering the mesh bake before the soup bake would let the soup
-    /// overwrite the mesh vertices (see
+    /// Builds the subsystem with the canonical system order:
+    /// physics step first, propagation second, soup bake third, mesh
+    /// bake fourth, textured bake fifth. Swapping physics after
+    /// propagation bakes stale `GlobalTransform`s — proven by
+    /// `canary-physics`'s `step_before_propagation_sees_fresh_global`
+    /// order test plus its reversed-registration failure proof (which
+    /// fails when physics is registered after propagation, mirroring the
+    /// render-ecs precedent) — and swapping the soup bake after the mesh
+    /// bake would let the soup overwrite the mesh vertices (see
     /// [`register_mesh_render_bake`]'s docs).
+    ///
+    /// [`register_mesh_render_bake`]: canary_render_ecs::register_mesh_render_bake
     ///
     /// Also ensures the [`AssetStore<Mesh>`] resource exists (inserting an
     /// empty one only when absent — never overwriting a pre-loaded store):
     /// the mesh bake resolves handles against it, and a missing store
     /// would silently skip every mesh entity rather than fail loudly.
+    /// Physics needs no constructor seeding: [`register_physics_step`]'s
+    /// system inserts its `PhysicsConfig` / `PhysicsClock` /
+    /// `SimulationTime` / `RapierBackend` defaults on first tick (never
+    /// overwriting), and [`EcsSubsystem::tick`] inserts the per-tick
+    /// [`FrameDelta`] below.
     fn new(mut world: World) -> Self {
         if world.resource::<AssetStore<Mesh>>().is_none() {
             world.insert_resource(AssetStore::<Mesh>::new());
@@ -78,6 +104,7 @@ impl EcsSubsystem {
             world.insert_resource(AssetStore::<Texture>::new());
         }
         let mut schedule = Schedule::new();
+        register_physics_step(&mut schedule);
         register_transform_propagation(&mut schedule);
         register_render_bake(&mut schedule);
         register_mesh_render_bake(&mut schedule);
@@ -92,6 +119,13 @@ impl Subsystem for EcsSubsystem {
     }
 
     fn tick(&mut self, dt: std::time::Duration) {
+        // Frame time reaches the fixed-step accumulator as an ordinary
+        // resource: inserting unconditionally overwrites last tick's
+        // delta (resources hold one value per type), so no stale dt can
+        // survive across ticks. No `App` redesign — `tick(dt)` already
+        // receives the duration; this is the subsystem self-stepping
+        // seam the v0.0.11 plan names.
+        self.world.insert_resource(FrameDelta::new(dt));
         self.schedule.run(&mut self.world);
         tracing::debug!(
             entities = self.world.entity_count(),

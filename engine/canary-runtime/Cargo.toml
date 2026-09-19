@@ -16,6 +16,7 @@ canary-core = { path = "../canary-core" }
 canary-platform = { path = "../canary-platform" }
 canary-ecs = { path = "../canary-ecs" }
 canary-plugin-api = { path = "../canary-plugin-api" }
+canary-physics = { path = "../canary-physics" }
 canary-render-ecs = { path = "../canary-render-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
 canary-transform = { path = "../canary-transform" }
