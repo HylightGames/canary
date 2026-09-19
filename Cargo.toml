@@ -9,6 +9,7 @@ members = [
     "engine/canary-plugin-api",
     "engine/canary-loc",
     "engine/canary-assets",
+    "engine/canary-physics",
     "engine/canary-render",
     "engine/canary-render-vulkan",
     "engine/canary-render-ecs",

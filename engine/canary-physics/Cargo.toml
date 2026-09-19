@@ -1,0 +1,34 @@
+[package]
+name = "canary-physics"
+description = "Canary Engine 2D physics: PhysicsBackend trait + Rapier2D backend with fixed-timestep stepping. See docs/architecture/physics.md and ADR 0019."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-ecs = { path = "../canary-ecs" }
+canary-scheduler = { path = "../canary-scheduler" }
+canary-transform = { path = "../canary-transform" }
+glam = "0.30"
+thiserror = "2.0.19"
+
+# 2D rigid-body backend (ADR 0019: rapier2d is the canonical 2D backend;
+# Jolt is canonical 3D and Rapier3D the 3D alternative — both post-v0.1.0,
+# so neither appears here). `0.35` tracks the 0.35.x line (2026 verdict:
+# 0.35.3, 28 Aug 2026; 0.35.0 brought always-on SIMD, the CCD rewrite, and
+# new sleeping/island/contact defaults). Verified by a real build on this
+# toolchain (rustc 1.98.1, 2026-09-19): the plain `0.35` requirement
+# resolves and compiles clean with default features, so no feature flags
+# are pinned at scaffold time — Task 1 carries no stepping/sync logic yet.
+# Expected Task 4 additions (`parallel` pays off above ~50 bodies,
+# `serde-serialize` for scene persistence; default `block-solver` kept for
+# 2D) will be added then with their own verification, not speculatively
+# here. f32 is the only scalar: f64 is a separate crate and out of scope.
+# No transitive pins required: `cargo tree` shows no edition2024 wall and
+# no rust-version above this toolchain (unlike the `block-buffer`/`ignore`/
+# `globset` pins documented in docs/development/build-system.md).
+rapier2d = "0.35"
