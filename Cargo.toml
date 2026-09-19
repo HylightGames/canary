@@ -5,6 +5,7 @@ members = [
     "engine/canary-platform",
     "engine/canary-ecs",
     "engine/canary-scheduler",
+    "engine/canary-transform",
     "engine/canary-plugin-api",
     "engine/canary-loc",
     "engine/canary-render",

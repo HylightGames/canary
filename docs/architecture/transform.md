@@ -140,7 +140,11 @@ pub struct GlobalTransform(glam::Mat4);
 
 ## Status in this foundation
 
-Entirely architectural — no `canary-transform` crate exists yet. This is
-the next piece of `v0.0.9`, per
-[`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md), immediately
-following the real delta-time/`App::run` work already landed on `dev`.
+Implemented on `dev` (not yet tagged): `engine/canary-transform` holds
+`Transform`/`GlobalTransform`, the `Parent`/`Children` hierarchy
+components with sync-keeping helpers, and a hierarchy-propagation system
+registered through `canary-scheduler` — the scheduler's first proof
+against a real gameplay-shaped system rather than only its own test
+doubles. Still open in `v0.0.9`, per
+[`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md): ECS-driven
+rendering off `GlobalTransform`.

@@ -1,0 +1,15 @@
+[package]
+name = "canary-transform"
+description = "Canary Engine spatial transforms: local Transform, cached GlobalTransform, hierarchy, and propagation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-ecs = { path = "../canary-ecs" }
+canary-scheduler = { path = "../canary-scheduler" }
+glam = "0.30"

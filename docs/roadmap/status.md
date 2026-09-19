@@ -356,7 +356,12 @@ rendering) → `v0.0.10` (asset loading) → `v0.0.11` (physics, 2D first)
 editor, marketplace, and beginner-friendly tooling remain explicitly
 deferred past `v0.1.0`, unchanged from this document's prior framing.
 
-**`v0.0.9` is in progress.**
+**`v0.0.9` is in progress** — real delta-time + wall-clock `App::run`
+landed; `canary-transform` (`Transform`/`GlobalTransform`/`Parent`/
+`Children` + scheduler-registered hierarchy propagation, 23 tests)
+implemented on `dev`, not yet tagged. Still open in `v0.0.9`: ECS-driven
+rendering (a system querying `World` for `GlobalTransform` + a renderable
+component and drawing it through `canary-render`/`canary-render-vulkan`).
 
 ## Full architecture-to-implementation map
 
@@ -371,6 +376,7 @@ about working code in `engine/`.
 | Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
 | Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
+| Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented on `dev`, not yet tagged |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
 | Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6` |
