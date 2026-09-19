@@ -226,8 +226,8 @@ impl BakedTexturedFrame {
 
 /// Bakes `items` into NDC-space vertex floats with UVs for a square target.
 ///
-/// The same projection as the soup bake ([`CAMERA_DISTANCE`],
-/// [`FOCAL_LENGTH`], Y-flip negate, painter-sort far-to-near,
+/// The same projection as the soup bake (`CAMERA_DISTANCE`,
+/// `FOCAL_LENGTH`, Y-flip negate, painter-sort far-to-near,
 /// behind-camera skip) applied to positions, with each vertex's UV
 /// carried through untouched: UVs are data, not geometry, so no
 /// transform applies to them. Triangles on or behind the camera plane

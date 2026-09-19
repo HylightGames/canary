@@ -78,7 +78,7 @@
 //! one whole mesh per entity, while `box.glb` holds two multi-face meshes
 //! for the cube's six single-color faces — one mesh entity cannot keep six
 //! flat colors. So this example expands the file meshes to soup through the
-//! bridge's own [`expand_mesh_to_soup`](canary_render_ecs::expand_mesh_to_soup)
+//! bridge's own [`expand_mesh_to_soup`]
 //! (the exact function the mesh extract path uses — no parallel copy of the
 //! index math) and slices the soup into the six two-triangle faces. The
 //! file-loaded-entity path itself is proven by `canary-render-ecs`'s

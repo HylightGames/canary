@@ -36,7 +36,7 @@ use crate::AssetError;
 /// release's kilobyte fixtures while still fitting comfortably in memory
 /// (~12 MiB of positions); the value is **provisional** pending measured
 /// calibration against real content, exactly like the texture budgets in
-/// [`crate::texture`].
+/// the `texture` module.
 pub const MAX_MESH_VERTICES_PER_PRIMITIVE: usize = 1 << 20;
 
 /// Maximum indices accepted from a single GLB primitive.

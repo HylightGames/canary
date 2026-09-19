@@ -39,7 +39,7 @@ use crate::AssetError;
 /// each other out of the box rather than encoding two different opinions
 /// about "too big". The value is **provisional** — a DoS bound chosen
 /// before any real content exists to calibrate against, exactly like the
-/// mesh budgets in [`crate::mesh`] — and callers with measured needs pass
+/// mesh budgets in the `mesh` module — and callers with measured needs pass
 /// their own ceiling to [`load_texture_with_budget`] instead.
 pub const DEFAULT_MAX_TEXTURE_BYTES: u64 = 64 * 1024 * 1024;
 

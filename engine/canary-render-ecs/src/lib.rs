@@ -21,7 +21,7 @@
 //! and `canary-runtime`'s tick drives propagation-then-bake through the
 //! scheduler. File-loaded meshes ride the same path via
 //! [`MeshRenderable`]; file-loaded textures ride the single-texture
-//! sampled path ([`TexturedRenderable`], [`TEXTURED_WGSL`](crate::TEXTURED_WGSL),
+//! sampled path ([`TexturedRenderable`], [`TEXTURED_WGSL`],
 //! [`pipeline::draw_textured_frame`]). Still deferred: any further RHI
 //! upgrades — push constants, depth, `write_buffer`, multi-texture
 //! materials, swapchain — all v0.0.10+.
