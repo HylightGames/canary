@@ -70,7 +70,7 @@ representation, used by both 2D and 3D games.**
 
 ```rust
 // Illustrative — see engine/canary-transform/src/lib.rs for the real
-// implementation once it exists.
+// implementation.
 pub struct Transform {
     pub translation: glam::Vec3,
     pub rotation: glam::Quat,
@@ -145,6 +145,9 @@ Implemented on `dev` (not yet tagged): `engine/canary-transform` holds
 components with sync-keeping helpers, and a hierarchy-propagation system
 registered through `canary-scheduler` — the scheduler's first proof
 against a real gameplay-shaped system rather than only its own test
-doubles. Still open in `v0.0.9`, per
-[`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md): ECS-driven
-rendering off `GlobalTransform`.
+doubles. ECS-driven rendering off `GlobalTransform` has since landed
+too, via the `canary-render-ecs` bridge (see `rendering.md`); still
+open, per [`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md):
+every RHI upgrade the bridge deliberately defers (push
+constants/uniforms, depth/culling, buffer updates, textures, materials,
+swapchain/presentation) and the camera component.

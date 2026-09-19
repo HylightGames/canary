@@ -17,10 +17,10 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href=".github/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=github-actions&logoColor=white"></a>
   <a href="rust-toolchain.toml"><img alt="Rust" src="https://img.shields.io/badge/language-Rust-orange.svg?logo=rust"></a>
-  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.8-yellow.svg"></a>
+  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.9-yellow.svg"></a>
 </p>
 
-> **Early development:** Canary is currently at `v0.0.8` and is not yet
+> **Early development:** Canary is currently at `v0.0.9` and is not yet
 > production-ready. The engine foundation and extensibility systems are under
 > active development.
 
@@ -30,6 +30,8 @@ Implemented:
 
 - Archetype-based ECS, with multi-component queries, typed resources, and change detection
 - A stage-based scheduler that runs non-conflicting systems concurrently
+- `Transform`/`GlobalTransform` hierarchy with scheduler-driven propagation
+- ECS-driven rendering: scene extraction + CPU bake + draw through the RHI
 - Native C-ABI plugins
 - Sandboxed WebAssembly Component plugins
 - Real windowing (behind an opt-in feature) and a first rendering backend (Vulkan)
@@ -66,3 +68,9 @@ cd canary
 cargo build --workspace
 cargo test --workspace
 cargo run -p canary-runtime
+```
+
+`canary-runtime` is a headless boot harness (no window yet) that exercises
+the engine vertical slice end to end; see
+[`docs/roadmap/status.md`](docs/roadmap/status.md) for what is and isn't
+wired up.

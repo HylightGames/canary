@@ -49,20 +49,21 @@ or through explicit, documented interfaces — never through ad hoc globals.
 | Platform abstraction | `canary-platform` | [platform-abstraction.md](platform-abstraction.md) |
 | Core runtime (App, logging, error conventions) | `canary-core` | [core-runtime.md](core-runtime.md) |
 | ECS | `canary-ecs` | [core-runtime.md](core-runtime.md) |
-| Transform & hierarchy | *(planned: `canary-transform`)* | [transform.md](transform.md) |
+| Scheduler (stage-based system execution) | `canary-scheduler` | [execution-model.md](execution-model.md) |
+| Transform & hierarchy | `canary-transform` | [transform.md](transform.md) |
 | Plugin trait & loader | `canary-plugin-api` | [plugin-system.md](plugin-system.md) |
 | Scripting / language-agnostic runtime | *(planned: `canary-script`)* | [scripting-system.md](scripting-system.md) |
-| Rendering | *(planned: `canary-render`)* | [rendering.md](rendering.md) |
+| Rendering (RHI + Vulkan backend + ECS bridge) | `canary-render`, `canary-render-vulkan`, `canary-render-ecs` | [rendering.md](rendering.md) |
 | Physics | *(planned: `canary-physics`)* | [physics.md](physics.md) |
 | Networking | *(planned: `canary-net`)* | [networking.md](networking.md) |
 | Asset pipeline | *(planned: `canary-assets`)* | [asset-system.md](asset-system.md) |
 | UI toolkit (`CanaryUI`) | *(planned: `canary-ui-core`)* | [ui-toolkit.md](ui-toolkit.md) |
 | Audio (`CanaryAudio`) | *(planned: `canary-audio`)* | [audio.md](audio.md) |
-| Localization (`CanaryLoc`) | *(planned: `canary-loc`)* | [localization.md](localization.md) |
+| Localization (`CanaryLoc`) | `canary-loc` | [localization.md](localization.md) |
 | Project state & versioning | *(planned: `canary-state`)* | [state-and-versioning.md](state-and-versioning.md) |
 
 "Planned" crates are architected in this document set but not implemented in
-this foundation — see [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md)
+this foundation — see [`docs/roadmap/status.md`](../roadmap/status.md)
 for exactly what exists today versus what's designed-but-not-built.
 
 ## The two structural bets this engine makes
@@ -89,9 +90,12 @@ The ECS scheduler (see [core-runtime.md](core-runtime.md)) analyzes system
 data-access declarations to build a dependency graph, then hands runnable
 systems to the job pool; independent systems (e.g. "AI planning for enemies"
 and "particle simulation") run concurrently without either subsystem's code
-containing a single explicit thread spawn. The v0.0.1 ECS placeholder does
-**not** implement this yet — it runs systems sequentially — but the public
-API is shaped so parallelization is additive later, not a breaking rewrite.
+containing a single explicit thread spawn. A stage-based `Schedule`
+(`canary-scheduler`, since v0.0.8) already batches non-conflicting
+read-only systems to run concurrently while every write system runs
+alone in registration order — the job-stealing pool, concurrent
+disjoint writes, and `App`-level wiring are the parts still deferred,
+not the scheduler itself.
 See [ADR discussion in core-runtime.md](core-runtime.md#threading--the-job-system).
 
 ## How a frame is expected to flow (target design, post-Era 2)
