@@ -27,6 +27,39 @@ pub struct BufferDescriptor<'a> {
     pub data: &'a [u8],
 }
 
+/// Describes a GPU texture to create, with its full initial (and, for
+/// this release's scope, only) content.
+///
+/// # Why this slice, and what is deferred
+///
+/// This is the minimal texture half of Phase 3b's bounded RHI addition:
+/// one RGBA8 image, dimensions plus bytes, uploaded once at creation —
+/// the same write-once discipline [`BufferDescriptor`] documents for
+/// vertex data. There is deliberately no sampler choice (the backend
+/// binds its one default), no mipmap chain (exactly one level), no
+/// sRGB transfer-function handling (bytes are sampled as-is), no
+/// texture arrays, and no second texture slot. All of those belong to
+/// the general materials system — a real, intended future design that
+/// gets built when a second consumer needs more than one texture, not
+/// speculatively here against a single quadrant fixture.
+#[derive(Debug, Clone, Copy)]
+pub struct TextureDescriptor<'a> {
+    /// A human-readable label, surfaced in backend debug tooling
+    /// (Vulkan validation-layer object names, RenderDoc captures, ...)
+    /// where the backend supports it. Never required for correctness.
+    pub label: &'a str,
+    /// Width in pixels. Must be greater than zero.
+    pub width: u32,
+    /// Height in pixels. Must be greater than zero.
+    pub height: u32,
+    /// The texture's texels as tightly packed 8-bit RGBA, row-major from
+    /// the top row: exactly `width * height * 4` bytes. This is the same
+    /// layout [`canary_assets`](https://github.com/HylightGames/canary)'s
+    /// `Texture::rgba8` produces, so upload stays a `memcpy` with no
+    /// reshuffling at the graphics boundary.
+    pub rgba8: &'a [u8],
+}
+
 /// Describes an offscreen color render target to create.
 #[derive(Debug, Clone, Copy)]
 pub struct ColorTargetDescriptor {
@@ -43,7 +76,10 @@ pub struct ColorTargetDescriptor {
 /// them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VertexFormat {
-    /// Two 32-bit floats (8 bytes total) — e.g. a 2D position.
+    /// Two 32-bit floats (8 bytes total) — e.g. a 2D position, or (since
+    /// Phase 3b's texture slice) a 2D texture coordinate: a UV pair needs
+    /// no new format, so the textured vertex layout reuses this variant
+    /// rather than widening the enum for one consumer.
     Float32x2,
     /// Three 32-bit floats (12 bytes total) — e.g. an RGB color.
     Float32x3,

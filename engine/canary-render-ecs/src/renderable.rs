@@ -27,12 +27,14 @@
 ///   [`CommandEncoder::draw`] consumes a plain `vertex_count` with no
 ///   instancing. An indexed mesh would have nothing to bind to, so triangles
 ///   are stored pre-expanded.
-/// - **Why no UVs, normals, or materials:** those need texture sampling,
-///   lighting inputs, and descriptor-backed material data — all listed in
-///   [`RenderDevice`](canary_render::RenderDevice)'s docs as expected future
-///   RHI work, not present capability. Mesh-asset resources and materials are
-///   deferred to v0.0.10; adding them here would be scope creep against
-///   decision D2 of the v0.0.9 stage plan.
+/// - **Why no UVs, normals, or materials:** the flat-color soup path
+///   carries color per vertex because the untextured RHI pipeline has
+///   no uniforms or materials. UVs live on the textured path instead
+///   ([`TexturedRenderable`](crate::TexturedRenderable): UVs via the
+///   existing [`Float32x2`](canary_render::VertexFormat::Float32x2),
+///   sampled through the single-texture pipeline) — soup entities keep
+///   no UVs because nothing in their draw would read them. Normals and
+///   general materials stay deferred: no lighting inputs exist yet.
 ///
 /// [`PipelineDescriptor`]: canary_render::PipelineDescriptor
 /// [`VertexFormat`]: canary_render::VertexFormat

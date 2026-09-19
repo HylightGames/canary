@@ -20,14 +20,15 @@
 //! a scheduled system — see [`bake_scene_system`] for why — and runs explicitly
 //! after [`Schedule::run`](canary_scheduler::Schedule::run) returns.
 
-use canary_assets::{AssetStore, Mesh};
+use canary_assets::{AssetStore, Mesh, Texture};
 use canary_ecs::World;
 use canary_scheduler::{Schedule, SystemAccess};
 use canary_transform::GlobalTransform;
 
 use crate::{
-    bake_scene_to_vertices, extract_mesh_scene, extract_scene, BakedFrame, MeshRenderable,
-    Renderable,
+    bake_scene_to_vertices, bake_textured_scene_to_vertices, extract_mesh_scene, extract_scene,
+    extract_textured_scene, BakedFrame, BakedTexturedFrame, MeshRenderable, Renderable,
+    TexturedRenderable,
 };
 
 /// Declares the bake system's data access: reads the `GlobalTransform` +
@@ -202,6 +203,76 @@ pub fn bake_mesh_scene_system(world: &mut World) {
 /// constructor owns this order; see `engine/canary-runtime/src/main.rs`.
 pub fn register_mesh_render_bake(schedule: &mut Schedule) {
     schedule.add_write_system(bake_mesh_access(), bake_mesh_scene_system);
+}
+
+/// Declares the textured-bake system's data access: reads the
+/// `GlobalTransform` + `TexturedRenderable` components and the
+/// `AssetStore<Mesh>` + `AssetStore<Texture>` resources, writes the
+/// `BakedTexturedFrame` resource.
+///
+/// Every clause earns its place:
+/// - `reads::<GlobalTransform>()` conflicts with propagation's
+///   `writes::<GlobalTransform>`, so — like both earlier bakes — this
+///   system can never merge into propagation's stage and always sees
+///   fresh globals.
+/// - `reads_resource::<AssetStore<Mesh>>()` and
+///   `reads_resource::<AssetStore<Texture>>()` name the two store reads
+///   inside [`extract_textured_scene`](crate::extract_textured_scene):
+///   documentation-as-code for the data dependencies, keeping this
+///   system ordered after any future writer of either resource.
+/// - `writes_resource::<BakedTexturedFrame>()` makes this a solo-write
+///   stage of its own (see [`bake_access`]'s staging docs). It writes a
+///   *different* resource than the soup/mesh bakes, so no overwrite
+///   rivalry exists with them — but writers always run alone and in
+///   registration order regardless, and registering after the mesh bake
+///   keeps the per-tick chain deterministic: propagation, soup, mesh,
+///   textured.
+///
+/// # Why overwrite instead of the mesh bake's append
+///
+/// The mesh bake appends because it shares the soup's [`BakedFrame`]
+/// and must preserve it; the textured bake owns
+/// [`BakedTexturedFrame`](crate::BakedTexturedFrame) outright — no
+/// other system writes that type — so unconditional overwrite (the
+/// soup bake's semantics) is correct, and a stale textured frame can
+/// never survive a tick.
+pub fn bake_textured_access() -> SystemAccess {
+    SystemAccess::new()
+        .reads::<GlobalTransform>()
+        .reads::<TexturedRenderable>()
+        .reads_resource::<AssetStore<Mesh>>()
+        .reads_resource::<AssetStore<Texture>>()
+        .writes_resource::<BakedTexturedFrame>()
+}
+
+/// Bakes the textured scene into the
+/// [`BakedTexturedFrame`](crate::BakedTexturedFrame) resource:
+/// [`extract_textured_scene`] →
+/// [`bake_textured_scene_to_vertices`](crate::bake_textured_scene_to_vertices)
+/// → overwrite the resource.
+///
+/// Takes `&mut World` and nothing else, for the same
+/// GPU-stays-out-of-the-`Schedule` reason
+/// [`bake_scene_system`] documents: the device, target, pipeline, and
+/// the resolved [`Texture`] all stay in `main()`'s frame scope, and
+/// [`draw_textured_frame`](crate::draw_textured_frame) is called
+/// explicitly after [`Schedule::run`](canary_scheduler::Schedule::run).
+pub fn bake_textured_scene_system(world: &mut World) {
+    let items = extract_textured_scene(world);
+    let vertices = bake_textured_scene_to_vertices(&items);
+    world.insert_resource(BakedTexturedFrame { vertices });
+}
+
+/// Registers [`bake_textured_scene_system`] on `schedule` as a write
+/// system with [`bake_textured_access`]'s declaration.
+///
+/// Must be called *after* [`register_mesh_render_bake`]: every writer
+/// takes its own solo-write stage in registration order, so this keeps
+/// the canonical per-tick chain propagation → soup → mesh → textured.
+/// The subsystem constructor owns this order; see
+/// `engine/canary-runtime/src/main.rs`.
+pub fn register_textured_render_bake(schedule: &mut Schedule) {
+    schedule.add_write_system(bake_textured_access(), bake_textured_scene_system);
 }
 
 #[cfg(test)]
@@ -453,6 +524,166 @@ mod tests {
                 .vertices,
             before,
             "a mesh-empty tick must leave the soup frame untouched"
+        );
+    }
+
+    /// One file-loaded textured quad through both stores: the shared
+    /// textured-bake fixture. Geometry + UVs come from the checked-in
+    /// `quad.glb`, the image from `rgba2x2.png` — never hand-rebuilt.
+    fn textured_handles(
+        world: &mut World,
+    ) -> (
+        canary_assets::AssetHandle<Mesh>,
+        canary_assets::AssetHandle<canary_assets::Texture>,
+    ) {
+        use canary_assets::{load_texture, Texture};
+        let mesh_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../canary-assets/tests/fixtures/quad.glb");
+        let mesh = canary_assets::load_mesh(&mesh_path)
+            .expect("quad fixture must load")
+            .into_iter()
+            .next()
+            .expect("quad fixture holds one mesh");
+        let texture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../canary-assets/tests/fixtures/rgba2x2.png");
+        let texture = load_texture(&texture_path).expect("RGBA fixture must load");
+        let mesh_handle = world
+            .resource_mut::<AssetStore<Mesh>>()
+            .expect("textured-bake tests must insert the mesh store first")
+            .insert(mesh);
+        let texture_handle = world
+            .resource_mut::<AssetStore<Texture>>()
+            .expect("textured-bake tests must insert the texture store first")
+            .insert(texture);
+        (mesh_handle, texture_handle)
+    }
+
+    #[test]
+    fn textured_bake_access_is_not_read_only() {
+        // Given/When: the textured bake's access is registered as a
+        // *read* system.
+        // Then: registration must panic — proving the declaration
+        // writes (the `writes_resource::<BakedTexturedFrame>()`
+        // clause), which is what forces the textured bake into its own
+        // solo-write stage after the mesh bake. Same contract as the
+        // two earlier `*_is_not_read_only` tests, one stage later.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut schedule = Schedule::new();
+            schedule.add_read_system(bake_textured_access(), |_| {});
+        }));
+        assert!(
+            result.is_err(),
+            "bake_textured_access must declare a write, so registering it as a read system must fail"
+        );
+    }
+
+    #[test]
+    fn textured_bake_sees_fresh_global_and_owns_its_frame() {
+        // Given: one textured quad moved to x = +1 with a stale
+        // identity global, plus both stores.
+        let mut world = World::new();
+        world.insert_resource(AssetStore::<Mesh>::new());
+        world.insert_resource(AssetStore::<canary_assets::Texture>::new());
+        let (mesh_handle, texture_handle) = textured_handles(&mut world);
+        let entity = world.spawn();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        world
+            .insert(entity, TexturedRenderable::new(mesh_handle, texture_handle))
+            .unwrap();
+
+        // When: propagation, then all three bakes — the subsystem order.
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        register_textured_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        // Then: the textured frame holds the quad (6 vertices × 4
+        // floats), baked through the *fresh* global — and the soup
+        // frame is untouched (empty: no soup entities exist).
+        let frame = world
+            .resource::<BakedTexturedFrame>()
+            .expect("textured bake must leave a BakedTexturedFrame resource");
+        assert_eq!(
+            frame.vertices.len(),
+            6 * 4,
+            "one textured quad must reach the textured frame"
+        );
+        let soup = crate::expand_mesh_to_textured_soup(
+            world
+                .resource::<AssetStore<Mesh>>()
+                .expect("store must still exist")
+                .get(mesh_handle)
+                .expect("handle must still be live"),
+        )
+        .expect("quad fixture carries UVs");
+        let (positions, uvs): (Vec<[f32; 3]>, Vec<[f32; 2]>) = soup.into_iter().unzip();
+        let fresh = crate::TexturedRenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                1.0, 0.0, 0.0,
+            ))),
+            vertices: positions,
+            uvs,
+        };
+        let expected = crate::bake_textured_scene_to_vertices(std::slice::from_ref(&fresh));
+        assert_eq!(
+            frame.vertices, expected,
+            "textured vertices must be baked from the fresh global"
+        );
+        assert!(
+            world
+                .resource::<BakedFrame>()
+                .expect("soup bake must still insert its own frame")
+                .is_empty(),
+            "no soup entities means the soup frame stays empty alongside the textured one"
+        );
+    }
+
+    #[test]
+    fn textured_bake_with_no_textured_entities_leaves_an_empty_frame() {
+        // Given: a soup-only world run through all four systems.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(entity, Transform::from_translation(glam::Vec3::ZERO))
+            .unwrap();
+        world.insert(entity, red_triangle()).unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        register_textured_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        // Then: the textured bake still inserts its resource (overwrite
+        // semantics, like the soup bake), empty — while the soup frame
+        // holds the triangle.
+        let textured = world
+            .resource::<BakedTexturedFrame>()
+            .expect("textured bake must insert its frame even with no textured entities");
+        assert!(
+            textured.is_empty(),
+            "no textured entities must bake to an empty textured frame"
+        );
+        assert_eq!(
+            world
+                .resource::<BakedFrame>()
+                .expect("soup frame must still exist")
+                .vertex_count(),
+            3,
+            "the soup triangle must survive alongside the empty textured frame"
         );
     }
 }

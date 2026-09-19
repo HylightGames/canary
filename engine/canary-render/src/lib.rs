@@ -37,7 +37,7 @@ mod types;
 
 pub use types::{
     BufferDescriptor, ColorTargetDescriptor, PipelineDescriptor, RenderPassDescriptor,
-    VertexAttribute, VertexFormat,
+    TextureDescriptor, VertexAttribute, VertexFormat,
 };
 
 /// A GPU device capable of creating the resources this trait's other
@@ -63,6 +63,14 @@ pub trait RenderDevice {
     type ColorTarget;
     /// A compiled graphics pipeline (shader stages + vertex layout).
     type Pipeline;
+    /// A GPU-resident sampled texture: RGBA8 texels uploaded once at
+    /// creation, bound per draw via [`CommandEncoder::set_texture`].
+    ///
+    /// This is the texture half of Phase 3b's minimal slice — exactly
+    /// one image, one default sampler, one level. The general materials
+    /// system (sampler choice, mipmaps, arrays, multi-texture slots) is
+    /// deferred, not partially present: nothing here names any of it.
+    type Texture;
     /// Records GPU commands for one submission. See [`CommandEncoder`].
     type CommandEncoder<'a>: CommandEncoder<Self>
     where
@@ -82,6 +90,52 @@ pub trait RenderDevice {
     /// SPIR-V specifically: WGSL is the authoring language, cross-
     /// compiled via standalone `naga`, not through this trait).
     fn create_pipeline(&self, desc: &PipelineDescriptor<'_>) -> Self::Pipeline;
+
+    /// Creates a GPU texture, uploading `desc.rgba8` as its initial
+    /// (and, for this release's scope, only) content.
+    ///
+    /// # Why upload-once, and what is deferred
+    ///
+    /// The write-once discipline mirrors [`RenderDevice::create_buffer`]:
+    /// there are no buffer/texture *updates* anywhere on this trait, so
+    /// per-frame animation re-creates rather than mutates — the correct
+    /// shape given a scope with no update API, not a performance claim.
+    /// A texture cache, streaming uploads, and any sampler/mipmap/sRGB
+    /// choice are the deferred materials system's work; this method
+    /// takes plain bytes plus dimensions and promises sampling, nothing
+    /// more.
+    fn create_texture(&self, desc: &TextureDescriptor<'_>) -> Self::Texture;
+
+    /// Creates a single-texture graphics pipeline from precompiled
+    /// SPIR-V: identical to [`RenderDevice::create_pipeline`] except the
+    /// pipeline layout additionally binds exactly one sampled texture
+    /// (bound later via [`CommandEncoder::set_texture`]).
+    ///
+    /// # Why a second method instead of a descriptor flag
+    ///
+    /// Adding a `sampled_texture: bool` field to [`PipelineDescriptor`]
+    /// would break every existing struct literal — all soup-path call
+    /// sites, the `hello_triangle` proof, the spinning-cube example —
+    /// for a flag most of them would set to `false`. A separate method
+    /// keeps the addition purely additive: every existing pipeline
+    /// construction compiles verbatim, and the textured path is visibly
+    /// a second, bounded entry point rather than a mode flag threaded
+    /// through the first one.
+    ///
+    /// # The contract the shader must uphold
+    ///
+    /// The fragment shader must declare exactly one sampled texture at
+    /// set 0: binding 0 is the 2D sampled image, binding 1 is its
+    /// sampler (two bindings, one texture — WGSL's `texture_2d` plus
+    /// `sampler` compile to separate image/sampler descriptors, not to
+    /// a single combined one, so the layout provides both). A shader
+    /// declaring zero textures, two textures, or the same texture at a
+    /// different set has no defined rendering under this method: that
+    /// is the general materials system's scope, explicitly not this
+    /// method's. UVs arrive as an ordinary vertex attribute — the
+    /// existing [`VertexFormat::Float32x2`], not a new format — because
+    /// a UV pair *is* two floats and needs no new enum variant.
+    fn create_textured_pipeline(&self, desc: &PipelineDescriptor<'_>) -> Self::Pipeline;
 
     /// Begins recording a new command buffer.
     fn create_command_encoder(&self) -> Self::CommandEncoder<'_>;
@@ -123,6 +177,26 @@ pub trait CommandEncoder<D: RenderDevice + ?Sized> {
     /// buffer, bound once — no multiple vertex-buffer slots, no index
     /// buffer yet.
     fn set_vertex_buffer(&mut self, buffer: &D::Buffer);
+
+    /// Binds `texture` as the single sampled texture for subsequent draw
+    /// calls in the current render pass.
+    ///
+    /// # Why exactly one texture, bound after the pipeline
+    ///
+    /// This is the sampling half of Phase 3b's minimal slice: one
+    /// texture, no slot index, no sampler parameter — the pipeline
+    /// created by [`RenderDevice::create_textured_pipeline`] already
+    /// names the one layout this binds into. Multi-texture slots,
+    /// per-draw material selection, and rebinding mid-pass are the
+    /// deferred materials system's scope. Must be called after
+    /// [`CommandEncoder::set_pipeline`]: the encoder binds into the
+    /// currently bound pipeline's layout, and with no pipeline bound
+    /// there is no layout to bind into (backends report that misuse
+    /// loudly rather than recording undefined work).
+    ///
+    /// [`RenderDevice::create_textured_pipeline`]:
+    ///     crate::RenderDevice::create_textured_pipeline
+    fn set_texture(&mut self, texture: &D::Texture);
 
     /// Draws `vertex_count` vertices from the currently bound vertex
     /// buffer, using the currently bound pipeline. No instancing.

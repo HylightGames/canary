@@ -15,6 +15,7 @@ use crate::buffer::VulkanBuffer;
 use crate::color_target::VulkanColorTarget;
 use crate::device::VulkanDevice;
 use crate::pipeline::VulkanPipeline;
+use crate::texture::VulkanTexture;
 
 /// Records one command buffer's worth of GPU work. Allocated fresh per
 /// [`VulkanDevice::create_command_encoder`] call and consumed by
@@ -24,6 +25,16 @@ use crate::pipeline::VulkanPipeline;
 pub struct VulkanCommandEncoder<'a> {
     vk_device: &'a VulkanDevice,
     command_buffer: vk::CommandBuffer,
+    /// The layout of the most recently bound pipeline, or `None` before
+    /// any `set_pipeline` call.
+    ///
+    /// Descriptor sets bind against a pipeline layout, not into the
+    /// void: [`CommandEncoder::set_texture`](canary_render::CommandEncoder::set_texture)
+    /// needs the current pipeline's layout, so `set_pipeline` records
+    /// it here. A `set_texture` before any `set_pipeline` is a caller
+    /// ordering violation, reported loudly rather than recorded as
+    /// undefined work.
+    bound_layout: Option<vk::PipelineLayout>,
 }
 
 impl<'a> VulkanCommandEncoder<'a> {
@@ -46,6 +57,7 @@ impl<'a> VulkanCommandEncoder<'a> {
         Self {
             vk_device,
             command_buffer,
+            bound_layout: None,
         }
     }
 
@@ -118,6 +130,7 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn set_pipeline(&mut self, pipeline: &VulkanPipeline) {
+        self.bound_layout = Some(pipeline.layout);
         unsafe {
             self.vk_device.device.cmd_bind_pipeline(
                 self.command_buffer,
@@ -134,6 +147,28 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
                 0,
                 &[buffer.buffer],
                 &[0],
+            );
+        }
+    }
+
+    fn set_texture(&mut self, texture: &VulkanTexture) {
+        let layout = self.bound_layout.expect(
+            "set_texture requires a bound pipeline: call set_pipeline \
+             (with a textured pipeline) before set_texture",
+        );
+        // SAFETY: `layout` is the currently bound textured pipeline's
+        // own layout (recorded in `set_pipeline`), set 0 of which is
+        // the shared texture layout the texture's set was allocated
+        // from — so binding set 0 here always matches. No dynamic
+        // offsets; one set, first set.
+        unsafe {
+            self.vk_device.device.cmd_bind_descriptor_sets(
+                self.command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                layout,
+                0,
+                &[texture.set],
+                &[],
             );
         }
     }

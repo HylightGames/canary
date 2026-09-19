@@ -59,13 +59,18 @@
 //! margin from each quad's edges keeps the samples clear of rasterizer edge
 //! rules on any conformant implementation.
 
-use canary_assets::{load_mesh, AssetHandle, AssetStore, Mesh};
+use canary_assets::{load_mesh, load_texture, AssetHandle, AssetStore, Mesh, Texture};
 use canary_ecs::World;
-use canary_render::{ColorTargetDescriptor, PipelineDescriptor, RenderDevice};
+use canary_render::{
+    BufferDescriptor, ColorTargetDescriptor, CommandEncoder, PipelineDescriptor, RenderDevice,
+    RenderPassDescriptor,
+};
 use canary_render_ecs::register_render_bake;
 use canary_render_ecs::{
-    draw_baked_frame, register_mesh_render_bake, render_vertex_attributes, render_vertex_stride,
-    BakedFrame, MeshRenderable, Renderable, RENDER_WGSL,
+    draw_baked_frame, draw_textured_frame, register_mesh_render_bake,
+    register_textured_render_bake, render_vertex_attributes, render_vertex_stride,
+    textured_vertex_attributes, textured_vertex_stride, BakedFrame, BakedTexturedFrame,
+    MeshRenderable, Renderable, TexturedRenderable, RENDER_WGSL, TEXTURED_WGSL,
 };
 use canary_render_vulkan::VulkanDevice;
 use canary_scheduler::Schedule;
@@ -91,15 +96,14 @@ const RIGHT_SAMPLE: (u32, u32) = (108, 64);
 /// Left quad spans `9..31`, right spans `97..119`, so `x = 64` is far clear.
 const GAP_SAMPLE: (u32, u32) = (64, 64);
 
-/// Parses, validates, and cross-compiles [`RENDER_WGSL`] to SPIR-V for one
+/// Parses, validates, and cross-compiles a WGSL source to SPIR-V for one
 /// shader stage.
 ///
 /// The same real `naga` calls `hello_triangle` makes against its own
-/// `WGSL_SOURCE` — the bridge's shader is byte-identical to that source, so
-/// this harness compiles the bridge constant through the identical pipeline
-/// rather than duplicating the string.
-fn compile_stage(stage: naga::ShaderStage) -> Vec<u32> {
-    let module = naga::front::wgsl::parse_str(RENDER_WGSL).expect("failed to parse WGSL");
+/// `WGSL_SOURCE` — the bridge's shaders are compiled through the
+/// identical pipeline rather than duplicating strings.
+fn compile_stage_source(source: &str, stage: naga::ShaderStage) -> Vec<u32> {
+    let module = naga::front::wgsl::parse_str(source).expect("failed to parse WGSL");
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
@@ -125,6 +129,18 @@ fn compile_stage(stage: naga::ShaderStage) -> Vec<u32> {
         .write(&module, &info, Some(&pipeline_options), &None, &mut buffer)
         .expect("failed to write SPIR-V");
     buffer
+}
+
+/// Compiles the soup [`RENDER_WGSL`]: byte-identical to
+/// `hello_triangle`'s `WGSL_SOURCE`, so this inherits that proof.
+fn compile_stage(stage: naga::ShaderStage) -> Vec<u32> {
+    compile_stage_source(RENDER_WGSL, stage)
+}
+
+/// Compiles the textured [`TEXTURED_WGSL`] through the same real
+/// pipeline — a new shader earns no trust without the same treatment.
+fn compile_textured_stage(stage: naga::ShaderStage) -> Vec<u32> {
+    compile_stage_source(TEXTURED_WGSL, stage)
 }
 
 /// Reads one RGBA8 pixel out of a tightly-packed readback buffer.
@@ -283,7 +299,7 @@ fn mesh_store_with_quad() -> (AssetStore<Mesh>, AssetHandle<Mesh>) {
 }
 
 /// Registers the full per-tick chain: propagation, then soup bake, then
-/// mesh bake. Registration order is the ordering mechanism (each writer
+/// mesh bake, then textured bake. Registration order is the ordering mechanism (each writer
 /// takes its own solo-write stage), so this helper — not each test's
 /// inline schedule — is the single source of truth for system order.
 fn full_render_schedule() -> Schedule {
@@ -291,7 +307,92 @@ fn full_render_schedule() -> Schedule {
     register_transform_propagation(&mut schedule);
     register_render_bake(&mut schedule);
     register_mesh_render_bake(&mut schedule);
+    register_textured_render_bake(&mut schedule);
     schedule
+}
+
+/// Builds the textured bridge pipeline against `device`: stride and
+/// attributes come from the bridge's own textured layout functions (not
+/// hard-coded here), created via `create_textured_pipeline` so set 0
+/// binds the one texture.
+fn textured_bridge_pipeline(device: &VulkanDevice) -> <VulkanDevice as RenderDevice>::Pipeline {
+    let vertex_spirv = compile_textured_stage(naga::ShaderStage::Vertex);
+    let fragment_spirv = compile_textured_stage(naga::ShaderStage::Fragment);
+    let vertex_attributes = textured_vertex_attributes();
+    device.create_textured_pipeline(&PipelineDescriptor {
+        label: "render-ecs textured readback pipeline",
+        vertex_shader_spirv: &vertex_spirv,
+        vertex_entry_point: "vs_main",
+        fragment_shader_spirv: &fragment_spirv,
+        fragment_entry_point: "fs_main",
+        vertex_stride: textured_vertex_stride(),
+        vertex_attributes: &vertex_attributes,
+    })
+}
+
+/// Loads the checked-in `rgba2x2.png` fixture (red, green / blue,
+/// white) into a fresh [`AssetStore`], returning the store plus the
+/// live handle. Manifest-relative, never CWD-relative — same reason as
+/// [`mesh_store_with_quad`].
+fn texture_store_with_rgba2x2() -> (AssetStore<Texture>, AssetHandle<Texture>) {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../canary-assets/tests/fixtures/rgba2x2.png");
+    let texture = load_texture(&path).expect("RGBA fixture must load");
+    let mut store = AssetStore::new();
+    let handle = store.insert(texture);
+    (store, handle)
+}
+
+/// Spawns one file-loaded textured quad at the origin, scaled to cover
+/// the whole target.
+///
+/// The `quad.glb` fixture is a half-size-`0.5` quad; object `x` lands
+/// at NDC `x * 2.2 / 3.2`, so a scale of `3.0` puts the quad corners
+/// at NDC `±1.03` — just past every edge, so no clear-color border
+/// survives and every screen quadrant is covered by exactly one
+/// texture quadrant. Stale identity [`GlobalTransform`] again, so the
+/// schedule's propagation is what makes it fresh.
+fn spawn_textured_quad(
+    world: &mut World,
+    mesh: AssetHandle<Mesh>,
+    texture: AssetHandle<Texture>,
+) -> canary_ecs::Entity {
+    let entity = world.spawn();
+    let mut transform = Transform::from_translation(glam::Vec3::ZERO);
+    transform.scale = glam::Vec3::splat(3.0);
+    world
+        .insert(entity, transform)
+        .expect("fresh entity accepts Transform");
+    world
+        .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+        .expect("fresh entity accepts GlobalTransform");
+    world
+        .insert(entity, TexturedRenderable::new(mesh, texture))
+        .expect("fresh entity accepts TexturedRenderable");
+    entity
+}
+
+/// Draws the world's current [`BakedTexturedFrame`] resource with
+/// `texture` to `target` and returns the tightly-packed RGBA8
+/// readback — the textured twin of [`draw_and_readback`].
+fn draw_textured_and_readback(
+    device: &VulkanDevice,
+    target: &<VulkanDevice as RenderDevice>::ColorTarget,
+    pipeline: &<VulkanDevice as RenderDevice>::Pipeline,
+    texture: &Texture,
+    world: &World,
+) -> Vec<u8> {
+    let frame = world
+        .resource::<BakedTexturedFrame>()
+        .expect("schedule.run() must have baked a BakedTexturedFrame resource");
+    draw_textured_frame(device, target, pipeline, texture, frame);
+    let pixels = device.read_color_target_rgba8(target);
+    assert_eq!(
+        pixels.len(),
+        (WIDTH * HEIGHT * 4) as usize,
+        "readback should be tightly packed RGBA8 with no row padding"
+    );
+    pixels
 }
 /// Asserts `pixel` is dominantly `channel` (value `> 150`) with the other two
 /// channels quiet (`< 80`).
@@ -623,5 +724,211 @@ fn moved_mesh_redraws_moved() {
         pixel_at(&second, WIDTH, RIGHT_SAMPLE.0, RIGHT_SAMPLE.1),
         0,
         "post-move: the new file-loaded interior should be entity red",
+    );
+}
+
+/// A file-loaded textured quad renders its PNG fixture
+/// quadrant-correct.
+///
+/// **What this proves (texture pixels live):** the quad's geometry and
+/// UVs come from `quad.glb` on disk, its texels from `rgba2x2.png` on
+/// disk — parsed by the loaders, owned by the two [`AssetStore`]s,
+/// referenced by handle, expanded index→soup with UVs at the bridge,
+/// baked to `x, y, u, v`, uploaded as a fresh buffer plus a fresh GPU
+/// texture, and sampled by the textured pipeline. The quad covers the
+/// whole 128×128 target, so each screen quadrant shows exactly one
+/// fixture texel: top-left red, top-right green, bottom-left blue,
+/// bottom-right white.
+///
+/// # Why top shows the fixture's first row
+///
+/// The fixture's first row (red, green) rides `v = 0`: the quad
+/// fixture pairs object-bottom vertices (`y = -0.5`) with `TEXCOORD_0`
+/// `v = 0`. The bake's Y-flip (`ndc_y = -(y * focal) / z`) puts
+/// object-bottom at positive NDC-Y, which is the framebuffer top under
+/// this backend's viewport mapping — so object-bottom (red/green)
+/// renders screen-top and object-top (blue/white, `v = 1`) renders
+/// screen-bottom. No row flip happens at upload: [`TextureDescriptor`]
+/// is top-row-first bytes and Vulkan texel `(0, 0)` is the first texel
+/// uploaded, so `v = 0` samples the first row — matching glTF's own
+/// top-left UV origin with no reshuffling at the graphics boundary.
+///
+/// Sampling-point discipline: every sample sits 32px from the nearest
+/// texel boundary (texel edges land at `x = 64` / `y = 64`), so the
+/// default linear filtering returns near-exact texel values and the
+/// dominant-channel thresholds (inherited from `hello_triangle`) hold
+/// with wide margin — while still rejecting clear-color luck, a
+/// missing texture bind, or a flipped axis.
+#[test]
+#[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
+fn textured_quad_reads_quadrant_correct_pixels() {
+    // Given: one textured entity (file mesh + file texture) through
+    // the full propagation → soup → mesh → textured schedule.
+    let mut world = World::new();
+    let (mesh_store, mesh_handle) = mesh_store_with_quad();
+    world.insert_resource(mesh_store);
+    let (texture_store, texture_handle) = texture_store_with_rgba2x2();
+    world.insert_resource(texture_store);
+    spawn_textured_quad(&mut world, mesh_handle, texture_handle);
+    let mut schedule = full_render_schedule();
+    schedule.run(&mut world);
+
+    // When: the textured frame is drawn once with its texture to a
+    // fresh 128x128 target.
+    let device = real_device();
+    let target = device.create_color_target(&ColorTargetDescriptor {
+        width: WIDTH,
+        height: HEIGHT,
+    });
+    let pipeline = textured_bridge_pipeline(&device);
+    let texture = world
+        .resource::<AssetStore<Texture>>()
+        .expect("texture store must still exist")
+        .get(texture_handle)
+        .expect("texture handle must still be live")
+        .clone();
+    let pixels = draw_textured_and_readback(&device, &target, &pipeline, &texture, &world);
+
+    // Then: each screen quadrant shows its own fixture texel.
+    let top_left = pixel_at(&pixels, WIDTH, 32, 32);
+    assert_dominant_channel(top_left, 0, "top-left quadrant should sample fixture red");
+    let top_right = pixel_at(&pixels, WIDTH, 96, 32);
+    assert_dominant_channel(
+        top_right,
+        1,
+        "top-right quadrant should sample fixture green",
+    );
+    let bottom_left = pixel_at(&pixels, WIDTH, 32, 96);
+    assert_dominant_channel(
+        bottom_left,
+        2,
+        "bottom-left quadrant should sample fixture blue",
+    );
+    let bottom_right = pixel_at(&pixels, WIDTH, 96, 96);
+    assert_eq!(
+        bottom_right[3], 255,
+        "bottom-right quadrant alpha should be opaque, got {bottom_right:?}"
+    );
+    for (i, name) in ["red", "green", "blue"].iter().enumerate() {
+        assert!(
+            bottom_right[i] > 150,
+            "bottom-right quadrant should sample fixture white (all channels hot), {name} got {bottom_right:?}"
+        );
+    }
+    // Interior robustness: neighbors of each sample agree (proves
+    // quadrant coverage, not one lucky pixel).
+    assert_dominant_channel(
+        pixel_at(&pixels, WIDTH, 24, 40),
+        0,
+        "top-left neighbor should stay red",
+    );
+    assert_dominant_channel(
+        pixel_at(&pixels, WIDTH, 40, 88),
+        2,
+        "bottom-left neighbor should stay blue",
+    );
+}
+
+/// Textured geometry drawn through the *untextured* pipeline is not
+/// quadrant-correct.
+///
+/// **What this proves (sampling live, not clear-color luck):** the
+/// positive test above could theoretically pass by piping fixture
+/// colors through vertex colors rather than through the sampler. Here
+/// the same baked textured vertices are drawn with the soup pipeline
+/// — whose fragment shader names no texture — so the UV floats are
+/// reinterpreted as a flat RGB triple instead. The bottom-left pixel
+/// must therefore *not* read dominant blue: if it did, the positive
+/// test's blue quadrant would prove nothing about sampling.
+///
+/// Driver-safety note: the textured stride is 16 bytes while the soup
+/// color attribute spans bytes `[8, 20)` of each vertex, so the last
+/// vertex would fetch 4 bytes past a tight buffer. The upload is
+/// padded with 4 zero bytes to keep every fetch in-bounds — padding,
+/// not content, since the assert only checks the *absence* of the
+/// positive property, never an exact garbage value (which would be
+/// driver-dependent and unassertable).
+#[test]
+#[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
+fn textured_geometry_without_sampling_is_not_quadrant_correct() {
+    // Given: the same baked textured frame as the positive test.
+    let mut world = World::new();
+    let (mesh_store, mesh_handle) = mesh_store_with_quad();
+    world.insert_resource(mesh_store);
+    let (texture_store, texture_handle) = texture_store_with_rgba2x2();
+    world.insert_resource(texture_store);
+    spawn_textured_quad(&mut world, mesh_handle, texture_handle);
+    let mut schedule = full_render_schedule();
+    schedule.run(&mut world);
+    let frame = world
+        .resource::<BakedTexturedFrame>()
+        .expect("schedule.run() must have baked a BakedTexturedFrame resource");
+    assert!(!frame.is_empty(), "the textured frame must hold the quad");
+
+    // When: those vertices are drawn through the *untextured* soup
+    // pipeline (UVs reinterpreted as color, no texture bound).
+    let device = real_device();
+    let target = device.create_color_target(&ColorTargetDescriptor {
+        width: WIDTH,
+        height: HEIGHT,
+    });
+    let vertex_spirv = compile_stage(naga::ShaderStage::Vertex);
+    let fragment_spirv = compile_stage(naga::ShaderStage::Fragment);
+    let soup_as_textured_attrs = [
+        canary_render::VertexAttribute {
+            shader_location: 0,
+            format: canary_render::VertexFormat::Float32x2,
+            offset: 0,
+        },
+        canary_render::VertexAttribute {
+            shader_location: 1,
+            format: canary_render::VertexFormat::Float32x3,
+            offset: canary_render::VertexFormat::Float32x2.size_bytes(),
+        },
+    ];
+    let untextured = device.create_pipeline(&PipelineDescriptor {
+        label: "negative-control untextured pipeline",
+        vertex_shader_spirv: &vertex_spirv,
+        vertex_entry_point: "vs_main",
+        fragment_shader_spirv: &fragment_spirv,
+        fragment_entry_point: "fs_main",
+        vertex_stride: textured_vertex_stride(),
+        vertex_attributes: &soup_as_textured_attrs,
+    });
+    let mut vertex_bytes: Vec<u8> = frame
+        .vertices
+        .iter()
+        .flat_map(|vertex: &f32| vertex.to_ne_bytes())
+        .collect();
+    vertex_bytes.extend_from_slice(&[0u8; 4]);
+    let vertex_buffer = device.create_buffer(&BufferDescriptor {
+        label: "negative-control textured bytes as soup",
+        data: &vertex_bytes,
+    });
+    let mut encoder = device.create_command_encoder();
+    encoder.begin_render_pass(
+        &target,
+        &RenderPassDescriptor {
+            clear_color: canary_render_ecs::DEFAULT_CLEAR_COLOR,
+        },
+    );
+    encoder.set_pipeline(&untextured);
+    encoder.set_vertex_buffer(&vertex_buffer);
+    encoder.draw(frame.vertices.len() as u32 / 4);
+    encoder.end_render_pass();
+    device.submit_and_wait(encoder);
+    let pixels = device.read_color_target_rgba8(&target);
+
+    // Then: the bottom-left pixel — dominant blue under real sampling —
+    // is anything but. Asserting the *absence* of the positive
+    // property keeps this robust across conformant rasterizers: the
+    // exact garbage color is driver-dependent, its non-blueness is not
+    // (UV-derived colors near (0,0)–(1,1) cannot exceed the >150
+    // dominant-blue threshold with both other channels quiet).
+    let bottom_left = pixel_at(&pixels, WIDTH, 32, 96);
+    let is_dominant_blue = bottom_left[2] > 150 && bottom_left[0] < 80 && bottom_left[1] < 80;
+    assert!(
+        !is_dominant_blue,
+        "without sampling, the bottom-left pixel must not read dominant blue, got {bottom_left:?}"
     );
 }

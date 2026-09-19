@@ -12,12 +12,15 @@ use std::ffi::CString;
 use std::rc::Rc;
 
 use ash::vk;
-use canary_render::{BufferDescriptor, ColorTargetDescriptor, PipelineDescriptor, RenderDevice};
+use canary_render::{
+    BufferDescriptor, ColorTargetDescriptor, PipelineDescriptor, RenderDevice, TextureDescriptor,
+};
 
 use crate::buffer::VulkanBuffer;
 use crate::color_target::VulkanColorTarget;
 use crate::encoder::VulkanCommandEncoder;
 use crate::pipeline::VulkanPipeline;
+use crate::texture::VulkanTexture;
 
 /// The single color format this backend supports for `v0.0.6`'s scope.
 /// Fixed (not a per-target choice) so a single shared render pass,
@@ -62,6 +65,17 @@ pub struct VulkanDevice {
     pub(crate) command_pool: vk::CommandPool,
     pub(crate) render_pass: vk::RenderPass,
     pub(crate) memory_properties: vk::PhysicalDeviceMemoryProperties,
+    /// The one descriptor-set layout every [`VulkanTexture`] allocates
+    /// its set from and every textured pipeline includes.
+    ///
+    /// Shared (created once here, like the single shared render pass)
+    /// so that texture sets and textured pipelines always agree: a
+    /// per-pipeline layout would need cross-object compatibility
+    /// bookkeeping this release's single-texture scope has no use for.
+    /// Binding 0 is the 2D sampled image, binding 1 is its sampler —
+    /// see [`canary_render::RenderDevice::create_textured_pipeline`]'s
+    /// contract docs for why two bindings carry one texture.
+    pub(crate) texture_set_layout: vk::DescriptorSetLayout,
 }
 
 /// An error creating the Vulkan backend itself (instance, device,
@@ -197,6 +211,8 @@ impl VulkanDevice {
 
         let render_pass = create_render_pass(&device)?;
 
+        let texture_set_layout = create_texture_set_layout(&device)?;
+
         Ok(Self {
             _entry: entry,
             instance,
@@ -205,6 +221,7 @@ impl VulkanDevice {
             command_pool,
             render_pass,
             memory_properties,
+            texture_set_layout,
         })
     }
 }
@@ -252,10 +269,33 @@ fn create_render_pass(device: &ash::Device) -> Result<vk::RenderPass, vk::Result
     unsafe { device.create_render_pass(&render_pass_ci, None) }
 }
 
+fn create_texture_set_layout(device: &ash::Device) -> Result<vk::DescriptorSetLayout, vk::Result> {
+    // The single-texture layout: binding 0 is the sampled image,
+    // binding 1 is its sampler, both visible to the fragment stage.
+    // Split (not combined) because WGSL `texture_2d` + `sampler`
+    // compile to separate descriptors — see the RHI trait docs.
+    let bindings = [
+        vk::DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+        vk::DescriptorSetLayoutBinding::default()
+            .binding(1)
+            .descriptor_type(vk::DescriptorType::SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+    ];
+    let layout_ci = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
+    // SAFETY: two fully specified bindings; destroyed in `Drop`.
+    unsafe { device.create_descriptor_set_layout(&layout_ci, None) }
+}
+
 impl RenderDevice for VulkanDevice {
     type Buffer = VulkanBuffer;
     type ColorTarget = VulkanColorTarget;
     type Pipeline = VulkanPipeline;
+    type Texture = VulkanTexture;
     type CommandEncoder<'a> = VulkanCommandEncoder<'a>;
 
     fn create_buffer(&self, desc: &BufferDescriptor<'_>) -> Self::Buffer {
@@ -268,6 +308,14 @@ impl RenderDevice for VulkanDevice {
 
     fn create_pipeline(&self, desc: &PipelineDescriptor<'_>) -> Self::Pipeline {
         VulkanPipeline::new(self, desc)
+    }
+
+    fn create_texture(&self, desc: &TextureDescriptor<'_>) -> Self::Texture {
+        VulkanTexture::new(self, desc)
+    }
+
+    fn create_textured_pipeline(&self, desc: &PipelineDescriptor<'_>) -> Self::Pipeline {
+        VulkanPipeline::new_textured(self, desc)
     }
 
     fn create_command_encoder(&self) -> Self::CommandEncoder<'_> {
@@ -298,6 +346,8 @@ impl Drop for VulkanDevice {
              drop all buffers, color targets, and pipelines first"
         );
         unsafe {
+            self.device
+                .destroy_descriptor_set_layout(self.texture_set_layout, None);
             self.device.destroy_render_pass(self.render_pass, None);
             self.device.destroy_command_pool(self.command_pool, None);
             self.device.destroy_device(None);

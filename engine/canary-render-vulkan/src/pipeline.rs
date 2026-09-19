@@ -39,11 +39,28 @@ fn vertex_format_to_vk(format: VertexFormat) -> vk::Format {
 pub struct VulkanPipeline {
     device: Rc<ash::Device>,
     pub(crate) pipeline: vk::Pipeline,
-    layout: vk::PipelineLayout,
+    pub(crate) layout: vk::PipelineLayout,
 }
 
 impl VulkanPipeline {
     pub(crate) fn new(vk_device: &VulkanDevice, desc: &PipelineDescriptor<'_>) -> Self {
+        Self::new_inner(vk_device, desc, false)
+    }
+
+    /// Creates the single-texture variant: identical shader/states to
+    /// [`VulkanPipeline::new`] except the pipeline layout additionally
+    /// includes the device's shared texture descriptor-set layout, so
+    /// [`CommandEncoder::set_texture`](canary_render::CommandEncoder::set_texture)
+    /// has a set-0 layout to bind into. No blending, depth, or second
+    /// slot is added here — those are the deferred materials system's
+    /// scope, and this method's whole point is to stay the minimal
+    /// textured entry point (see
+    /// [`canary_render::RenderDevice::create_textured_pipeline`]).
+    pub(crate) fn new_textured(vk_device: &VulkanDevice, desc: &PipelineDescriptor<'_>) -> Self {
+        Self::new_inner(vk_device, desc, true)
+    }
+
+    fn new_inner(vk_device: &VulkanDevice, desc: &PipelineDescriptor<'_>, textured: bool) -> Self {
         let device = &vk_device.device;
 
         let vs_module = create_shader_module(device, desc.vertex_shader_spirv, desc.label);
@@ -114,7 +131,18 @@ impl VulkanPipeline {
         let color_blend =
             vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachments);
 
-        let layout_ci = vk::PipelineLayoutCreateInfo::default();
+        // Textured pipelines include the shared texture set layout at
+        // set 0; untextured pipelines keep the empty layout verbatim so
+        // the soup path's layout — and its proof — is untouched.
+        let set_layouts = [vk_device.texture_set_layout];
+        let layout_ci = if textured {
+            vk::PipelineLayoutCreateInfo::default().set_layouts(&set_layouts)
+        } else {
+            vk::PipelineLayoutCreateInfo::default()
+        };
+        // SAFETY: `layout_ci` references only the device-owned shared
+        // texture layout (when textured) or nothing; the layout is
+        // destroyed in `Drop`.
         let layout =
             unsafe { device.create_pipeline_layout(&layout_ci, None) }.unwrap_or_else(|e| {
                 panic!("failed to create pipeline layout for {:?}: {e}", desc.label)

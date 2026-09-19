@@ -16,12 +16,14 @@
 //! that exercises this foundation's whole vertical slice end to end. See
 //! `docs/roadmap/v0.0.1-roadmap.md`.
 
-use canary_assets::{AssetStore, Mesh};
+use canary_assets::{AssetStore, Mesh, Texture};
 use canary_core::{App, Subsystem};
 use canary_ecs::World;
 use canary_platform::{HeadlessInput, HeadlessWindow, InputSource, Window, WindowDescriptor};
 use canary_plugin_api::NativePluginLoader;
-use canary_render_ecs::{register_mesh_render_bake, register_render_bake};
+use canary_render_ecs::{
+    register_mesh_render_bake, register_render_bake, register_textured_render_bake,
+};
 use canary_scheduler::Schedule;
 use canary_transform::register_transform_propagation;
 
@@ -72,10 +74,14 @@ impl EcsSubsystem {
         if world.resource::<AssetStore<Mesh>>().is_none() {
             world.insert_resource(AssetStore::<Mesh>::new());
         }
+        if world.resource::<AssetStore<Texture>>().is_none() {
+            world.insert_resource(AssetStore::<Texture>::new());
+        }
         let mut schedule = Schedule::new();
         register_transform_propagation(&mut schedule);
         register_render_bake(&mut schedule);
         register_mesh_render_bake(&mut schedule);
+        register_textured_render_bake(&mut schedule);
         Self { world, schedule }
     }
 }
