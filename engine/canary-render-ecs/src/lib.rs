@@ -26,6 +26,7 @@
 mod extract;
 mod pipeline;
 mod renderable;
+mod systems;
 
 pub use extract::{
     bake_scene_to_vertices, bake_scene_to_vertices_with_aspect, extract_scene, BakedFrame,
@@ -36,3 +37,4 @@ pub use pipeline::{
     RENDER_WGSL,
 };
 pub use renderable::Renderable;
+pub use systems::{bake_access, bake_scene_system, register_render_bake};

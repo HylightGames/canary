@@ -352,6 +352,9 @@ dependencies = [
  "canary-ecs",
  "canary-platform",
  "canary-plugin-api",
+ "canary-render-ecs",
+ "canary-scheduler",
+ "canary-transform",
  "tracing",
 ]
 

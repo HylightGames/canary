@@ -20,6 +20,9 @@ use canary_core::{App, Subsystem};
 use canary_ecs::World;
 use canary_platform::{HeadlessInput, HeadlessWindow, InputSource, Window, WindowDescriptor};
 use canary_plugin_api::NativePluginLoader;
+use canary_render_ecs::register_render_bake;
+use canary_scheduler::Schedule;
+use canary_transform::register_transform_propagation;
 
 /// A demo component, just to prove `canary-ecs`'s insert/query path works
 /// against a real (if trivial) game-shaped type.
@@ -29,11 +32,36 @@ struct Position {
     y: f32,
 }
 
-/// Wraps a `canary-ecs` [`World`] as a [`Subsystem`], demonstrating how a
-/// real engine subsystem is expected to be registered with [`App`]. See
-/// `docs/architecture/core-runtime.md#the-appengine-bootstrap`.
+/// Wraps a `canary-ecs` [`World`] plus its [`Schedule`] as a [`Subsystem`],
+/// demonstrating how a real engine subsystem is expected to be registered
+/// with [`App`]. See `docs/architecture/core-runtime.md#the-appengine-bootstrap`.
+///
+/// The schedule owns the per-tick ECS pipeline: transform propagation first,
+/// render bake second (see [`register_render_bake`]'s docs for why that order
+/// is load-bearing). Registration order is the ordering mechanism — the
+/// constructor below registers propagation before bake, and the scheduler's
+/// solo-write staging turns that order into separate, ordered stages. The GPU
+/// never enters this schedule: device, target, and pipeline stay in `main()`'s
+/// frame scope and the baked frame is drawn explicitly after `tick()`'s
+/// `schedule.run()` returns, per `docs/architecture/rendering.md`'s
+/// "Extract, don't query" rule.
 struct EcsSubsystem {
     world: World,
+    schedule: Schedule,
+}
+
+impl EcsSubsystem {
+    /// Builds the subsystem with the canonical system order: propagation
+    /// first, render bake second. Swapping these two lines bakes stale
+    /// `GlobalTransform`s — proven by
+    /// `canary-render-ecs`'s `bake_runs_after_propagation_sees_fresh_global`
+    /// order test, which fails when bake is registered first.
+    fn new(world: World) -> Self {
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        Self { world, schedule }
+    }
 }
 
 impl Subsystem for EcsSubsystem {
@@ -42,6 +70,7 @@ impl Subsystem for EcsSubsystem {
     }
 
     fn tick(&mut self, dt: std::time::Duration) {
+        self.schedule.run(&mut self.world);
         tracing::debug!(
             entities = self.world.entity_count(),
             dt_ms = dt.as_secs_f64() * 1000.0,
@@ -96,7 +125,7 @@ fn main() -> anyhow::Result<()> {
     // deterministically (see `App::run_for`'s own docs for why a boot
     // harness -- and CI -- want fixed, not real, dt).
     let mut app = App::new();
-    app.add_subsystem(EcsSubsystem { world });
+    app.add_subsystem(EcsSubsystem::new(world));
     app.add_plugin_dir("plugins");
     app.run_for(3, std::time::Duration::from_millis(16))?;
 
@@ -106,9 +135,7 @@ fn main() -> anyhow::Result<()> {
     // real-world duration rather than an unbounded loop, so this boot
     // harness still terminates on its own.
     let mut timed_app = App::new();
-    timed_app.add_subsystem(EcsSubsystem {
-        world: World::new(),
-    });
+    timed_app.add_subsystem(EcsSubsystem::new(World::new()));
     let start = std::time::Instant::now();
     timed_app.run(|| start.elapsed() < std::time::Duration::from_millis(50))?;
 
