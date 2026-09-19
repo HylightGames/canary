@@ -371,10 +371,72 @@ colors, moved-entity redraw, empty-scene clear), with
 `examples/spinning-cube` rewritten on the bridge (root + six face
 entities, quaternion spin, GIF output kept). Full design record in
 [`docs/architecture/rendering.md`](../architecture/rendering.md#v009-the-ecs-to-render-bridge-canary-render-ecs).
-Still open past `v0.0.9`: every RHI upgrade the bridge deliberately
+Still open past `v0.0.9`: the RHI upgrades the bridge deliberately
 defers (push constants/uniforms, depth/culling, buffer updates,
-textures, materials, swapchain/presentation), the camera component,
-mesh assets, and the App-level scheduler — all `v0.0.10+` scope.
+materials past the texture-only slice, swapchain/presentation), the
+camera component, and the App-level scheduler. Mesh assets and the
+texture-only slice have since landed in `v0.0.10` (see below); the
+rest stays open — all `v0.0.10+` scope.
+
+## `v0.0.10` — Implemented, not yet tagged
+
+Full detail: [`v0.0.10-roadmap.md`](v0.0.10-roadmap.md) and
+[ADR 0018](../decisions/architecture-decision-records/0018-asset-handles-and-synchronous-loading.md).
+Single focus: minimal asset loading — real files from disk feed the
+renderer `v0.0.9` built.
+
+- [x] New crate `canary-assets`, depending only on `canary-ecs` plus
+      loading libraries (`sha2 0.10`, `gltf` without default features
+      plus `utils` only, `png`): `AssetId` (opaque SHA-256 over file
+      bytes plus `LOADER_VERSION`, layout documented as provisional),
+      `AssetHandle<T>` (generational index plus generation, mirroring
+      `Entity`), `AssetStore<T>` (generational slots living as an ECS
+      resource; stale handles resolve to `None`, never panic), and
+      `AssetError` (typed failures with path context)
+- [x] Synchronous path-based GLB mesh loader (`Mesh` with positions,
+      stored-but-unused normals/UVs, and indices; triangle-mode only,
+      index bounds and attribute consistency validated at load) and PNG
+      texture loader (`Texture` RGBA8-normalized, deeper samples
+      downsampled to the high byte, enforced decode budget), with
+      checked-in hash-stable fixtures (`quad.glb`, `box.glb`,
+      `rgba2x2.png`, `rgba16-2x1.png`), known-value assertions, and
+      negative controls proving every rejection path returns `Err`
+- [x] File-loaded meshes through the unchanged RHI (`MeshRenderable`,
+      index-to-soup expansion at the bridge, scheduled mesh bake);
+      `spinning-cube` loads its faces from `box.glb`, hardcoded arrays
+      deleted
+- [x] Minimal bounded RHI texture addition (`TextureDescriptor`,
+      `create_texture`, `create_textured_pipeline`,
+      `CommandEncoder::set_texture`; UVs on the existing `Float32x2`;
+      single-texture fragment sampling) with a Vulkan backend
+      implementation; `TexturedRenderable` plus `BakedTexturedFrame`
+      through the bridge; `canary-render` still holds zero
+      dependencies, checked mechanically with `cargo tree`
+- [x] Seven `#[ignore]`-gated offscreen pixel tests (the three soup
+      tests verbatim, two mesh tests, two texture tests including the
+      negative control that fails on the untextured pipeline), plus the
+      Vulkan hello-triangle test — all green on real ICDs
+- [x] No third-party types in any `canary-assets` public signature,
+      checked via `cargo doc` with zero warnings
+- [x] `canary-loc` placeholder migration explicitly deferred, not
+      forced: the attempt stopped at the API survey, since
+      `canary-assets` exposes no raw file-byte or string primitive to
+      rewire a `.ftl` text loader onto, and adding one would bend the
+      asset API — the `std::fs` placeholder stands per its own
+      delete-and-replace contract
+- [x] `cargo build`/`fmt --check`/`test`/`doc` clean; `clippy` clean
+      (`-D warnings`, matching CI exactly) across the full workspace,
+      with and without `winit-backend`, plus the `wasm32-wasip2` check;
+      no new toolchain pins needed (caret requirements on `sha2`,
+      `gltf`, `png` build clean on a current stable toolchain)
+
+**Explicitly not in `v0.0.10`**: async/background loading,
+filesystem watching/hot reload, a cache directory, cooked formats and
+any `xtask cook` step, importers-as-plugins, materials, depth testing,
+blending, buffer/texture updates, swapchain/presentation, second
+mesh/texture formats, mipmaps, and sRGB handling past
+normalize-to-RGBA8 — see the roadmap doc for the reasoning behind
+each.
 
 ## Full architecture-to-implementation map
 
@@ -392,12 +454,12 @@ about working code in `engine/`.
 | Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented on `dev`, not yet tagged |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
-| Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6`. ECS-driven rendering via the `canary-render-ecs` bridge (CPU-bake, propagation-then-bake schedule, pixel-tested, spinning-cube rewritten on it); `v0.0.9` |
+| Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6`. ECS-driven rendering via the `canary-render-ecs` bridge (CPU-bake, propagation-then-bake schedule, pixel-tested, spinning-cube rewritten on it); `v0.0.9`. File-loaded meshes through the unchanged RHI plus a single-texture sampling slice (additive trait methods, UVs on `Float32x2`), spinning-cube off `box.glb`; `v0.0.10` |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ❌ | Designed (2D+3D via Rapier); not yet scheduled |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |
 | Scripting system | ✅ | ❌ | Depends on Tier A |
-| Asset system | ✅ | ❌ | Not yet scheduled |
+| Asset system | ✅ | ✅ | Minimal loading primitive (`AssetId`/`AssetHandle<T>`/`AssetStore<T>`/`AssetError`, sync GLB + PNG loaders, checked-in fixtures); cooking, cache, hot reload, importers-as-plugins, materials, and further formats all deferred; `v0.0.10` |
 | `CanaryUI` (UI toolkit) | ✅ | ❌ | ADR 0011; abstraction layer could start independent of a backend |
 | Project state & versioning (`canary-state`) | ✅ | ❌ | ADR 0012 (`Proposed` for identity/package format) |
 | Live collaboration | ✅ | ❌ | ADR 0013 (`Accepted` — topology only; protocol/permissions unresolved) |

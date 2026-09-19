@@ -148,6 +148,7 @@ against a real gameplay-shaped system rather than only its own test
 doubles. ECS-driven rendering off `GlobalTransform` has since landed
 too, via the `canary-render-ecs` bridge (see `rendering.md`); still
 open, per [`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md):
-every RHI upgrade the bridge deliberately defers (push
-constants/uniforms, depth/culling, buffer updates, textures, materials,
-swapchain/presentation) and the camera component.
+the RHI upgrades the bridge still defers (push constants/uniforms,
+depth/culling, buffer and texture updates, materials past `v0.0.10`'s
+single-texture slice, swapchain/presentation) and the camera
+component.

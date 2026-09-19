@@ -70,6 +70,36 @@ that might run inside a shipped game.
 
 ## Status in this foundation
 
-Entirely architectural. No `canary-assets` crate, no cook/import pipeline,
-and no content-addressed cache exist in v0.0.1's code — see
-[`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).
+`v0.0.10` landed the loading primitive's first slice (see
+[`v0.0.10-roadmap.md`](../roadmap/v0.0.10-roadmap.md) and [ADR
+0018](../decisions/architecture-decision-records/0018-asset-handles-and-synchronous-loading.md)).
+`engine/canary-assets` now holds `AssetId` (an opaque SHA-256 over file
+bytes plus a loader-version string, with a layout documented as
+provisional), `AssetHandle<T>` (a generational index-plus-generation key
+mirroring `Entity`'s proven shape), `AssetStore<T>` (generational slots
+kept as an ECS resource, where stale handles resolve to `None` instead of
+panicking), and `AssetError` (typed failures carrying path context) — plus
+exactly two synchronous, path-based loaders. The GLB mesh loader turns
+every triangle primitive of a self-contained GLB file into its own
+validated `Mesh` (positions plus indices always present; normals and UVs
+loaded and stored even though the renderer ignores them this release;
+index bounds, attribute-count consistency, and triangle-mode-only enforced
+at load time). The PNG texture loader decodes to RGBA8-normalized
+`Texture` values (every color type converted, samples deeper than 8 bits
+downsampled to their most significant byte, an enforced decode budget
+refusing lying headers before allocating). Fixtures are checked in and
+hash-stable (`engine/canary-assets/tests/fixtures/`: `quad.glb`,
+`box.glb`, `rgba2x2.png`, `rgba16-2x1.png`), with known-value assertions
+and negative controls proving every rejection path returns `Err`. Those
+file-loaded meshes and textures reach the screen through the
+`canary-render-ecs` bridge (see [`rendering.md`](rendering.md)), and
+`examples/spinning-cube` loads its cube faces from `box.glb` instead of
+hardcoded arrays.
+
+Deliberately still deferred, none of it partially implemented: async or
+background loading, filesystem watching and hot reload, a cache directory,
+cooked formats and any `xtask cook` step, importers-as-plugins (exactly
+two hardcoded loaders exist), materials, depth testing, blending, buffer
+or texture updates, swapchain and presentation, second mesh or texture
+formats, mipmaps, and sRGB handling past normalize-to-RGBA8. No cooking,
+no cache, no hot reload, and no general material system exist yet.

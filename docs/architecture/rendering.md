@@ -69,13 +69,16 @@ exactly what the one-crate-per-subsystem rule expects.
 ### `Renderable`: flat color, triangle soup, and why
 
 Problem: the RHI dictates what per-entity data can possibly reach the
-screen. `VertexFormat` offers only `Float32x2` and `Float32x3`
-(`engine/canary-render/src/lib.rs` via `types.rs`); `CommandEncoder`
-binds exactly one vertex buffer ("no index buffer yet") and `draw`
-consumes a plain `vertex_count` with no instancing. There are no
-uniforms, no descriptor sets, no materials, no textures anywhere on
-the trait. A component carrying UVs, normals, material handles, or
-indexed geometry would have nothing to bind to.
+screen. At `v0.0.9` `VertexFormat` offered only `Float32x2` and
+`Float32x3` (`engine/canary-render/src/lib.rs` via `types.rs`);
+`CommandEncoder` binds exactly one vertex buffer ("no index buffer yet")
+and `draw` consumes a plain `vertex_count` with no instancing. There
+were no uniforms, no descriptor sets, no materials, and no textures
+anywhere on the trait. A component carrying UVs, normals, material
+handles, or indexed geometry would have had nothing to bind to.
+(`v0.0.10` keeps this soup path verbatim and adds a single-texture
+slice beside it — UVs reuse the existing `Float32x2`, no new format —
+see the `v0.0.10` section below.)
 
 Chosen approach (`engine/canary-render-ecs/src/renderable.rs`):
 `pub struct Renderable { pub vertices: Vec<[f32; 3]>, pub color: [f32; 3] }`,
@@ -276,20 +279,119 @@ image; no projection or sort code remains in the example
 target, pipeline setup, and GIF encoding stay example-side, which is
 the part no engine crate could own.
 
-### Explicitly deferred (v0.0.10+ RHI work, not bridge gaps)
+## `v0.0.10`: file-loaded meshes plus the texture-only RHI slice
 
-None of these is implementable in the bridge; each needs trait surface
-that does not exist yet. Push constants and uniform buffers (the
-eventual replacement for the CPU bake); depth testing, depth buffers,
-and backface culling (the eventual replacement for painter sort and
-its convex-only limit); `write_buffer` or any buffer-update story (the
-eventual replacement for one fresh buffer per frame); textures,
-materials, and a shader-variant system; swapchain and window-surface
-presentation (everything here is offscreen color targets); a real
-camera component (view matrix, projection choice); mesh asset
-resources feeding the renderer from disk; and the App-level scheduler
-that would order rendering against physics, audio, and UI once those
-exist. Absences stated plainly: no swapchain, no textures, no depth.
+Problem: `v0.0.9` proved the bridge against hand-fed soup, but no file
+had ever crossed into the engine — `spinning-cube` carried its own
+corner and face arrays. `v0.0.10` feeds real files from disk through
+the renderer in two slices, against `canary-assets` as the first
+consumer of its loading primitive (see
+[`asset-system.md`](asset-system.md)).
+
+### Meshes with zero RHI churn
+
+Chosen approach
+(`engine/canary-render-ecs/src/mesh_renderable.rs`): `MeshRenderable`
+names one mesh asset by `AssetHandle<Mesh>` plus the flat RGB triple
+its triangles carry into the bake — a handle rather than inline
+vertices, so the store stays the single owner and the asset stays
+honestly indexed. Index-to-soup expansion happens at the bridge
+(`expand_mesh_to_soup`), not in the asset, because the soup layout is
+the bridge's knowledge; direct indexing there is sound since the
+loader bounds-checks every index. `extract_mesh_scene` resolves each
+handle against the `AssetStore<Mesh>` resource and drops the rest:
+stale handles skip (game content, not an engine invariant), and a
+missing store yields an empty snapshot rather than an error, since a
+soup-only world legitimately has none. Scheduling mirrors the soup
+bake (`bake_mesh_access` declares the store read so ordering falls out
+of the scheduler's conflict rules; `register_mesh_render_bake`
+registers it after propagation in `EcsSubsystem::tick`). The RHI trait
+is untouched: file-bytes-to-pixels for geometry with zero new methods.
+
+`examples/spinning-cube` loads its cube faces from the checked-in
+`box.glb` fixture through the bridge's own `expand_mesh_to_soup` (no
+parallel copy of the index math), sliced into six two-triangle faces
+with the long-standing per-face palette preserved. It still builds one
+`Renderable` per face rather than one `MeshRenderable` per mesh,
+because a single flat color per entity cannot hold six face colors and
+`box.glb` holds two multi-face meshes — the file-loaded-entity path
+itself is proven by the bridge's pixel tests, and the example proves
+the same bytes reach the same GIF through the soup path. Hand-written
+corner and face arrays are deleted.
+
+### Textures via a minimal, bounded RHI addition
+
+Chosen approach: exactly three additive trait methods plus one
+descriptor, each documented as the minimal slice with the general
+system named as deferred. `TextureDescriptor`
+(`engine/canary-render/src/types.rs`) carries one RGBA8 image —
+dimensions plus bytes in the same row-major layout `Texture::rgba8`
+produces, so upload stays a copy — with no sampler choice, no mipmaps,
+no sRGB handling, and no second slot. `RenderDevice::create_texture`
+uploads once at creation (the write-once discipline `create_buffer`
+already documents; no update story exists). A separate
+`create_textured_pipeline` method, rather than a flag on
+`PipelineDescriptor`, keeps every existing pipeline construction
+compiling verbatim — purely additive by construction. UVs arrive as an
+ordinary vertex attribute in the existing `Float32x2` format, not a
+new enum variant, since a UV pair is two floats.
+`CommandEncoder::set_texture` binds the one sampled texture after the
+pipeline, with no slot index and no sampler parameter; the fragment
+shader contract is exactly one sampled texture at set 0. The Vulkan
+backend implements all of it (`engine/canary-render-vulkan/src/texture.rs`,
+descriptor set layout, one default sampler, one level), and
+`canary-render` still holds zero dependencies of any kind (checked
+mechanically with `cargo tree`).
+
+Bridge side
+(`engine/canary-render-ecs/src/textured_renderable.rs`,
+`pipeline.rs`, `systems.rs`): `TexturedRenderable` pairs a mesh handle
+with a texture handle and carries no flat color, since the texture is
+the color. `expand_mesh_to_textured_soup` returns `None` for a mesh
+without UVs rather than inventing coordinates, and
+`extract_textured_scene` skips those entities plus stale handles plus
+missing stores, mirroring the mesh path's doctrine. The textured bake
+is the same projection with UVs carried through untouched (same camera
+constants, Y-flip, painter sort, behind-camera skip), emitting `x, y,
+u, v` into a separate `BakedTexturedFrame` resource — separate because
+stride, layout, pipeline, and bound texture all differ from the soup
+frame, and sharing one type across two layouts would corrupt both
+draws. `draw_textured_frame` uploads the frame plus the
+caller-supplied texture; scheduling follows the same
+access-plus-registration pattern (`bake_textured_access`,
+`register_textured_render_bake`). The sampled test shader is a second
+constant (`TEXTURED_WGSL`) beside the byte-identical soup one.
+
+Proven by seven `#[ignore]`-gated offscreen pixel tests
+(`engine/canary-render-ecs/tests/render_ecs_readback.rs`): the three
+soup tests pass verbatim (no RHI regression), two mesh tests prove a
+file-loaded quad matches hand-fed soup and redraws moved, and two
+texture tests prove the PNG fixture renders quadrant-correct plus the
+negative control — textured geometry drawn through the untextured
+pipeline is not quadrant-correct by construction, so the sampling
+proof cannot pass on clear-color luck.
+
+### Explicitly deferred (post-`v0.0.10` RHI work, not bridge gaps)
+
+`v0.0.10` closed two items this list named at `v0.0.9`: mesh assets
+and the texture-only slice. What remains still needs trait surface
+that does not exist, or generalizes what `v0.0.10` deliberately kept
+to one. Push constants and uniform buffers (the eventual replacement
+for the CPU bake); depth testing, depth buffers, and backface culling
+(the eventual replacement for painter sort and its convex-only
+limit); `write_buffer` or any buffer-update story, plus texture
+updates, streaming uploads, and any texture cache (the eventual
+replacement for one fresh buffer per frame and upload-once textures);
+materials worthy of the name (multi-texture slots, per-draw material
+selection, sampler choice, mipmaps, sRGB transfer-function handling,
+blending, a shader-variant system); swapchain and window-surface
+presentation (everything here is still offscreen color targets); a
+real camera component (view matrix, projection choice); and the
+App-level scheduler that would order rendering against physics,
+audio, and UI once those exist. Absences stated plainly: no
+swapchain, no depth, no materials — single-texture sampling only, no
+async loading, no cooking, no cache, no hot reload, no importers, and
+no second mesh or texture format.
 
 ## Two layers: RHI and render graph
 

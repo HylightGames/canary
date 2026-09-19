@@ -25,6 +25,10 @@ detail; this section summarizes rather than duplicates them.
 * **Real-time loop** — `Subsystem::tick` takes a real delta-time and `App::run` drives subsystems off the wall clock (alongside deterministic fixed-`dt` `run_for`), proven with sleep-based timing tests. (`v0.0.9`)
 * **Spatial transforms** — a new crate, `canary-transform`: single always-3D `Transform` (see ADR 0017), cached `GlobalTransform`, `Parent`/`Children` hierarchy with a scheduler-registered propagation system; `glam` as the project's graphics math with zero transitive dependencies. (`v0.0.9`)
 * **ECS-driven rendering** — a new crate, `canary-render-ecs`, reading `GlobalTransform` plus a minimal `Renderable` out of the `World` and drawing through the unchanged RHI (CPU-bake, proven shader reused verbatim), with real-pixel readback tests gating in a dedicated CI job; `spinning-cube` rewritten on top of it. (`v0.0.9`)
+* **Minimal asset loading** — a new crate, `canary-assets`: `AssetId` (opaque content hash of file bytes plus loader version), `AssetHandle<T>` (generational handle mirroring `Entity`), `AssetStore<T>` (generational slots kept as an ECS resource, where stale handles resolve to `None`), and `AssetError` (typed failures with path context). (`v0.0.10`)
+* **GLB mesh and PNG texture loaders** — synchronous, path-based, with checked-in fixtures and known-value assertions; corrupt, truncated, over-budget, and missing inputs fail with typed errors, never panics. (`v0.0.10`)
+* **File-loaded meshes through the unchanged RHI** — `MeshRenderable` plus index-to-soup expansion at the bridge; `spinning-cube` loads its faces from `box.glb`, hardcoded arrays deleted. (`v0.0.10`)
+* **Minimal texture creation and sampling** — purely additive RHI methods (`create_texture`, `create_textured_pipeline`, `set_texture`), UVs carried on the existing `Float32x2` attribute, single-texture fragment sampling with a Vulkan backend implementation; quadrant-correct pixel proof including a negative control that fails on the untextured pipeline. (`v0.0.10`)
 
 ### Changed
 
