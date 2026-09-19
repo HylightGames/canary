@@ -34,8 +34,8 @@ use crate::extract::BakedFrame;
 /// Byte-identical to `WGSL_SOURCE` in
 /// `engine/canary-render-vulkan/tests/hello_triangle.rs`: a trivial
 /// 2D-position + RGB-color passthrough (`input.position` is already in clip
-/// space because all real transforms happen in the CPU bake; see
-/// [`crate::extract`]). Reusing the proven shader instead of writing a new
+/// space because all real transforms happen in the CPU bake; see the
+/// `extract` module). Reusing the proven shader instead of writing a new
 /// one is load-bearing — `hello_triangle` already asserts real rasterized
 /// pixels for exactly this source, so the bridge inherits that proof rather
 /// than trusting a fresh string. Any edit here must be mirrored there (and

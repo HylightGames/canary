@@ -47,7 +47,7 @@
 //!
 //! # Why fixed camera constants
 //!
-//! There is no camera component yet: [`CAMERA_DISTANCE`] and [`FOCAL_LENGTH`]
+//! There is no camera component yet: `CAMERA_DISTANCE` and `FOCAL_LENGTH`
 //! are reused verbatim from `examples/spinning-cube`'s proven values. A real
 //! camera (component + view matrix + projection choice) is v0.0.10+ scope;
 //! inventing a half-camera here would bake an API the real one must then
@@ -89,7 +89,7 @@ const CAMERA_DISTANCE: f32 = 3.2;
 /// Focal length of the hand-rolled perspective projection.
 ///
 /// Larger values narrow the field of view. Reused verbatim from
-/// `examples/spinning-cube` for the same reason as [`CAMERA_DISTANCE`].
+/// `examples/spinning-cube` for the same reason as `CAMERA_DISTANCE`.
 const FOCAL_LENGTH: f32 = 2.2;
 
 /// Default target aspect ratio (width divided by height) used by
@@ -179,7 +179,7 @@ pub fn extract_scene(world: &World) -> Vec<RenderItem> {
 }
 
 /// One frame of GPU-ready vertex data: NDC `x`, `y` plus flat `r`, `g`, `b`
-/// per vertex ([`FLOATS_PER_VERTEX`] floats each), in painter-sorted draw
+/// per vertex (`FLOATS_PER_VERTEX` floats each), in painter-sorted draw
 /// order (far triangles first).
 ///
 /// Produced by [`bake_scene_to_vertices`] (or its aspect-aware sibling) and
@@ -224,8 +224,8 @@ impl BakedFrame {
 /// Bakes `items` into NDC-space vertex floats for a square target.
 ///
 /// Applies each item's world matrix ([`GlobalTransform::matrix`] +
-/// `transform_point3`), shifts into camera space (+[`CAMERA_DISTANCE`] on Z),
-/// perspective-projects with [`FOCAL_LENGTH`] and [`DEFAULT_ASPECT_RATIO`],
+/// `transform_point3`), shifts into camera space (+`CAMERA_DISTANCE` on Z),
+/// perspective-projects with `FOCAL_LENGTH` and `DEFAULT_ASPECT_RATIO`,
 /// painter-sorts triangles far-to-near by average camera-space depth, and
 /// emits `x, y, r, g, b` per vertex. Triangles on or behind the camera plane
 /// (depth `<= [`MIN_CAMERA_DEPTH`]`) are skipped — their projection is
@@ -245,7 +245,7 @@ pub fn bake_scene_to_vertices(items: &[RenderItem]) -> Vec<f32> {
 /// aspect ratio (width divided by height).
 ///
 /// Identical to [`bake_scene_to_vertices`] except for the horizontal scale:
-/// `x = (x * [`FOCAL_LENGTH`]) / (z * aspect_ratio)`, matching
+/// `x = (x * `FOCAL_LENGTH`) / (z * aspect_ratio)`, matching
 /// `examples/spinning-cube`'s `project` (`WIDTH / HEIGHT` there). A caller
 /// drawing to a 480×360 target bakes with `480.0 / 360.0`; baking with the
 /// wrong aspect stretches the image rather than failing, so getting this

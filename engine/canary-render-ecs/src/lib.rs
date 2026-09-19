@@ -12,16 +12,17 @@
 //!
 //! # Current status
 //!
-//! [`Renderable`] (Task 2) plus extract + CPU-bake + draw (Task 3) are
-//! landed: [`extract::extract_scene`] snapshots the [`World`](canary_ecs::World),
-//! [`extract::bake_scene_to_vertices`] turns the snapshot into NDC floats, and
-//! [`pipeline::draw_baked_frame`] issues one buffer plus one draw per frame.
-//! Still deferred: Schedule wiring and the subsystem tick (Task 4),
-//! offscreen pixel tests (Task 5), the spinning-cube rewrite (Task 6), and
-//! any RHI upgrades — push constants, depth, `write_buffer`, textures,
-//! materials, swapchain — all v0.0.10+. Known target limits: convex-only
-//! painter sort (concave self-occlusion needs a depth buffer) and a fixed
-//! camera (no camera component yet).
+//! [`Renderable`], extract + CPU-bake + draw, Schedule wiring with
+//! propagation-before-bake ordering ([`systems::register_render_bake`]),
+//! offscreen pixel tests, and the spinning-cube rewrite are all landed:
+//! [`extract::extract_scene`] snapshots the [`World`](canary_ecs::World),
+//! [`extract::bake_scene_to_vertices`] turns the snapshot into NDC floats,
+//! [`pipeline::draw_baked_frame`] issues one buffer plus one draw per frame,
+//! and `canary-runtime`'s tick drives propagation-then-bake through the
+//! scheduler. Still deferred: any RHI upgrades — push constants, depth,
+//! `write_buffer`, textures, materials, swapchain — all v0.0.10+.
+//! Known target limits: convex-only painter sort (concave self-occlusion
+//! needs a depth buffer) and a fixed camera (no camera component yet).
 
 mod extract;
 mod pipeline;
