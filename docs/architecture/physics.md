@@ -30,7 +30,11 @@ Rapier3D Backend
 
 Backends are selected by configuration (dimension + backend name),
 never hardcoded at the architecture level — "canonical" means
-selected by default, not irreplaceable. See [ADR
+selected by default, not irreplaceable. "Default" here means
+*maintained by default in this repository*: a game may switch to any
+other backend implementing the trait, author a custom backend
+against it, or fork a backend's internals — the trait is a public
+seam for users, not just a menu of first-party options. See [ADR
 0019](../decisions/architecture-decision-records/0019-physics-backend-lineup.md)
 for the full lineup decision and its evidence.
 
