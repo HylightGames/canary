@@ -32,3 +32,10 @@ thiserror = "2.0.19"
 # no rust-version above this toolchain (unlike the `block-buffer`/`ignore`/
 # `globset` pins documented in docs/development/build-system.md).
 rapier2d = "0.35"
+
+[dev-dependencies]
+# Mirrors engine/canary-ecs's pins and rationale: proptest's latest release
+# raised its MSRV and unpinned transitive `tempfile` can resolve past this
+# workspace's validation floor (see docs/development/build-system.md).
+proptest = "=1.4.0"
+tempfile = "=3.10.1"

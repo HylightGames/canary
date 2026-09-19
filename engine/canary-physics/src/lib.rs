@@ -18,17 +18,16 @@
 //! and Rapier3D is the 3D alternative. Jolt/Rapier3D land post-`v0.1.0`
 //! (per the `v0.1.0` plan), so nothing 3D lives in this crate.
 //!
-//! # What is implemented (v0.0.11 Task 1: scaffold only)
+//! # What is implemented (v0.0.11 Task 3: components + trait)
 //!
-//! Nothing yet beyond the crate itself and its verified `rapier2d` pin:
-//! components, the backend trait, the Rapier backend, fixed-stepping, and
-//! scheduler registration arrive in Tasks 3–5.
+//! - [`components`]: minimal bodies, colliders, velocity, gravity scale,
+//!   locked axes, collider material, and the [`PhysicsConfig`] resource.
+//! - [`backend`]: the object-safe, leak-free [`PhysicsBackend`] trait,
+//!   opaque [`BodyHandle`] and [`ColliderHandle`] keys, the [`FIXED_DT`]
+//!   timestep, and typed [`PhysicsError`] failures.
 //!
 //! # What is explicitly stub (later tasks own it)
 //!
-//! - **Components + trait** (Task 3): bodies, colliders, velocity,
-//!   gravity scale, locked axes, collider material, and the object-safe,
-//!   leak-free `PhysicsBackend` trait.
 //! - **Backend + fixed-step** (Task 4): the private Rapier backend,
 //!   `PhysicsClock` accumulator, `SimulationTime`, and 2D-only sync into
 //!   `Transform`.
@@ -42,3 +41,18 @@
 //! on), `glam` for 2D boundary math at the sync boundary, `thiserror` for
 //! typed errors, and `rapier2d` — which is pure safe Rust, so no `unsafe`
 //! blocks are expected anywhere in this crate.
+//!
+//! The `rapier2d` dependency carries no code yet: this task defines the
+//! seam the backend will sit behind, and no item in [`components`] or
+//! [`backend`] names a solver type. Joints, scene queries, and
+//! trimesh/heightfield colliders are named deferred items (see the
+//! v0.0.11 work plan), not gaps.
+
+pub mod backend;
+pub mod components;
+
+pub use backend::{BodyHandle, ColliderHandle, PhysicsBackend, PhysicsError, FIXED_DT};
+pub use components::{
+    Collider, ColliderMaterial, GravityScale, LockedAxes, PhysicsBackendName, PhysicsConfig,
+    PhysicsDimension, RigidBody, RigidBodyKind, Velocity,
+};
