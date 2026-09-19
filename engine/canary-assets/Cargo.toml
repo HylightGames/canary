@@ -1,0 +1,27 @@
+[package]
+name = "canary-assets"
+description = "Canary Engine asset loading: AssetId + AssetHandle<T> + AssetStore<T> + AssetError. See docs/architecture/asset-system.md and ADR 0018."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-ecs = { path = "../canary-ecs" }
+thiserror = "2.0.19"
+
+# Content-hash backend for `AssetId` (ADR 0018: opaque hash of file bytes +
+# loader version). Chose `sha2 0.10.x` over `blake3` after a real spike build
+# on this toolchain (rustc 1.98.1, 2026-09-19): `sha2 0.10.9` compiles clean
+# with a tiny pure-Rust transitive tree (digest, block-buffer, generic-array,
+# typenum, crypto-common, cpufeatures, cfg-if — confirmed via `cargo tree`,
+# no build scripts, no C compiler needed), while `blake3` drags in `cc`
+# compilation plus platform SIMD paths this release's kilobyte fixtures do
+# not need. NOT `sha2 0.11`: that major declares `edition = "2024"`, the
+# hard parse-time wall documented in
+# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
+# (same wall that forced the `block-buffer`/`ignore`/`globset` pins there).
+sha2 = "0.10"
