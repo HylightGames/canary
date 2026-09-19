@@ -17,7 +17,7 @@ canary-transform = { path = "../../engine/canary-transform" }
 canary-render = { path = "../../engine/canary-render" }
 canary-render-vulkan = { path = "../../engine/canary-render-vulkan" }
 canary-render-ecs = { path = "../../engine/canary-render-ecs" }
-glam = "0.30"
+glam = "0.33"
 
 # WGSL -> SPIR-V, the same reasoning and the same confirmed-minimal pin
 # set as canary-render-vulkan's own hello-triangle test dependency (see
