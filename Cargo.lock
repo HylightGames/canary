@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "canary-assets"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "canary-ecs",
  "gltf",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "canary-core"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "thiserror 2.0.20",
  "tracing",
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "canary-ecs"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "proptest",
  "tempfile",
@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "canary-loc"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "fluent",
  "fluent-langneg",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "canary-platform"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "thiserror 2.0.20",
  "tracing",
@@ -314,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "canary-plugin-api"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "canary-ecs",
  "libloading",
@@ -325,11 +325,11 @@ dependencies = [
 
 [[package]]
 name = "canary-render"
-version = "0.0.2"
+version = "0.0.10"
 
 [[package]]
 name = "canary-render-ecs"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "canary-assets",
  "canary-ecs",
@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "canary-render-vulkan"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "ash",
  "canary-render",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "canary-runtime"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "anyhow",
  "canary-assets",
@@ -371,14 +371,14 @@ dependencies = [
 
 [[package]]
 name = "canary-scheduler"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "canary-ecs",
 ]
 
 [[package]]
 name = "canary-transform"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "canary-ecs",
  "canary-scheduler",
@@ -2253,7 +2253,7 @@ dependencies = [
 
 [[package]]
 name = "spinning-cube"
-version = "0.0.2"
+version = "0.0.10"
 dependencies = [
  "canary-assets",
  "canary-ecs",
@@ -3492,7 +3492,7 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xtask"
-version = "0.0.2"
+version = "0.0.10"
 
 [[package]]
 name = "zerocopy"
