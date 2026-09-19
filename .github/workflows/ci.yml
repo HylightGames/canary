@@ -29,6 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
+          # without this every file-load test fails on pointer bytes.
+          lfs: true
       - name: Install Rust
         run: rustup component add rustfmt
       - name: cargo fmt --check
@@ -43,6 +47,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
+          # without this every file-load test fails on pointer bytes.
+          lfs: true
       - name: Install Rust
         run: rustup component add clippy
       # Linux only: winit's X11/Wayland backends need these at compile
@@ -89,6 +97,10 @@ jobs:
     # own module docs.
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
+          # without this every file-load test fails on pointer bytes.
+          lfs: true
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install X11 dev libraries and Xvfb
@@ -116,6 +128,10 @@ jobs:
     # pattern as `winit_backend_window.rs`).
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
+          # without this every file-load test fails on pointer bytes.
+          lfs: true
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install a software Vulkan ICD (Mesa llvmpipe/lavapipe)
@@ -139,6 +155,10 @@ jobs:
     # this job nothing in CI would ever run them.
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
+          # without this every file-load test fails on pointer bytes.
+          lfs: true
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install a software Vulkan ICD (Mesa llvmpipe/lavapipe)
@@ -155,6 +175,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
+          # without this every file-load test fails on pointer bytes.
+          lfs: true
       - name: Install Rust with wasm32-wasip2
         run: rustup target add wasm32-wasip2
       - name: Check canary-plugin-api on wasm32-wasip2
