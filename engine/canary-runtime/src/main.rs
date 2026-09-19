@@ -16,11 +16,12 @@
 //! that exercises this foundation's whole vertical slice end to end. See
 //! `docs/roadmap/v0.0.1-roadmap.md`.
 
+use canary_assets::{AssetStore, Mesh};
 use canary_core::{App, Subsystem};
 use canary_ecs::World;
 use canary_platform::{HeadlessInput, HeadlessWindow, InputSource, Window, WindowDescriptor};
 use canary_plugin_api::NativePluginLoader;
-use canary_render_ecs::register_render_bake;
+use canary_render_ecs::{register_mesh_render_bake, register_render_bake};
 use canary_scheduler::Schedule;
 use canary_transform::register_transform_propagation;
 
@@ -37,14 +38,17 @@ struct Position {
 /// with [`App`]. See `docs/architecture/core-runtime.md#the-appengine-bootstrap`.
 ///
 /// The schedule owns the per-tick ECS pipeline: transform propagation first,
-/// render bake second (see [`register_render_bake`]'s docs for why that order
-/// is load-bearing). Registration order is the ordering mechanism — the
-/// constructor below registers propagation before bake, and the scheduler's
-/// solo-write staging turns that order into separate, ordered stages. The GPU
-/// never enters this schedule: device, target, and pipeline stay in `main()`'s
-/// frame scope and the baked frame is drawn explicitly after `tick()`'s
-/// `schedule.run()` returns, per `docs/architecture/rendering.md`'s
-/// "Extract, don't query" rule.
+/// soup bake second, mesh bake third (see [`register_render_bake`]'s docs
+/// for why that order is load-bearing). Registration order is the ordering
+/// mechanism — the constructor below registers propagation before both
+/// bakes and the mesh bake after the soup bake, and the scheduler's
+/// solo-write staging turns that order into separate, ordered stages. The
+/// mesh bake appends file-loaded geometry onto the soup-baked frame (a
+/// mesh-empty tick leaves it untouched), so soup-only worlds render
+/// exactly as before. The GPU never enters this schedule: device, target,
+/// and pipeline stay in `main()`'s frame scope and the baked frame is
+/// drawn explicitly after `tick()`'s `schedule.run()` returns, per
+/// `docs/architecture/rendering.md`'s "Extract, don't query" rule.
 struct EcsSubsystem {
     world: World,
     schedule: Schedule,
@@ -52,14 +56,26 @@ struct EcsSubsystem {
 
 impl EcsSubsystem {
     /// Builds the subsystem with the canonical system order: propagation
-    /// first, render bake second. Swapping these two lines bakes stale
-    /// `GlobalTransform`s — proven by
+    /// first, soup bake second, mesh bake third. Swapping the first two
+    /// bakes stale `GlobalTransform`s — proven by
     /// `canary-render-ecs`'s `bake_runs_after_propagation_sees_fresh_global`
-    /// order test, which fails when bake is registered first.
-    fn new(world: World) -> Self {
+    /// order test, which fails when bake is registered first — and
+    /// registering the mesh bake before the soup bake would let the soup
+    /// overwrite the mesh vertices (see
+    /// [`register_mesh_render_bake`]'s docs).
+    ///
+    /// Also ensures the [`AssetStore<Mesh>`] resource exists (inserting an
+    /// empty one only when absent — never overwriting a pre-loaded store):
+    /// the mesh bake resolves handles against it, and a missing store
+    /// would silently skip every mesh entity rather than fail loudly.
+    fn new(mut world: World) -> Self {
+        if world.resource::<AssetStore<Mesh>>().is_none() {
+            world.insert_resource(AssetStore::<Mesh>::new());
+        }
         let mut schedule = Schedule::new();
         register_transform_propagation(&mut schedule);
         register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
         Self { world, schedule }
     }
 }

@@ -20,11 +20,15 @@
 //! a scheduled system — see [`bake_scene_system`] for why — and runs explicitly
 //! after [`Schedule::run`](canary_scheduler::Schedule::run) returns.
 
+use canary_assets::{AssetStore, Mesh};
 use canary_ecs::World;
 use canary_scheduler::{Schedule, SystemAccess};
 use canary_transform::GlobalTransform;
 
-use crate::{bake_scene_to_vertices, extract_scene, BakedFrame, Renderable};
+use crate::{
+    bake_scene_to_vertices, extract_mesh_scene, extract_scene, BakedFrame, MeshRenderable,
+    Renderable,
+};
 
 /// Declares the bake system's data access: reads the `GlobalTransform` +
 /// `Renderable` components, writes the `BakedFrame` resource.
@@ -122,6 +126,84 @@ pub fn register_render_bake(schedule: &mut Schedule) {
     schedule.add_write_system(bake_access(), bake_scene_system);
 }
 
+/// Declares the mesh-bake system's data access: reads the `GlobalTransform` +
+/// `MeshRenderable` components and the `AssetStore<Mesh>` resource, writes
+/// the `BakedFrame` resource.
+///
+/// Every clause earns its place:
+/// - `reads::<GlobalTransform>()` conflicts with propagation's
+///   `writes::<GlobalTransform>`, so — like the soup bake — this system can
+///   never merge into propagation's stage and always sees fresh globals.
+/// - `reads_resource::<AssetStore<Mesh>>()` names the store read inside
+///   [`extract_mesh_scene`](crate::extract_mesh_scene): the declaration is
+///   documentation-as-code for the data dependency, and keeps this system
+///   ordered after any future writer of that resource by the scheduler's
+///   conflict rules.
+/// - `writes_resource::<BakedFrame>()` makes this a solo-write stage of its
+///   own (see [`bake_access`]'s staging docs), registered *after* the soup
+///   bake — so it runs strictly after it, reads the soup-baked frame, and
+///   appends. Registering it before the soup bake would let the soup
+///   overwrite the mesh vertices instead.
+///   The subsystem constructor owns this order; see
+///   `engine/canary-runtime/src/main.rs`.
+///
+/// # Why append instead of merging the two bakes
+///
+/// One system extracting both soups would allow a single global
+/// painter-sort across every triangle; two systems cannot (the mesh bake
+/// sees only soup-baked floats, not the soup's per-triangle depths).
+/// Mesh triangles are therefore sorted among themselves and drawn after
+/// the soup — a documented limit, exact for non-overlapping scenes, and
+/// the honest shape given an RHI with no depth buffer. A global merge
+/// (or real depth) is deferred RHI work, not something to fake here.
+/// Zero RHI churn either way: this system only appends floats to the same
+/// [`BakedFrame`](crate::BakedFrame) the existing draw call uploads.
+pub fn bake_mesh_access() -> SystemAccess {
+    SystemAccess::new()
+        .reads::<GlobalTransform>()
+        .reads::<MeshRenderable>()
+        .reads_resource::<AssetStore<Mesh>>()
+        .writes_resource::<BakedFrame>()
+}
+
+/// Appends the file-loaded mesh scene to the [`BakedFrame`](crate::BakedFrame)
+/// resource: [`extract_mesh_scene`] → [`bake_scene_to_vertices`] → extend.
+///
+/// Read-modify-write over the soup bake's output: starts from the current
+/// frame's vertices (or an empty frame when no soup bake ran — a
+/// mesh-only world is legitimate), extends with the mesh bake, and
+/// overwrites the resource. Takes `&mut World` and nothing else, for the
+/// same GPU-stays-out-of-the-`Schedule` reason
+/// [`bake_scene_system`] documents.
+///
+/// A mesh-empty tick (no store, no live handles) returns early without
+/// touching the resource: there is nothing to append, and rewriting an
+/// identical frame would only churn the resource version for no pixels.
+pub fn bake_mesh_scene_system(world: &mut World) {
+    let items = extract_mesh_scene(world);
+    if items.is_empty() {
+        return;
+    }
+    let mut vertices = world
+        .resource::<BakedFrame>()
+        .map(|frame| frame.vertices.clone())
+        .unwrap_or_default();
+    vertices.extend(bake_scene_to_vertices(&items));
+    world.insert_resource(BakedFrame { vertices });
+}
+
+/// Registers [`bake_mesh_scene_system`] on `schedule` as a write system with
+/// [`bake_mesh_access`]'s declaration.
+///
+/// Must be called *after* [`register_render_bake`]: both systems write the
+/// `BakedFrame` resource, so each occupies its own solo-write stage in
+/// registration order — soup first, mesh appended after. Registering mesh
+/// first would let the soup bake overwrite the mesh vertices. The subsystem
+/// constructor owns this order; see `engine/canary-runtime/src/main.rs`.
+pub fn register_mesh_render_bake(schedule: &mut Schedule) {
+    schedule.add_write_system(bake_mesh_access(), bake_mesh_scene_system);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +288,171 @@ mod tests {
         assert!(
             result.is_err(),
             "bake_access must declare a write, so registering it as a read system must fail"
+        );
+    }
+
+    /// One file-loaded quad through the store: the shared mesh-bake
+    /// fixture. Geometry comes from the checked-in `quad.glb` (never
+    /// hand-rebuilt), tinted flat red; translation is applied by the
+    /// caller via `Transform`.
+    fn red_mesh_handle(world: &mut World) -> canary_assets::AssetHandle<canary_assets::Mesh> {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../canary-assets/tests/fixtures/quad.glb");
+        let mesh = canary_assets::load_mesh(&path)
+            .expect("quad fixture must load")
+            .into_iter()
+            .next()
+            .expect("quad fixture holds one mesh");
+        world
+            .resource_mut::<AssetStore<Mesh>>()
+            .expect("mesh-bake tests must insert the AssetStore resource first")
+            .insert(mesh)
+    }
+
+    #[test]
+    fn mesh_bake_access_is_not_read_only() {
+        // Given/When: the mesh bake's access is registered as a *read* system.
+        // Then: registration must panic — proving the declaration writes
+        // (the `writes_resource::<BakedFrame>()` clause), which is what
+        // forces the mesh bake into its own solo-write stage after the soup
+        // bake instead of merging into a shared read stage. Same contract
+        // as `bake_access_is_not_read_only`, one stage later.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut schedule = Schedule::new();
+            schedule.add_read_system(bake_mesh_access(), |_| {});
+        }));
+        assert!(
+            result.is_err(),
+            "bake_mesh_access must declare a write, so registering it as a read system must fail"
+        );
+    }
+
+    #[test]
+    fn mesh_bake_appends_after_soup_bake_with_fresh_global() {
+        // Given: one soup triangle moved to x = -1 and one mesh quad moved
+        // to x = +1, both with stale identity globals, plus the store.
+        let mut world = World::new();
+        world.insert_resource(AssetStore::<Mesh>::new());
+        let soup_entity = world.spawn();
+        world
+            .insert(
+                soup_entity,
+                Transform::from_translation(glam::Vec3::new(-1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world.insert(soup_entity, red_triangle()).unwrap();
+        world
+            .insert(
+                soup_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        let mesh_entity = world.spawn();
+        world
+            .insert(
+                mesh_entity,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(
+                mesh_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        let handle = red_mesh_handle(&mut world);
+        world
+            .insert(mesh_entity, MeshRenderable::new(handle, [0.0, 0.0, 1.0]))
+            .unwrap();
+
+        // When: propagation, then soup bake, then mesh bake — the
+        // subsystem order.
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        // Then: the frame holds the soup triangle (3 vertices) plus the
+        // mesh quad (6 vertices), each baked through its *fresh* global.
+        let frame = world
+            .resource::<BakedFrame>()
+            .expect("mesh bake must leave a BakedFrame resource");
+        assert_eq!(
+            frame.vertices.len(),
+            (3 + 6) * 5,
+            "soup triangle plus mesh quad must both reach the frame"
+        );
+        let soup_fresh = crate::RenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                -1.0, 0.0, 0.0,
+            ))),
+            vertices: red_triangle().vertices.clone(),
+            color: red_triangle().color,
+        };
+        let expected_soup = bake_scene_to_vertices(std::slice::from_ref(&soup_fresh));
+        assert_eq!(
+            &frame.vertices[..expected_soup.len()],
+            expected_soup.as_slice(),
+            "soup vertices must come first, baked from the fresh global"
+        );
+        let mesh_soup = crate::expand_mesh_to_soup(
+            world
+                .resource::<AssetStore<Mesh>>()
+                .expect("store must still exist")
+                .get(handle)
+                .expect("handle must still be live"),
+        );
+        let mesh_fresh = crate::RenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                1.0, 0.0, 0.0,
+            ))),
+            vertices: mesh_soup,
+            color: [0.0, 0.0, 1.0],
+        };
+        let expected_mesh = bake_scene_to_vertices(std::slice::from_ref(&mesh_fresh));
+        assert_eq!(
+            &frame.vertices[expected_soup.len()..],
+            expected_mesh.as_slice(),
+            "mesh vertices must append after the soup, baked from the fresh global"
+        );
+    }
+
+    #[test]
+    fn mesh_bake_with_no_meshes_leaves_the_soup_frame_untouched() {
+        // Given: a soup-only world run through all three systems.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(entity, Transform::from_translation(glam::Vec3::ZERO))
+            .unwrap();
+        world.insert(entity, red_triangle()).unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        schedule.run(&mut world);
+        let before = world
+            .resource::<BakedFrame>()
+            .expect("soup bake must insert the frame")
+            .vertices
+            .clone();
+
+        // When: the mesh system runs again directly (still no meshes).
+        bake_mesh_scene_system(&mut world);
+
+        // Then: the frame is byte-identical — the early return must not
+        // rewrite (or clear) the soup's output.
+        assert_eq!(
+            world
+                .resource::<BakedFrame>()
+                .expect("frame must still exist")
+                .vertices,
+            before,
+            "a mesh-empty tick must leave the soup frame untouched"
         );
     }
 }

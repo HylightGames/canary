@@ -330,6 +330,7 @@ version = "0.0.2"
 name = "canary-render-ecs"
 version = "0.0.2"
 dependencies = [
+ "canary-assets",
  "canary-ecs",
  "canary-render",
  "canary-render-vulkan",
@@ -356,6 +357,7 @@ name = "canary-runtime"
 version = "0.0.2"
 dependencies = [
  "anyhow",
+ "canary-assets",
  "canary-core",
  "canary-ecs",
  "canary-platform",
@@ -2252,6 +2254,7 @@ dependencies = [
 name = "spinning-cube"
 version = "0.0.2"
 dependencies = [
+ "canary-assets",
  "canary-ecs",
  "canary-render",
  "canary-render-ecs",

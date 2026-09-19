@@ -25,6 +25,7 @@
 //! needs a depth buffer) and a fixed camera (no camera component yet).
 
 mod extract;
+mod mesh_renderable;
 mod pipeline;
 mod renderable;
 mod systems;
@@ -33,9 +34,13 @@ pub use extract::{
     bake_scene_to_vertices, bake_scene_to_vertices_with_aspect, extract_scene, BakedFrame,
     RenderItem,
 };
+pub use mesh_renderable::{expand_mesh_to_soup, extract_mesh_scene, MeshRenderable};
 pub use pipeline::{
     draw_baked_frame, render_vertex_attributes, render_vertex_stride, DEFAULT_CLEAR_COLOR,
     RENDER_WGSL,
 };
 pub use renderable::Renderable;
-pub use systems::{bake_access, bake_scene_system, register_render_bake};
+pub use systems::{
+    bake_access, bake_mesh_access, bake_mesh_scene_system, bake_scene_system,
+    register_mesh_render_bake, register_render_bake,
+};

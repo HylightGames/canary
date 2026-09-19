@@ -11,6 +11,7 @@ publish = false
 workspace = true
 
 [dependencies]
+canary-assets = { path = "../../engine/canary-assets" }
 canary-ecs = { path = "../../engine/canary-ecs" }
 canary-scheduler = { path = "../../engine/canary-scheduler" }
 canary-transform = { path = "../../engine/canary-transform" }

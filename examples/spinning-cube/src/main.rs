@@ -53,10 +53,13 @@
 //! deleted, and grepping this file for `rotate_`/`project`/`sort_by` must
 //! find nothing but prose.
 //!
-//! What stays here is the part no engine crate could own: the cube itself
-//! (the [`CUBE_CORNERS`]/[`FACES`] constants and their flattening into
-//! [`Renderable`] triangle soup), the per-frame spin animation, the
-//! device/target/pipeline setup, and the GIF encoding.
+//! What stays here is the part no engine crate could own: the cube's
+//! per-face colors, the per-frame spin animation, the device/target/pipeline
+//! setup, and the GIF encoding. The cube's *geometry* also originates here
+//! only in the sense that this file names the fixture: the vertices come
+//! from `box.glb` on disk (see [`load_cube_faces`]), never from a
+//! hand-written array — grepping this file for corner coordinates must find
+//! nothing but prose.
 //!
 //! # Why one root plus six face entities
 //!
@@ -68,6 +71,19 @@
 //! face's color. This is also what makes the example exercise hierarchy
 //! propagation for real: the animation writes one [`Transform`], and the
 //! scheduled propagation is what moves all six faces.
+//!
+//! # Why the faces still come from soup, not `MeshRenderable`
+//!
+//! The bridge's [`MeshRenderable`](canary_render_ecs::MeshRenderable) names
+//! one whole mesh per entity, while `box.glb` holds two multi-face meshes
+//! for the cube's six single-color faces — one mesh entity cannot keep six
+//! flat colors. So this example expands the file meshes to soup through the
+//! bridge's own [`expand_mesh_to_soup`](canary_render_ecs::expand_mesh_to_soup)
+//! (the exact function the mesh extract path uses — no parallel copy of the
+//! index math) and slices the soup into the six two-triangle faces. The
+//! file-loaded-entity path itself is proven by `canary-render-ecs`'s
+//! `render_ecs_readback` pixel tests; this example proves the same bytes
+//! reach the same GIF through the soup path, with colors preserved exactly.
 //!
 //! # Retained limits (unchanged from the pre-bridge version)
 //!
@@ -99,11 +115,13 @@
 //! [`Renderable`]: canary_render_ecs::Renderable
 //! [`DEFAULT_CLEAR_COLOR`]: canary_render_ecs::DEFAULT_CLEAR_COLOR
 
+use canary_assets::load_mesh;
 use canary_ecs::{Entity, World};
 use canary_render::{ColorTargetDescriptor, PipelineDescriptor, RenderDevice};
 use canary_render_ecs::{
-    bake_access, bake_scene_to_vertices_with_aspect, draw_baked_frame, extract_scene,
-    render_vertex_attributes, render_vertex_stride, BakedFrame, Renderable, RENDER_WGSL,
+    bake_access, bake_scene_to_vertices_with_aspect, draw_baked_frame, expand_mesh_to_soup,
+    extract_scene, render_vertex_attributes, render_vertex_stride, BakedFrame, Renderable,
+    RENDER_WGSL,
 };
 use canary_render_vulkan::VulkanDevice;
 use canary_scheduler::Schedule;
@@ -133,68 +151,60 @@ const INITIAL_YAW_RADIANS: f32 = 0.6;
 /// projection code.
 const TILT_RADIANS: f32 = -std::f32::consts::FRAC_PI_6;
 
-/// One cube corner in object space.
-type Vertex3 = [f32; 3];
-
-/// The 8 corners of a unit cube, centered on the origin.
-const CUBE_CORNERS: [Vertex3; 8] = [
-    [-0.5, -0.5, -0.5], // 0
-    [0.5, -0.5, -0.5],  // 1
-    [0.5, 0.5, -0.5],   // 2
-    [-0.5, 0.5, -0.5],  // 3
-    [-0.5, -0.5, 0.5],  // 4
-    [0.5, -0.5, 0.5],   // 5
-    [0.5, 0.5, 0.5],    // 6
-    [-0.5, 0.5, 0.5],   // 7
+/// Flat per-face colors in fixture face order: `box.glb`'s first mesh covers
+/// the +Z, −Z, +X faces and its second mesh the −X, +Y, −Y faces (see
+/// `engine/canary-assets/tests/fixtures/README.md`), so the six colors run
+/// in that same order. Values are the example's long-standing palette,
+/// preserved exactly — only the vertex source changed, never the colors.
+/// Winding order doesn't matter here -- `canary-render-vulkan`'s pipeline
+/// hard-codes no backface culling -- only that each pair of triangles
+/// actually covers the face.
+const FACE_COLORS: [[f32; 3]; 6] = [
+    [0.20, 0.45, 0.90], // +Z: blue
+    [0.90, 0.85, 0.20], // -Z: yellow
+    [0.90, 0.25, 0.25], // +X: red
+    [0.20, 0.85, 0.85], // -X: cyan
+    [0.30, 0.85, 0.30], // +Y: green
+    [0.85, 0.25, 0.85], // -Y: magenta
 ];
 
-/// One face: two triangles (as corner indices into [`CUBE_CORNERS`]),
-/// six corners total, plus that face's flat color. Winding order
-/// doesn't matter here -- `canary-render-vulkan`'s pipeline hard-codes
-/// no backface culling (see this file's module docs) -- only that each
-/// pair of triangles actually covers the face.
-struct Face {
-    corners: [usize; 6],
-    color: [f32; 3],
-}
-
-const FACES: [Face; 6] = [
-    Face {
-        corners: [0, 1, 2, 0, 2, 3],
-        color: [0.90, 0.85, 0.20],
-    }, // -Z: yellow
-    Face {
-        corners: [4, 6, 5, 4, 7, 6],
-        color: [0.20, 0.45, 0.90],
-    }, // +Z: blue
-    Face {
-        corners: [0, 3, 7, 0, 7, 4],
-        color: [0.20, 0.85, 0.85],
-    }, // -X: cyan
-    Face {
-        corners: [1, 5, 6, 1, 6, 2],
-        color: [0.90, 0.25, 0.25],
-    }, // +X: red
-    Face {
-        corners: [0, 4, 5, 0, 5, 1],
-        color: [0.85, 0.25, 0.85],
-    }, // -Y: magenta
-    Face {
-        corners: [3, 2, 6, 3, 6, 7],
-        color: [0.30, 0.85, 0.30],
-    }, // +Y: green
-];
-
-/// Flattens one [`Face`] into the [`Renderable`] its face entity carries:
-/// the face's six corners resolved to object-space positions, plus the
-/// face's flat color.
+/// Loads the cube's six faces from the checked-in `box.glb` fixture: one
+/// [`Renderable`] (two soup triangles + flat color) per face.
+///
+/// Each fixture mesh holds three faces (six triangles); expanding through
+/// the bridge's [`expand_mesh_to_soup`] and slicing every two triangles
+/// recovers the faces in fixture order, which [`FACE_COLORS`] matches.
+/// The path is manifest-relative, never CWD-relative: `cargo run` may
+/// execute from anywhere, and a missing fixture must fail loudly here
+/// rather than render an empty cube.
 ///
 /// One [`Renderable`] per face (not one for the whole cube) because a
 /// [`Renderable`] holds a single flat color per entity — the only way the
 /// six per-face colors survive the bridge's per-entity-color model.
-fn cube_face_renderable(face: &Face) -> Renderable {
-    let vertices = face.corners.map(|corner| CUBE_CORNERS[corner]).to_vec();
-    Renderable::new(vertices, face.color)
+fn load_cube_faces() -> [Renderable; 6] {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../engine/canary-assets/tests/fixtures/box.glb");
+    let meshes = load_mesh(&path).expect("box.glb fixture must load");
+    if meshes.len() != 2 {
+        panic!(
+            "box.glb must hold exactly two meshes (one per primitive group), found {}",
+            meshes.len()
+        );
+    }
+    let mut soup = Vec::with_capacity(36);
+    for mesh in &meshes {
+        soup.extend(expand_mesh_to_soup(mesh));
+    }
+    if soup.len() != 36 {
+        panic!(
+            "box.glb must expand to 36 soup vertices (12 triangles), found {}",
+            soup.len()
+        );
+    }
+    std::array::from_fn(|face| {
+        let start = face * 6;
+        Renderable::new(soup[start..start + 6].to_vec(), FACE_COLORS[face])
+    })
 }
 
 /// Bakes the current scene into the [`BakedFrame`] resource for this
@@ -218,12 +228,12 @@ fn bake_frame_wide(world: &mut World) {
 }
 
 /// Spawns the cube: a root entity holding the animated [`Transform`], plus
-/// one face entity per [`Face`] (identity local transform, that face's
-/// [`Renderable`]) parented to the root.
+/// one face entity per [`Renderable`] in `faces` (identity local transform,
+/// that face's soup + color) parented to the root.
 ///
 /// Returns the root entity; `main` animates its [`Transform`] every frame
 /// and propagation carries the motion to the faces.
-fn spawn_cube(world: &mut World) -> Entity {
+fn spawn_cube(world: &mut World, faces: &[Renderable; 6]) -> Entity {
     let cube = world.spawn();
     world
         .insert(cube, Transform::identity())
@@ -231,13 +241,13 @@ fn spawn_cube(world: &mut World) -> Entity {
     world
         .insert(cube, GlobalTransform::default())
         .expect("freshly spawned cube root accepts a GlobalTransform");
-    for face in &FACES {
+    for face in faces {
         let face_entity = world.spawn();
         world
             .insert(face_entity, Transform::identity())
             .expect("freshly spawned face accepts a Transform");
         world
-            .insert(face_entity, cube_face_renderable(face))
+            .insert(face_entity, face.clone())
             .expect("freshly spawned face accepts a Renderable");
         set_parent(world, face_entity, Some(cube))
             .expect("freshly spawned face and cube root are both alive");
@@ -315,7 +325,7 @@ fn main() {
     // and a schedule that propagates transforms before baking — the same
     // propagation-then-bake order the runtime's `EcsSubsystem` tick uses.
     let mut world = World::new();
-    let cube = spawn_cube(&mut world);
+    let cube = spawn_cube(&mut world, &load_cube_faces());
     let mut schedule = Schedule::new();
     register_transform_propagation(&mut schedule);
     schedule.add_write_system(bake_access(), bake_frame_wide);

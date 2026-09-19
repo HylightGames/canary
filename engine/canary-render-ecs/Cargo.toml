@@ -10,6 +10,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+canary-assets = { path = "../canary-assets" }
 canary-ecs = { path = "../canary-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
 canary-transform = { path = "../canary-transform" }

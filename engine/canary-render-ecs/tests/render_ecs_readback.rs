@@ -59,12 +59,13 @@
 //! margin from each quad's edges keeps the samples clear of rasterizer edge
 //! rules on any conformant implementation.
 
+use canary_assets::{load_mesh, AssetHandle, AssetStore, Mesh};
 use canary_ecs::World;
 use canary_render::{ColorTargetDescriptor, PipelineDescriptor, RenderDevice};
 use canary_render_ecs::register_render_bake;
 use canary_render_ecs::{
-    draw_baked_frame, render_vertex_attributes, render_vertex_stride, BakedFrame, Renderable,
-    RENDER_WGSL,
+    draw_baked_frame, register_mesh_render_bake, render_vertex_attributes, render_vertex_stride,
+    BakedFrame, MeshRenderable, Renderable, RENDER_WGSL,
 };
 use canary_render_vulkan::VulkanDevice;
 use canary_scheduler::Schedule;
@@ -232,6 +233,66 @@ fn spawn_quad(world: &mut World, x: f32, color: [f32; 3]) -> canary_ecs::Entity 
     entity
 }
 
+/// Spawns one file-loaded mesh quad at world `(x, 0, 0)`, flat-colored.
+///
+/// The `quad.glb` fixture is a half-size-`0.5` quad, twice the
+/// [`QUAD_HALF_SIZE`] the soup helper builds — so the entity's `Transform`
+/// carries a `0.5` scale, making the mesh cover exactly the same pixels a
+/// hand-fed [`quad_vertices`] quad would at the same offset. Stale identity
+/// [`GlobalTransform`] again, so the schedule's propagation is what makes
+/// it fresh.
+fn spawn_mesh_quad(
+    world: &mut World,
+    handle: AssetHandle<Mesh>,
+    x: f32,
+    color: [f32; 3],
+) -> canary_ecs::Entity {
+    let entity = world.spawn();
+    let mut transform = Transform::from_translation(glam::Vec3::new(x, 0.0, 0.0));
+    transform.scale = glam::Vec3::splat(0.5);
+    world
+        .insert(entity, transform)
+        .expect("fresh entity accepts Transform");
+    world
+        .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+        .expect("fresh entity accepts GlobalTransform");
+    world
+        .insert(entity, MeshRenderable::new(handle, color))
+        .expect("fresh entity accepts MeshRenderable");
+    entity
+}
+
+/// Loads the checked-in `quad.glb` fixture into a fresh [`AssetStore`],
+/// returning the store plus the live handle for its single mesh.
+///
+/// The path is manifest-relative (this test's crate dir), never CWD-
+/// relative: `cargo test` may run from anywhere, and a missing fixture
+/// must read as a loader failure, never as an empty scene that still
+/// clears green.
+fn mesh_store_with_quad() -> (AssetStore<Mesh>, AssetHandle<Mesh>) {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../canary-assets/tests/fixtures/quad.glb");
+    let mesh = load_mesh(&path)
+        .expect("quad fixture must load")
+        .into_iter()
+        .next()
+        .expect("quad fixture holds one mesh");
+    let mut store = AssetStore::new();
+    let handle = store.insert(mesh);
+    (store, handle)
+}
+
+/// Registers the full per-tick chain: propagation, then soup bake, then
+/// mesh bake. Registration order is the ordering mechanism (each writer
+/// takes its own solo-write stage), so this helper — not each test's
+/// inline schedule — is the single source of truth for system order.
+fn full_render_schedule() -> Schedule {
+    let mut schedule = Schedule::new();
+    register_transform_propagation(&mut schedule);
+    register_render_bake(&mut schedule);
+    register_mesh_render_bake(&mut schedule);
+    schedule
+}
 /// Asserts `pixel` is dominantly `channel` (value `> 150`) with the other two
 /// channels quiet (`< 80`).
 ///
@@ -442,4 +503,125 @@ fn empty_scene_clears_to_clear_color() {
             "empty scene: pixel ({x}, {y}) should be the clear color"
         );
     }
+}
+
+/// A file-loaded quad renders the same pixels as its hand-fed equivalent.
+///
+/// **What this proves (file-bytes-to-pixels for geometry):** the left quad's
+/// vertices come from `quad.glb` on disk — parsed by `load_mesh`, owned by
+/// the [`AssetStore`], referenced by handle, expanded index→soup at the
+/// bridge — while the right quad is the hand-fed [`quad_vertices`] soup the
+/// existing tests already prove. Both are the same size on screen (the mesh
+/// entity's `0.5` scale compensates the fixture's half-size-`0.5` quad),
+/// the same color, and mirrored positions — so their interiors must read
+/// back identically: dominant red each, and exactly equal to each other
+/// (flat color, symmetric coverage — any bridge-side corruption of the
+/// file path, from index mis-expansion to a dropped triangle, breaks the
+/// equality). The gap staying clear proves neither smeared. Zero RHI
+/// churn: the mesh floats ride the same [`BakedFrame`], shader, layout,
+/// and one-draw record as the soup.
+#[test]
+#[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
+fn file_loaded_mesh_matches_hand_fed_soup() {
+    // Given: a mesh quad (red, left) and a soup quad (red, right) through
+    // the full propagation → soup-bake → mesh-bake schedule.
+    let mut world = World::new();
+    let (store, handle) = mesh_store_with_quad();
+    world.insert_resource(store);
+    spawn_mesh_quad(&mut world, handle, -QUAD_OFFSET_X, [1.0, 0.0, 0.0]);
+    spawn_quad(&mut world, QUAD_OFFSET_X, [1.0, 0.0, 0.0]);
+    let mut schedule = full_render_schedule();
+    schedule.run(&mut world);
+
+    // When: the combined frame is drawn once to a fresh 128x128 target.
+    let device = real_device();
+    let target = device.create_color_target(&ColorTargetDescriptor {
+        width: WIDTH,
+        height: HEIGHT,
+    });
+    let pipeline = bridge_pipeline(&device);
+    let pixels = draw_and_readback(&device, &target, &pipeline, &world);
+
+    // Then: file path and hand-fed path render identically.
+    let left = pixel_at(&pixels, WIDTH, LEFT_SAMPLE.0, LEFT_SAMPLE.1);
+    assert_dominant_channel(left, 0, "file-loaded quad interior should be entity red");
+    let right = pixel_at(&pixels, WIDTH, RIGHT_SAMPLE.0, RIGHT_SAMPLE.1);
+    assert_dominant_channel(right, 0, "hand-fed quad interior should be entity red");
+    assert_eq!(
+        left, right,
+        "mirrored same-size same-color quads must read back exactly equal, got {left:?} vs {right:?}"
+    );
+    for (x, y) in [(16, 64), (24, 64), (20, 60), (20, 68)] {
+        assert_dominant_channel(
+            pixel_at(&pixels, WIDTH, x, y),
+            0,
+            "file-loaded neighbor ({x}, {y}) should stay red",
+        );
+    }
+    assert_eq!(
+        pixel_at(&pixels, WIDTH, GAP_SAMPLE.0, GAP_SAMPLE.1),
+        [0, 0, 0, 255],
+        "the gap between the file-loaded and hand-fed quads should be the clear color"
+    );
+}
+
+/// Moving a mesh entity's `Transform` moves its file-loaded pixels.
+///
+/// **What this proves:** the end-to-end chain for file geometry —
+/// `Transform` → propagation → fresh `GlobalTransform` → mesh extract
+/// (handle resolve + index→soup) → mesh bake (append) → draw. After the
+/// move and a second `schedule.run()`, the old interior must return to
+/// the exact clear color (the frame was replaced and the target
+/// re-cleared, not painted over) and the mirrored pixel must show the
+/// entity color (propagation actually ran before the mesh bake — had the
+/// mesh bake read the stale pre-move global, the quad would still raster
+/// left and *both* asserts would fail in opposite directions).
+#[test]
+#[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
+fn moved_mesh_redraws_moved() {
+    // Given: one file-loaded red quad on the left, baked and drawn to a
+    // shared target.
+    let mut world = World::new();
+    let (store, handle) = mesh_store_with_quad();
+    world.insert_resource(store);
+    let entity = spawn_mesh_quad(&mut world, handle, -QUAD_OFFSET_X, [1.0, 0.0, 0.0]);
+    let mut schedule = full_render_schedule();
+    schedule.run(&mut world);
+
+    let device = real_device();
+    let target = device.create_color_target(&ColorTargetDescriptor {
+        width: WIDTH,
+        height: HEIGHT,
+    });
+    let pipeline = bridge_pipeline(&device);
+    let first = draw_and_readback(&device, &target, &pipeline, &world);
+    assert_dominant_channel(
+        pixel_at(&first, WIDTH, LEFT_SAMPLE.0, LEFT_SAMPLE.1),
+        0,
+        "pre-move: file-loaded left interior should be entity red",
+    );
+
+    // When: the Transform moves to the mirror position, the full schedule
+    // re-runs, and the SAME target is redrawn (shared target, so stale
+    // pixels would survive a missing clear).
+    world
+        .get_mut::<Transform>(entity)
+        .expect("mesh entity still holds its Transform")
+        .translation
+        .x = QUAD_OFFSET_X;
+    schedule.run(&mut world);
+    let second = draw_and_readback(&device, &target, &pipeline, &world);
+
+    // Then: the old interior is back to the clear color and the new
+    // interior shows the entity color.
+    assert_eq!(
+        pixel_at(&second, WIDTH, LEFT_SAMPLE.0, LEFT_SAMPLE.1),
+        [0, 0, 0, 255],
+        "post-move: the old file-loaded interior must return to the clear color"
+    );
+    assert_dominant_channel(
+        pixel_at(&second, WIDTH, RIGHT_SAMPLE.0, RIGHT_SAMPLE.1),
+        0,
+        "post-move: the new file-loaded interior should be entity red",
+    );
 }
