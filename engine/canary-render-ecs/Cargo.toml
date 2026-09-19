@@ -15,3 +15,14 @@ canary-scheduler = { path = "../canary-scheduler" }
 canary-transform = { path = "../canary-transform" }
 canary-render = { path = "../canary-render" }
 glam = "0.30"
+
+[dev-dependencies]
+# Real backend + WGSL->SPIR-V for this crate's own `#[ignore]`-gated
+# offscreen readback tests only -- mirrors engine/canary-render-vulkan's
+# dev-deps (same `naga = "=22.1.0"` + `indexmap = "=2.11.4"` pins; see that
+# crate's Cargo.toml for why the pins exist). The bridge itself never needs
+# naga: `RENDER_WGSL` is compiled here in the test harness, exactly like
+# `hello_triangle` does.
+canary-render-vulkan = { path = "../canary-render-vulkan" }
+naga = { version = "=22.1.0", features = ["wgsl-in", "spv-out"] }
+indexmap = "=2.11.4"

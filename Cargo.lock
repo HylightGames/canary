@@ -327,9 +327,12 @@ version = "0.0.2"
 dependencies = [
  "canary-ecs",
  "canary-render",
+ "canary-render-vulkan",
  "canary-scheduler",
  "canary-transform",
  "glam",
+ "indexmap",
+ "naga",
 ]
 
 [[package]]
