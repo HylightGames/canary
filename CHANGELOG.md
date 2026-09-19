@@ -22,6 +22,9 @@ detail; this section summarizes rather than duplicates them.
 * **Rendering bootstrap** — the `canary-render` RHI trait (confirmed zero dependencies) and its first backend, `canary-render-vulkan` (via `ash`), proven with a real offscreen triangle render: WGSL compiled to SPIR-V via `naga`, rendered and read back on a real (if software) Vulkan device. (`v0.0.6`)
 * **Multi-component queries and typed resources** — `World::query2`/`query3`/`query2_mut`, and `World::insert_resource`/`resource`/`resource_mut`, alongside the existing single-component `World::query`. `Tick` widened from `u32` to `u64` to close a real wraparound risk. New `docs/architecture/execution-model.md` design document. (`v0.0.7`)
 * **ECS scheduler** — a new crate, `canary-scheduler`: `SystemAccess` (declared component/resource reads and writes) and `Schedule` (stage-based execution, running non-conflicting read-only systems concurrently). (`v0.0.8`)
+* **Real-time loop** — `Subsystem::tick` takes a real delta-time and `App::run` drives subsystems off the wall clock (alongside deterministic fixed-`dt` `run_for`), proven with sleep-based timing tests. (`v0.0.9`)
+* **Spatial transforms** — a new crate, `canary-transform`: single always-3D `Transform` (see ADR 0017), cached `GlobalTransform`, `Parent`/`Children` hierarchy with a scheduler-registered propagation system; `glam` as the project's graphics math with zero transitive dependencies. (`v0.0.9`)
+* **ECS-driven rendering** — a new crate, `canary-render-ecs`, reading `GlobalTransform` plus a minimal `Renderable` out of the `World` and drawing through the unchanged RHI (CPU-bake, proven shader reused verbatim), with real-pixel readback tests gating in a dedicated CI job; `spinning-cube` rewritten on top of it. (`v0.0.9`)
 
 ### Changed
 
@@ -32,6 +35,8 @@ detail; this section summarizes rather than duplicates them.
 
 * A real cargo-audit finding: `wasmtime`/`wasmtime-wasi` bumped to close 18 RustSec advisories (including two critical sandbox-escape bugs), and `wayland-scanner` bumped to close two more via a transitive `quick-xml` dependency.
 * Several real CI gaps found and fixed during the same pass: a Vulkan-dependent test that ran unguarded on every CI platform, a Windows-only compile failure from unscoped Wayland dependencies, and `canary-plugin-api`'s host-only loader code being incorrectly checked against the `wasm32-wasip2` target.
+* A macOS-only CI flake: replaced a wall-clock timing assertion in the scheduler's concurrency test with a deterministic overlap proof after loaded runners exceeded it twice through pure scheduling jitter. (`v0.0.9`)
+* Removed the unused `wasmtime-wasi` dependency (zero references in source; the lockstep-pin lesson is preserved in comments for when a real call site lands). (`v0.0.9`)
 
 ## [v0.0.2] — 2026-08-18
 

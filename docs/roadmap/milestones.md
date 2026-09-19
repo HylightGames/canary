@@ -221,6 +221,12 @@ duplicated here:
 - **`v0.0.8`** — the ECS scheduler (`canary-scheduler`): access
   declarations and stage-based concurrent execution, `v0.0.7`'s direct
   payoff. See [`v0.0.8-roadmap.md`](v0.0.8-roadmap.md).
+- **`v0.0.9`** — the `v0.1.0` foundation: real-time `App` loop,
+  `canary-transform` (unified `Transform`/`GlobalTransform` +
+  scheduler-registered propagation), and ECS-driven rendering via the
+  new `canary-render-ecs` bridge (CPU-bake through the unchanged RHI,
+  pixel-tested, `spinning-cube` rewritten on top). See
+  [`v0.0.9-roadmap.md`](v0.0.9-roadmap.md).
 
 [`docs/roadmap/status.md`](status.md) is the single source of truth for
 current implementation status; treat any version claim here as
