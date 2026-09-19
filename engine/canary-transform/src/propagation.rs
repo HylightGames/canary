@@ -16,16 +16,14 @@ use std::collections::HashMap;
 use canary_ecs::{Entity, World};
 use canary_scheduler::{Schedule, SystemAccess};
 
-use crate::{Children, GlobalTransform, Parent, Transform};
+use crate::{GlobalTransform, Parent, Transform};
 
-/// Declares the data access of [`propagate_transforms`]: reads `Transform`,
-/// `Parent` (and `Children`, for hierarchy-aware readers sharing the stage
-/// rules), writes `GlobalTransform`.
+/// Declares the data access of [`propagate_transforms`]: reads `Transform`
+/// and `Parent`, writes `GlobalTransform`.
 pub fn transform_propagation_access() -> SystemAccess {
     SystemAccess::new()
         .reads::<Transform>()
         .reads::<Parent>()
-        .reads::<Children>()
         .writes::<GlobalTransform>()
 }
 
@@ -343,6 +341,84 @@ mod tests {
             (global_translation(&world, child) - glam::Vec3::new(1.0, 0.0, 0.0)).length() < 1e-5,
             "stale parent link must not panic and must not shift the child"
         );
+    }
+
+    #[test]
+    fn child_of_a_transform_less_but_alive_parent_falls_back_to_local() {
+        // Only the *despawned*-parent case was covered before; a parent
+        // that is alive but carries no `Transform` takes the same
+        // fallback path (`composed` has no entry for it) and deserves
+        // its own pin.
+        let mut world = World::new();
+        let parent = world.spawn();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(parent)).unwrap();
+
+        propagate_transforms(&mut world);
+
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(2.0, 0.0, 0.0)).length() < 1e-5,
+            "a Transform-less parent must not shift the child"
+        );
+    }
+
+    #[test]
+    fn a_forged_parent_cycle_degrades_to_local_fallback_instead_of_hanging() {
+        // `set_parent` rejects every cycle at write time, so the cycle
+        // fallback in `propagate_transforms` is reachable only through
+        // raw `Parent` inserts bypassing that guard — forge one here to
+        // prove the pass terminates with deterministic local-fallback
+        // globals rather than looping forever. Exactly one member keeps
+        // its pure local transform (its parent's global isn't composed
+        // yet when it is visited); the other composes onto it. Which is
+        // which follows snapshot order, so the test accepts either
+        // arrangement rather than over-pinning it.
+        let mut world = World::new();
+        let local_a = glam::Vec3::new(10.0, 0.0, 0.0);
+        let local_b = glam::Vec3::new(1.0, 0.0, 0.0);
+        let a = world.spawn();
+        let b = world.spawn();
+        world
+            .insert(a, Transform::from_translation(local_a))
+            .unwrap();
+        world
+            .insert(b, Transform::from_translation(local_b))
+            .unwrap();
+        world.insert(a, Parent(b)).unwrap();
+        world.insert(b, Parent(a)).unwrap();
+
+        propagate_transforms(&mut world);
+
+        let global_a = global_translation(&world, a);
+        let global_b = global_translation(&world, b);
+        assert!(
+            global_a.is_finite() && global_b.is_finite(),
+            "cycle fallback must not produce inf/NaN: a={global_a:?} b={global_b:?}"
+        );
+        let a_is_local = (global_a - local_a).length() < 1e-5;
+        let b_is_local = (global_b - local_b).length() < 1e-5;
+        assert!(
+            a_is_local != b_is_local,
+            "exactly one cycle member must fall back to local; got a={global_a:?} b={global_b:?}"
+        );
+        let composed = local_a + local_b;
+        if a_is_local {
+            assert!(
+                (global_b - composed).length() < 1e-5,
+                "b must compose onto a's global; got {global_b:?}"
+            );
+        } else {
+            assert!(
+                (global_a - composed).length() < 1e-5,
+                "a must compose onto b's global; got {global_a:?}"
+            );
+        }
     }
 
     #[test]

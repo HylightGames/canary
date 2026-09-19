@@ -9,8 +9,8 @@
 // ============================================================================
 
 /// The lifecycle every loaded Canary plugin exposes to engine code,
-/// regardless of which tier loaded it: native (Tier B, implemented) today,
-/// sandboxed WASM (Tier A) once implemented. See
+/// regardless of which tier loaded it: native (Tier B) or sandboxed WASM
+/// (Tier A, shipped in `v0.0.3`). See
 /// `docs/architecture/plugin-system.md`.
 pub trait Plugin {
     /// A human-readable plugin name, used in logging and (eventually)

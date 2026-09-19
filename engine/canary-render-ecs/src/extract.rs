@@ -352,6 +352,42 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "aspect_ratio must be a positive finite")]
+    #[cfg_attr(
+        not(debug_assertions),
+        ignore = "release builds fall back to square instead of panicking -- see below"
+    )]
+    fn invalid_aspect_fails_loudly_in_debug() {
+        // Debug builds enforce the caller obligation up front; release
+        // builds take the silent square fallback instead (next test).
+        let item = unit_triangle([1.0, 0.0, 0.0]);
+        let _ = bake_scene_to_vertices_with_aspect(std::slice::from_ref(&item), 0.0);
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn invalid_aspect_falls_back_to_the_square_default_in_release() {
+        // Release-only companion to the test above: with debug
+        // assertions off, a zero/negative/non-finite aspect bakes
+        // exactly like the square default, with no inf/NaN leaking
+        // into the vertex buffer.
+        let item = unit_triangle([1.0, 0.0, 0.0]);
+        let items = std::slice::from_ref(&item);
+        let expected = bake_scene_to_vertices(items);
+        for bad_aspect in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let baked = bake_scene_to_vertices_with_aspect(items, bad_aspect);
+            assert_eq!(
+                baked, expected,
+                "aspect {bad_aspect} must bake exactly like the square default"
+            );
+            assert!(
+                baked.iter().all(|v| v.is_finite()),
+                "aspect {bad_aspect} must not leak inf/NaN into the buffer"
+            );
+        }
+    }
+
+    #[test]
     fn bake_single_triangle_projects_with_y_flip() {
         let item = unit_triangle([1.0, 0.0, 0.0]);
 

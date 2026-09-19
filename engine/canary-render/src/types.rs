@@ -105,3 +105,14 @@ pub struct RenderPassDescriptor {
     /// RGBA in `[0.0, 1.0]`.
     pub clear_color: [f32; 4],
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vertex_format_sizes_match_their_documented_byte_widths() {
+        assert_eq!(VertexFormat::Float32x2.size_bytes(), 8);
+        assert_eq!(VertexFormat::Float32x3.size_bytes(), 12);
+    }
+}

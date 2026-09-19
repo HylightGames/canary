@@ -41,10 +41,13 @@
 //! to, including why these are deliberately narrow, hand-written methods
 //! rather than a fully generic `Query<D>` over arbitrary tuples yet.
 //!
-//! **Not yet here**: the parallel job-stealing scheduler — see
+//! **Not in this crate**: the scheduler itself lives in
+//! `canary-scheduler` (a stage-based `Schedule` running non-conflicting
+//! systems concurrently, proven against real hierarchy propagation) —
+//! what stays future work is the persistent work-stealing thread pool
+//! and concurrent disjoint writes; see
 //! `docs/architecture/execution-model.md` and
-//! `docs/architecture/core-runtime.md#threading--the-job-system` — still
-//! the one piece of the target ECS design this crate doesn't implement.
+//! `docs/architecture/core-runtime.md#threading--the-job-system`.
 
 mod archetype;
 mod column;

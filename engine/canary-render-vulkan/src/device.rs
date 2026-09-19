@@ -37,7 +37,9 @@ pub(crate) const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 /// resource this creates ([`VulkanBuffer`], [`VulkanColorTarget`],
 /// [`VulkanPipeline`]) can clean itself up in its own `Drop`
 /// implementation without needing an explicit lifetime tying it back to
-/// `VulkanDevice`.
+/// `VulkanDevice`. The same `Rc` makes this type `!Send`: the device and
+/// its resources stay on the thread that created them and never cross
+/// into `Schedule` workers or `Subsystem::tick` threads.
 ///
 /// # Drop order contract
 ///

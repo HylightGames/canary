@@ -71,4 +71,9 @@ unic-langid-macros-impl = "=0.9.5"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
-tempfile = "3.10.1"
+# Exact pin matching canary-ecs's own tempfile pin (same rustc-1.75
+# floor policy — see
+# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
+# and .github/dependabot.yml, which ignores tempfile assuming an exact
+# pin everywhere).
+tempfile = "=3.10.1"

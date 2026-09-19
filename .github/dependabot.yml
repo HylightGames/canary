@@ -29,18 +29,20 @@ updates:
     # docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
     # for the full reasoning behind each) -- floor pins tied to an
     # external toolchain constraint dependabot has no way to know about.
-    # wasmtime/wasmtime-wasi are the one exception: they're off that
-    # floor now, but stay exact-pinned because the two must move in
-    # lockstep with each other (see the ignore entry below) -- a
-    # different, non-floor reason dependabot also has no way to know
-    # about. Either way: even a routine patch bump here is a real, proven
-    # risk, not a hypothetical one: an earlier attempt at exactly this
-    # kind of "safe" grouped patch/minor bump (PR #5) silently
-    # reintroduced multiple already-fixed MSRV breaks in one pass
-    # (unic-langid-impl and unic-langid-macros-impl both moved to 0.9.6,
-    # which calls the rustc-1.82-only `Option::is_none_or`; rustc-hash
-    # moved to 2.1.3, which needs rustc 1.77+), and PR #6 bumped
-    # wasmtime-wasi alone, ahead of wasmtime.
+    # wasmtime is the one exception: it's off that floor now, but
+    # stays exact-pinned so the version remains human-verified against
+    # `cargo audit` (see the ignore entry below) -- a different,
+    # non-floor reason dependabot also has no way to know about. Either
+    # way: even a routine patch bump here is a real, proven risk, not a
+    # hypothetical one: an earlier attempt at exactly this kind of "safe"
+    # grouped patch/minor bump (PR #5) silently reintroduced multiple
+    # already-fixed MSRV breaks in one pass (unic-langid-impl and
+    # unic-langid-macros-impl both moved to 0.9.6, which calls the
+    # rustc-1.82-only `Option::is_none_or`; rustc-hash moved to 2.1.3,
+    # which needs rustc 1.77+), and PR #6 bumped a `wasmtime-wasi`
+    # companion entry that no longer corresponds to any dependency
+    # (that crate was removed from `canary-plugin-api` — see that
+    # crate's `Cargo.toml`).
     #
     # Fully ignored (no `update-types` filter), not just excluded from
     # the group above: these need a human to re-verify the *specific*
@@ -50,20 +52,15 @@ updates:
     # Revisit removing an entry once this sandbox's rustc floor moves
     # past the version that entry's newer releases need.
     ignore:
-      # wasmtime + wasmtime-wasi (v0.0.3, Tier A WASM loading) must move
-      # together -- the upstream project releases both in lockstep
-      # specifically so their types stay compatible with each other, and
-      # PR #6 already demonstrated dependabot will bump one without the
-      # other if left ungrouped. This is an upstream API-compatibility
-      # fact, independent of any toolchain floor, so it stays a
-      # human-verified bump even now that both are off the old rustc-1.75
-      # floor pin (currently 36.0.15 -- see
-      # engine/canary-plugin-api/Cargo.toml for why that version
-      # specifically, and
+      # wasmtime (v0.0.3, Tier A WASM loading) stays a human-verified
+      # bump even now that it's off the old rustc-1.75 floor pin
+      # (currently 36.0.15 -- see engine/canary-plugin-api/Cargo.toml
+      # for why that version specifically, and
       # docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
-      # for the floor itself).
+      # for the floor itself). (`wasmtime-wasi` was removed as a
+      # dependency entirely, so it has no ignore entry — ignoring a
+      # non-dependency would be a no-op that only invites confusion.)
       - dependency-name: "wasmtime"
-      - dependency-name: "wasmtime-wasi"
       # v0.0.1 floor pins (canary-ecs/canary-plugin-api).
       - dependency-name: "libloading"
       - dependency-name: "proptest"

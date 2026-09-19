@@ -224,11 +224,11 @@ pub enum Key {
 
 /// A source of normalized input events.
 ///
-/// v0.0.1-pre1 ships only [`crate::HeadlessInput`], which never produces
-/// real OS input on its own but can have events injected for tests and
-/// headless harnesses via [`crate::HeadlessInput::inject`]. A real backend
-/// (`winit`-backed, behind the `winit-backend` feature) shipped in `v0.0.4`
-/// — see `winit_backend`, only present when that feature is enabled.
+/// [`crate::HeadlessInput`] never produces real OS input on its own
+/// but can have events injected for tests and headless harnesses via
+/// [`crate::HeadlessInput::inject`]. A real backend (`winit`-backed,
+/// behind the `winit-backend` feature) shipped in `v0.0.4` — see
+/// `winit_backend`, only present when that feature is enabled.
 pub trait InputSource {
     /// Returns (and clears) all events observed since the last call.
     fn poll(&mut self) -> Vec<InputEvent>;

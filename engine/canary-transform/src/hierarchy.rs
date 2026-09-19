@@ -45,6 +45,11 @@ pub struct Children(pub Vec<Entity>);
 /// rather than looping forever, but silently accepting a caller bug
 /// and producing subtly wrong world-space matrices is worse than
 /// rejecting it loudly.
+///
+/// Both paths touch `Children` through `get_mut`, so a reparent also
+/// stamps the `Children` change tick — a hierarchy edit reads as a
+/// `Children` data change to any `query_changed_since::<Children>`
+/// consumer, not just as a `Parent` change.
 pub fn set_parent(
     world: &mut World,
     child: Entity,

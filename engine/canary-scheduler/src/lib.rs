@@ -119,6 +119,68 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "add_read_system")]
+    fn registering_a_write_access_as_a_read_system_panics() {
+        Schedule::new().add_read_system(SystemAccess::new().writes::<Position>(), |_| {});
+    }
+
+    #[test]
+    #[should_panic(expected = "add_write_system")]
+    fn registering_a_read_only_access_as_a_write_system_panics() {
+        Schedule::new()
+            .add_write_system(SystemAccess::new().reads::<Position>(), |_: &mut World| {});
+    }
+
+    #[test]
+    fn three_write_systems_observe_each_other_in_registration_order() {
+        // The two-system visibility case above proves ordering for a
+        // pair; three chained writes prove every stage boundary in a
+        // longer pipeline carries values forward, not just the first.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 1.0 }).unwrap();
+        world.insert(entity, Velocity { dx: 0.0 }).unwrap();
+        world.insert(entity, DoubledPosition { x: 0.0 }).unwrap();
+
+        let mut schedule = Schedule::new();
+        schedule.add_write_system(
+            SystemAccess::new().writes::<Position>(),
+            move |world: &mut World| {
+                if let Some(position) = world.get_mut::<Position>(entity) {
+                    position.x = 10.0;
+                }
+            },
+        );
+        schedule.add_write_system(
+            SystemAccess::new()
+                .reads::<Position>()
+                .writes::<DoubledPosition>(),
+            move |world: &mut World| {
+                let current_x = world.get::<Position>(entity).map(|p| p.x);
+                if let (Some(x), Some(doubled)) =
+                    (current_x, world.get_mut::<DoubledPosition>(entity))
+                {
+                    doubled.x = x * 2.0;
+                }
+            },
+        );
+        schedule.add_write_system(
+            SystemAccess::new()
+                .reads::<DoubledPosition>()
+                .writes::<Velocity>(),
+            move |world: &mut World| {
+                let doubled_x = world.get::<DoubledPosition>(entity).map(|d| d.x);
+                if let (Some(x), Some(velocity)) = (doubled_x, world.get_mut::<Velocity>(entity)) {
+                    velocity.dx = x;
+                }
+            },
+        );
+
+        schedule.run(&mut world);
+        assert_eq!(world.get::<Velocity>(entity), Some(&Velocity { dx: 20.0 }));
+    }
+
+    #[test]
     fn independent_read_only_systems_actually_run_concurrently() {
         // Two read-only systems that each sleep well beyond thread-spawn
         // cost. Overlap is proven deterministically, not by timing: each

@@ -247,6 +247,9 @@ fn physical_key_to_key(physical_key: PhysicalKey) -> Key {
 
 /// A real `winit`-backed window. See the module docs for the pull/push
 /// bridge this implements and why this shares state with [`WinitInput`].
+/// The shared state is `Rc<RefCell<..>>`, so this type is `!Send`:
+/// `poll_events` (here) and `poll` (on the paired [`WinitInput`]) must
+/// run on the same thread, in that order.
 pub struct WinitWindow {
     descriptor: WindowDescriptor,
     event_loop: EventLoop<()>,
@@ -279,6 +282,13 @@ impl WinitWindow {
     /// around it -- see [`WinitWindow::new_for_testing`] for the
     /// Linux-only, test-only exception, and why it has to be a separate,
     /// clearly-labeled entry point rather than a flag on this one.
+    ///
+    /// Known limitation: if the OS window itself fails to create inside
+    /// `resumed`, that failure is recorded as `close_requested` (and
+    /// logged) rather than returned — `Window::poll_events` has no error
+    /// return, so a caller that never checks `should_close` cannot tell
+    /// "no window" from "idle window". Check `should_close` after
+    /// construction when creation success matters.
     pub fn new(descriptor: WindowDescriptor) -> Result<Self, WinitWindowError> {
         Self::build(descriptor, EventLoop::new)
     }

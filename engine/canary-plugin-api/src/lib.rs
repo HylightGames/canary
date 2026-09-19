@@ -46,12 +46,13 @@
 //! their native build, since a plugin's own build may want these types
 //! directly rather than redefining them against the WIT world. The
 //! *loaders* ([`NativePluginLoader`], [`WasmPluginLoader`],
-//! [`WasmComponentPlugin`]) are host-only — `libloading` and
-//! `wasmtime`/`wasmtime-wasi` are both engine-side-only dependencies
-//! that never belong in a `wasm32-wasip2` build (`wasmtime` is the
-//! *host* runtime that loads and executes a wasm component; it has no
-//! meaning running as one), so `mod loader` and `mod tier_a` are
-//! `cfg(not(target_family = "wasm"))`-gated below.
+//! [`WasmComponentPlugin`]) are host-only — `libloading` and `wasmtime`
+//! are engine-side-only dependencies that never belong in a
+//! `wasm32-wasip2` build (`wasmtime` is the *host* runtime that loads
+//! and executes a wasm component; it has no meaning running as one), so
+//! `mod loader` and `mod tier_a` are `cfg(not(target_family =
+//! "wasm"))`-gated below. (`wasmtime-wasi` is deliberately *not* a
+//! dependency at all — see this crate's `Cargo.toml`.)
 
 pub mod abi;
 mod capability;

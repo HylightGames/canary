@@ -799,7 +799,7 @@ mod tests {
             .precompile_component(&wasm_bytes)
             .expect("precompilation of a valid component should succeed");
 
-        // Safety: `precompiled` was just produced, above, by this exact
+        // SAFETY: `precompiled` was just produced, above, by this exact
         // `loader.engine`'s own `precompile_component` -- the
         // "compatible engine configuration" `Component::deserialize`
         // requires is trivially satisfied here, not merely assumed.

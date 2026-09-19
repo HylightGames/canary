@@ -31,9 +31,11 @@ impl Default for WindowDescriptor {
 
 /// A platform window, real or virtual.
 ///
-/// v0.0.1-pre1 ships only [`crate::HeadlessWindow`], which satisfies this
-/// trait without ever creating a real OS window. This matters for headless
-/// servers and for tests, not just as a stopgap — see
+/// The first implementation was [`crate::HeadlessWindow`], which satisfies
+/// this trait without ever creating a real OS window; since `v0.0.4` a
+/// real `winit`-backed implementation also exists (see `winit_backend`,
+/// behind the `winit-backend` feature). The headless form still matters
+/// for headless servers and for tests, not just as a stopgap — see
 /// `docs/architecture/platform-abstraction.md#why-this-is-a-real-trait-boundary-and-not-just-we-use-winit`.
 pub trait Window {
     /// The descriptor this window was created with.

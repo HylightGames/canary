@@ -628,12 +628,12 @@ impl World {
         self.current_tick
     }
 
-    /// Advances the world's tick. In the target design
-    /// (`docs/architecture/core-runtime.md#threading--the-job-system`),
-    /// the not-yet-built scheduler calls this once per system run; until
-    /// that exists, callers doing their own change-detection bookkeeping
-    /// call it at whatever granularity ("once per frame", "once per
-    /// system") suits them.
+    /// Advances the world's tick. No automatic advancement exists:
+    /// `canary-scheduler` (which runs real systems, including hierarchy
+    /// propagation) deliberately does not own the tick, so callers doing
+    /// their own change-detection bookkeeping call this at whatever
+    /// granularity ("once per frame", "once per system") suits them.
+    /// See `docs/architecture/core-runtime.md#threading--the-job-system`.
     pub fn advance_tick(&mut self) {
         self.current_tick.increment();
     }
@@ -1121,6 +1121,85 @@ mod tests {
             .collect();
         assert_eq!(a, vec![e]);
         assert_eq!(b, vec![e]);
+    }
+
+    #[test]
+    fn query3_is_order_independent_in_the_type_parameters() {
+        // `query2` pins this; `query3` intersects three archetype sets
+        // and deserves the same guarantee rather than inheriting it by
+        // assumption.
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, Position { x: 1.0, y: 2.0 }).unwrap();
+        world.insert(e, Velocity { dx: 3.0, dy: 4.0 }).unwrap();
+        world.insert(e, Health { hp: 100.0 }).unwrap();
+
+        let a: Vec<Entity> = world
+            .query3::<Position, Velocity, Health>()
+            .map(|(e, _, _, _)| e)
+            .collect();
+        let b: Vec<Entity> = world
+            .query3::<Health, Velocity, Position>()
+            .map(|(e, _, _, _)| e)
+            .collect();
+        assert_eq!(a, vec![e]);
+        assert_eq!(b, vec![e]);
+    }
+
+    #[test]
+    fn entity_count_tracks_spawns_and_despawns() {
+        let mut world = World::new();
+        assert_eq!(world.entity_count(), 0);
+        let a = world.spawn();
+        let b = world.spawn();
+        assert_eq!(world.entity_count(), 2);
+        world.despawn(a).unwrap();
+        assert_eq!(world.entity_count(), 1);
+        world.despawn(b).unwrap();
+        assert_eq!(world.entity_count(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "set_erased: internal invariant violated")]
+    fn set_erased_panics_on_a_concrete_type_mismatch() {
+        // The `# Panics` contract on `World::set_erased`: a value whose
+        // concrete type doesn't match `type_id` is a host-side bug and
+        // fails loudly rather than corrupting the column.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 1.0, y: 1.0 }).unwrap();
+        world.set_erased(
+            entity,
+            TypeId::of::<Position>(),
+            Box::new(Velocity { dx: 1.0, dy: 1.0 }),
+        );
+    }
+
+    #[test]
+    fn merely_calling_query2_mut_dirties_matched_rows() {
+        // `query2_mut` stamps ticks eagerly at call time (it collects
+        // first), even if the caller never consumes the iterator — a
+        // conservative contract this test pins so no later refactor can
+        // silently make it lazy without updating the docs.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 1.0, y: 1.0 }).unwrap();
+        world.insert(entity, Velocity { dx: 1.0, dy: 1.0 }).unwrap();
+        world.advance_tick();
+        let baseline = world.change_tick();
+        world.advance_tick();
+
+        drop(world.query2_mut::<Position, Velocity>());
+
+        let changed: Vec<Entity> = world
+            .query_changed_since::<Position>(baseline)
+            .map(|(e, _)| e)
+            .collect();
+        assert_eq!(
+            changed,
+            vec![entity],
+            "a query2_mut call must dirty ticks even when unconsumed"
+        );
     }
 
     #[test]

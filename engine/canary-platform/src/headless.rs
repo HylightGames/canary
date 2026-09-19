@@ -14,8 +14,9 @@ use crate::window::{Window, WindowDescriptor};
 /// A [`Window`] implementation that never opens a real OS window.
 ///
 /// Used for headless servers, tests, and — in this foundation — the
-/// entire `canary-runtime` boot harness, since no real windowing backend
-/// exists yet. See
+/// entire `canary-runtime` boot harness, which stays headless by choice
+/// even though a real `winit`-backed window exists behind the
+/// `winit-backend` feature (see `winit_backend`). See
 /// `docs/architecture/platform-abstraction.md#status-in-this-foundation`.
 pub struct HeadlessWindow {
     descriptor: WindowDescriptor,

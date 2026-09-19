@@ -124,6 +124,11 @@ fn renders_a_real_triangle_to_an_offscreen_target_and_reads_back_real_pixels() {
         -0.5, 0.5,   0.0, 1.0, 0.0,
         0.5, 0.5,    0.0, 0.0, 1.0,
     ];
+    // SAFETY: `vertices` is a live, properly-aligned `[f32; 15]` whose
+    // byte length is computed from the value itself (`size_of_val`), so
+    // the reborrowed byte slice is valid for exactly the array's extent
+    // and shares its lifetime; the buffer copies the bytes out before
+    // this scope ends.
     let vertex_bytes: &[u8] = unsafe {
         std::slice::from_raw_parts(
             vertices.as_ptr().cast::<u8>(),
