@@ -2,7 +2,8 @@
 
 A rotating cube, rendered offscreen through the real RHI
 (`canary-render` + `canary-render-vulkan`) and encoded to an animated
-GIF:
+GIF — driven, since `v0.0.9`, by the ECS-to-render bridge
+(`canary-render-ecs`):
 
 ![A spinning, colored cube](../../misc/screenshots/spinning_cube.gif)
 
@@ -26,13 +27,16 @@ if omitted.
 
 ## What it demonstrates, and what it deliberately doesn't
 
-Everything about *why* this is built the way it is — CPU-side rotation
-and projection, a hand-rolled painter's algorithm instead of a depth
-buffer, reusing `hello_triangle`'s own already-proven shader unmodified
-— is explained in `src/main.rs`'s own module docs rather than
-duplicated here. Short version: the RHI is deliberately minimal as of
-`v0.0.6` (no uniforms, no depth buffer, no culling), so this example
-does the honest thing given that scope instead of pretending otherwise.
+Everything about *why* this is built the way it is — the ECS `World`
+with one animated cube root plus six face entities, the
+propagation-then-bake `Schedule`, the bridge's CPU-side projection and
+painter's algorithm instead of a depth buffer, reusing the bridge's
+already-proven shader unmodified — is explained in `src/main.rs`'s own
+module docs rather than duplicated here. Short version: the RHI is
+deliberately minimal as of `v0.0.6` (no uniforms, no depth buffer, no
+culling), so the bridge does the honest CPU-bake given that scope, and
+this example is the bridge's animated proof instead of a second,
+competing implementation of the same math.
 
 Real rendering-engine features this example uses to build something
 without needing engine changes:

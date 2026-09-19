@@ -11,15 +11,21 @@ publish = false
 workspace = true
 
 [dependencies]
+canary-ecs = { path = "../../engine/canary-ecs" }
+canary-scheduler = { path = "../../engine/canary-scheduler" }
+canary-transform = { path = "../../engine/canary-transform" }
 canary-render = { path = "../../engine/canary-render" }
 canary-render-vulkan = { path = "../../engine/canary-render-vulkan" }
+canary-render-ecs = { path = "../../engine/canary-render-ecs" }
+glam = "0.30"
 
 # WGSL -> SPIR-V, the same reasoning and the same confirmed-minimal pin
 # set as canary-render-vulkan's own hello-triangle test dependency (see
 # that crate's Cargo.toml) -- this example needs it for the same reason:
 # canary_render::PipelineDescriptor takes precompiled SPIR-V, not WGSL.
+# The WGSL source itself now lives in canary-render-ecs (RENDER_WGSL);
+# naga stays here only to compile that shared source.
 naga = { version = "=22.1.0", features = ["wgsl-in", "spv-out"] }
-indexmap = "=2.11.4"
 
 # GIF encoding for this example's output only -- not a rendering-engine
 # dependency, deliberately kept out of canary-render-vulkan itself.

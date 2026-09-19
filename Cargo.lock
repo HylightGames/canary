@@ -2450,10 +2450,14 @@ dependencies = [
 name = "spinning-cube"
 version = "0.0.2"
 dependencies = [
+ "canary-ecs",
  "canary-render",
+ "canary-render-ecs",
  "canary-render-vulkan",
+ "canary-scheduler",
+ "canary-transform",
  "gif",
- "indexmap",
+ "glam",
  "naga",
 ]
 
