@@ -18,3 +18,7 @@
 //! self-occlusion needs a depth buffer), a fixed camera (no camera component),
 //! and any RHI upgrades (push constants, depth, `write_buffer`, textures,
 //! materials, swapchain) deferred to v0.0.10+.
+
+mod renderable;
+
+pub use renderable::Renderable;
