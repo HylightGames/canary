@@ -40,6 +40,17 @@ pub struct VulkanPipeline {
     device: Rc<ash::Device>,
     pub(crate) pipeline: vk::Pipeline,
     pub(crate) layout: vk::PipelineLayout,
+    /// Whether this pipeline's layout includes the shared texture
+    /// descriptor-set layout at set 0 (that is, whether it was built by
+    /// [`VulkanPipeline::new_textured`]).
+    ///
+    /// Read by the command encoder: binding a texture set against an
+    /// untextured pipeline's set-less layout is driver-undefined (a
+    /// segfault on llvmpipe, observed while hardening), so the encoder
+    /// refuses it loudly instead of recording it. Carried here rather
+    /// than re-derived because the layout handle itself does not say
+    /// whether it holds any sets.
+    pub(crate) textured: bool,
 }
 
 impl VulkanPipeline {
@@ -177,6 +188,7 @@ impl VulkanPipeline {
             device: Rc::clone(device),
             pipeline,
             layout,
+            textured,
         }
     }
 }

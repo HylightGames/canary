@@ -37,12 +37,13 @@ pub(crate) const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 /// suffices for `v0.0.6`), and a command pool.
 ///
 /// The logical device handle is wrapped in an `Rc` so that every
-/// resource this creates ([`VulkanBuffer`], [`VulkanColorTarget`],
-/// [`VulkanPipeline`]) can clean itself up in its own `Drop`
-/// implementation without needing an explicit lifetime tying it back to
-/// `VulkanDevice`. The same `Rc` makes this type `!Send`: the device and
-/// its resources stay on the thread that created them and never cross
-/// into `Schedule` workers or `Subsystem::tick` threads.
+/// resource this creates ([`VulkanBuffer`], [`VulkanTexture`],
+/// [`VulkanColorTarget`], [`VulkanPipeline`]) can clean itself up in
+/// its own `Drop` implementation without needing an explicit lifetime
+/// tying it back to `VulkanDevice`. The same `Rc` makes this type
+/// `!Send`: the device and its resources stay on the thread that
+/// created them and never cross into `Schedule` workers or
+/// `Subsystem::tick` threads.
 ///
 /// # Drop order contract
 ///
@@ -51,7 +52,7 @@ pub(crate) const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 /// device, and instance unconditionally, and the `Rc` only keeps the
 /// host-side `ash::Device` handle alive -- it cannot defer the
 /// `destroy_device` call itself. Dropping the device while a buffer,
-/// target, or pipeline still exists destroys the very `VkDevice`
+/// texture, target, or pipeline still exists destroys the very `VkDevice`
 /// those resources' own `Drop` impls then call into (use-after-
 /// destroy). Debug builds fail loudly on this via the
 /// `debug_assert!` below; release builds cannot detect it, so treat
@@ -335,15 +336,15 @@ impl Drop for VulkanDevice {
     fn drop(&mut self) {
         // See the drop-order contract on `VulkanDevice`'s own docs:
         // every live resource holds one `Rc` clone of `device`, so a
-        // count above 1 here means a buffer, target, or pipeline still
-        // exists and is about to be left pointing at a destroyed
-        // `VkDevice`. Loud in debug; callers must uphold the order in
-        // release.
+        // count above 1 here means a buffer, texture, target, or
+        // pipeline still exists and is about to be left pointing at a
+        // destroyed `VkDevice`. Loud in debug; callers must uphold the
+        // order in release.
         debug_assert_eq!(
             Rc::strong_count(&self.device),
             1,
             "VulkanDevice dropped while resources created from it still exist; \
-             drop all buffers, color targets, and pipelines first"
+             drop all buffers, textures, color targets, and pipelines first"
         );
         unsafe {
             self.device

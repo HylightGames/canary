@@ -686,4 +686,486 @@ mod tests {
             "the soup triangle must survive alongside the empty textured frame"
         );
     }
+
+    #[test]
+    fn full_chain_bakes_soup_mesh_and_textured_with_fresh_globals() {
+        // Given: one soup triangle, one mesh quad, one textured quad —
+        // each moved off-origin with a stale identity global, plus both
+        // stores. Stale globals mean only the canonical registration
+        // order can produce fresh output in every frame.
+        let mut world = World::new();
+        world.insert_resource(AssetStore::<Mesh>::new());
+        world.insert_resource(AssetStore::<canary_assets::Texture>::new());
+        let soup_entity = world.spawn();
+        world
+            .insert(
+                soup_entity,
+                Transform::from_translation(glam::Vec3::new(-1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world.insert(soup_entity, red_triangle()).unwrap();
+        world
+            .insert(
+                soup_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        let mesh_entity = world.spawn();
+        world
+            .insert(
+                mesh_entity,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(
+                mesh_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        let mesh_handle = red_mesh_handle(&mut world);
+        world
+            .insert(
+                mesh_entity,
+                MeshRenderable::new(mesh_handle, [0.0, 0.0, 1.0]),
+            )
+            .unwrap();
+        let (tex_mesh_handle, texture_handle) = textured_handles(&mut world);
+        let textured_entity = world.spawn();
+        world
+            .insert(
+                textured_entity,
+                Transform::from_translation(glam::Vec3::new(0.0, 1.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(
+                textured_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        world
+            .insert(
+                textured_entity,
+                TexturedRenderable::new(tex_mesh_handle, texture_handle),
+            )
+            .unwrap();
+
+        // When: all four write systems in canonical registration order.
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        register_textured_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        // Then: soup frame holds triangle + mesh quad (soup first), and
+        // the textured frame holds its own quad — every vertex baked
+        // through a fresh global, proving the solo-write chain ran each
+        // stage exactly once, in order.
+        let frame = world
+            .resource::<BakedFrame>()
+            .expect("bakes must leave a BakedFrame resource");
+        assert_eq!(
+            frame.vertices.len(),
+            (3 + 6) * 5,
+            "soup triangle plus mesh quad must both reach the frame"
+        );
+        let soup_fresh = crate::RenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                -1.0, 0.0, 0.0,
+            ))),
+            vertices: red_triangle().vertices.clone(),
+            color: red_triangle().color,
+        };
+        let expected_soup = bake_scene_to_vertices(std::slice::from_ref(&soup_fresh));
+        assert_eq!(
+            &frame.vertices[..expected_soup.len()],
+            expected_soup.as_slice(),
+            "soup vertices must come first, baked from the fresh global"
+        );
+        let textured = world
+            .resource::<BakedTexturedFrame>()
+            .expect("textured bake must leave its own frame");
+        assert_eq!(
+            textured.vertices.len(),
+            6 * 4,
+            "one textured quad must reach the textured frame"
+        );
+        assert_eq!(
+            world
+                .resource::<BakedFrame>()
+                .expect("frame must still exist")
+                .vertex_count(),
+            9,
+            "mesh bake must have appended (not duplicated or dropped) after soup"
+        );
+    }
+
+    #[test]
+    fn mesh_bake_before_soup_bake_loses_the_mesh_output() {
+        // Given: one soup triangle and one mesh quad, stale globals, the
+        // store — identical setup to the append test.
+        let mut world = World::new();
+        world.insert_resource(AssetStore::<Mesh>::new());
+        let soup_entity = world.spawn();
+        world
+            .insert(
+                soup_entity,
+                Transform::from_translation(glam::Vec3::new(-1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world.insert(soup_entity, red_triangle()).unwrap();
+        world
+            .insert(
+                soup_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        let mesh_entity = world.spawn();
+        world
+            .insert(
+                mesh_entity,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(
+                mesh_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        let handle = red_mesh_handle(&mut world);
+        world
+            .insert(mesh_entity, MeshRenderable::new(handle, [0.0, 0.0, 1.0]))
+            .unwrap();
+
+        // When: the mesh bake runs BEFORE the soup bake — the reversed
+        // registration order. This must compile (ordering is a
+        // constructor discipline, not a type rule) but produce stale
+        // behavior: the soup overwrite wipes the mesh append.
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        register_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        // Then: only the soup triangle survives — proving registration
+        // order (not the scheduler, not the types) is the ordering
+        // mechanism, and the canonical order is load-bearing.
+        let frame = world
+            .resource::<BakedFrame>()
+            .expect("bakes must leave a BakedFrame resource");
+        assert_eq!(
+            frame.vertices.len(),
+            3 * 5,
+            "reversed order must lose the mesh quad to the soup overwrite"
+        );
+    }
+
+    #[test]
+    fn textured_bake_registered_first_bakes_stale_globals() {
+        let mut world = World::new();
+        world.insert_resource(AssetStore::<Mesh>::new());
+        world.insert_resource(AssetStore::<canary_assets::Texture>::new());
+        let (mesh_handle, texture_handle) = textured_handles(&mut world);
+        let entity = world.spawn();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(0.0, 1.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        world
+            .insert(entity, TexturedRenderable::new(mesh_handle, texture_handle))
+            .unwrap();
+
+        let mut schedule = Schedule::new();
+        register_textured_render_bake(&mut schedule);
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        let frame = world
+            .resource::<BakedTexturedFrame>()
+            .expect("textured bake must leave its frame even in the wrong order");
+        assert_eq!(frame.vertices.len(), 6 * 4);
+        let soup = crate::expand_mesh_to_textured_soup(
+            world
+                .resource::<AssetStore<Mesh>>()
+                .expect("store must still exist")
+                .get(mesh_handle)
+                .expect("handle must still be live"),
+        )
+        .expect("quad fixture carries UVs");
+        let (positions, uvs): (Vec<[f32; 3]>, Vec<[f32; 2]>) = soup.into_iter().unzip();
+        let stale = crate::TexturedRenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            vertices: positions.clone(),
+            uvs: uvs.clone(),
+        };
+        let stale_bake = crate::bake_textured_scene_to_vertices(std::slice::from_ref(&stale));
+        assert_eq!(
+            frame.vertices, stale_bake,
+            "a bake-first registration must bake the stale identity global"
+        );
+        let fresh = crate::TexturedRenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                0.0, 1.0, 0.0,
+            ))),
+            vertices: positions,
+            uvs,
+        };
+        let fresh_bake = crate::bake_textured_scene_to_vertices(std::slice::from_ref(&fresh));
+        assert_ne!(
+            frame.vertices, fresh_bake,
+            "the bake-first frame must NOT match the fresh-global output"
+        );
+    }
+
+    #[test]
+    fn mesh_bake_without_a_prior_soup_frame_builds_from_empty() {
+        let mut world = World::new();
+        world.insert_resource(AssetStore::<Mesh>::new());
+        assert!(
+            world.resource::<BakedFrame>().is_none(),
+            "precondition: no soup bake has run, so no frame exists"
+        );
+        let entity = world.spawn();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        let handle = red_mesh_handle(&mut world);
+        world
+            .insert(entity, MeshRenderable::new(handle, [0.0, 0.0, 1.0]))
+            .unwrap();
+
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        let frame = world
+            .resource::<BakedFrame>()
+            .expect("mesh bake must create the frame from nothing");
+        assert_eq!(
+            frame.vertices.len(),
+            6 * 5,
+            "one mesh quad with no soup bake must still reach the frame"
+        );
+        let mesh_soup = crate::expand_mesh_to_soup(
+            world
+                .resource::<AssetStore<Mesh>>()
+                .expect("store must still exist")
+                .get(handle)
+                .expect("handle must still be live"),
+        );
+        let fresh = crate::RenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                1.0, 0.0, 0.0,
+            ))),
+            vertices: mesh_soup,
+            color: [0.0, 0.0, 1.0],
+        };
+        assert_eq!(
+            frame.vertices,
+            bake_scene_to_vertices(std::slice::from_ref(&fresh)),
+            "the mesh-only frame must be baked from the fresh global"
+        );
+    }
+
+    #[test]
+    fn stale_mesh_handle_through_the_full_schedule_skips_leaving_soup_intact() {
+        let mut world = World::new();
+        world.insert_resource(AssetStore::<Mesh>::new());
+        world.insert_resource(AssetStore::<canary_assets::Texture>::new());
+        let soup_entity = world.spawn();
+        world
+            .insert(
+                soup_entity,
+                Transform::from_translation(glam::Vec3::new(-1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world.insert(soup_entity, red_triangle()).unwrap();
+        world
+            .insert(
+                soup_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        let mesh_entity = world.spawn();
+        world
+            .insert(
+                mesh_entity,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(
+                mesh_entity,
+                GlobalTransform::from_matrix(glam::Mat4::IDENTITY),
+            )
+            .unwrap();
+        let stale = world
+            .resource_mut::<AssetStore<Mesh>>()
+            .expect("mesh store must exist")
+            .insert(
+                canary_assets::load_mesh(
+                    &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("../canary-assets/tests/fixtures/quad.glb"),
+                )
+                .expect("quad fixture must load")
+                .into_iter()
+                .next()
+                .expect("quad fixture holds one mesh"),
+            );
+        world
+            .resource_mut::<AssetStore<Mesh>>()
+            .expect("mesh store must exist")
+            .remove(stale);
+        world
+            .insert(mesh_entity, MeshRenderable::new(stale, [0.0, 0.0, 1.0]))
+            .unwrap();
+
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        register_textured_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        let frame = world
+            .resource::<BakedFrame>()
+            .expect("bakes must leave a BakedFrame resource");
+        assert_eq!(
+            frame.vertices.len(),
+            3 * 5,
+            "the stale mesh entity must skip; only the soup triangle bakes"
+        );
+    }
+
+    #[test]
+    fn second_tick_overwrites_the_first_frame() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(-1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world.insert(entity, red_triangle()).unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        schedule.run(&mut world);
+        let first = world
+            .resource::<BakedFrame>()
+            .expect("first tick must bake")
+            .vertices
+            .clone();
+        assert_eq!(first.len(), 3 * 5);
+
+        *world
+            .get_mut::<Transform>(entity)
+            .expect("entity must still hold its Transform") =
+            Transform::from_translation(glam::Vec3::new(2.0, 0.0, 0.0));
+        schedule.run(&mut world);
+
+        let second = world
+            .resource::<BakedFrame>()
+            .expect("second tick must bake")
+            .vertices
+            .clone();
+        assert_eq!(
+            second.len(),
+            3 * 5,
+            "the second tick must overwrite with one triangle, not append"
+        );
+        assert_ne!(
+            first, second,
+            "the second frame must reflect the moved transform, not the stale first bake"
+        );
+        let fresh = crate::RenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                2.0, 0.0, 0.0,
+            ))),
+            vertices: red_triangle().vertices.clone(),
+            color: red_triangle().color,
+        };
+        assert_eq!(
+            second,
+            bake_scene_to_vertices(std::slice::from_ref(&fresh)),
+            "the second frame must equal a fresh bake of the moved entity"
+        );
+    }
+
+    #[test]
+    fn third_tick_matches_a_fresh_bake_sequential_reuse_holds_no_state() {
+        // Given: one entity baked through the same schedule twice already.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(-1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world.insert(entity, red_triangle()).unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+
+        // When: the schedule runs three times with a move before each rerun.
+        schedule.run(&mut world);
+        *world
+            .get_mut::<Transform>(entity)
+            .expect("entity must still hold its Transform") =
+            Transform::from_translation(glam::Vec3::new(2.0, 0.0, 0.0));
+        schedule.run(&mut world);
+        *world
+            .get_mut::<Transform>(entity)
+            .expect("entity must still hold its Transform") =
+            Transform::from_translation(glam::Vec3::new(-3.0, 0.0, 0.0));
+        schedule.run(&mut world);
+
+        // Then: the third frame equals a fresh bake of the twice-moved
+        // entity — no per-run state leaks across sequential runs (the
+        // scheduler holds no `static`/`thread_local` state; systems are
+        // `FnMut(&mut World)` closures drained fresh each run).
+        let third = world
+            .resource::<BakedFrame>()
+            .expect("third tick must bake")
+            .vertices
+            .clone();
+        assert_eq!(third.len(), 3 * 5);
+        let fresh = crate::RenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                -3.0, 0.0, 0.0,
+            ))),
+            vertices: red_triangle().vertices.clone(),
+            color: red_triangle().color,
+        };
+        assert_eq!(
+            third,
+            bake_scene_to_vertices(std::slice::from_ref(&fresh)),
+            "the third frame must equal a fresh bake, proving sequential reuse is stateless"
+        );
+    }
 }

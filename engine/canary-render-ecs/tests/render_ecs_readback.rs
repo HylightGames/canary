@@ -932,3 +932,64 @@ fn textured_geometry_without_sampling_is_not_quadrant_correct() {
         "without sampling, the bottom-left pixel must not read dominant blue, got {bottom_left:?}"
     );
 }
+
+/// An empty textured frame clears without creating a buffer, a texture, or
+/// issuing a draw.
+///
+/// **What this proves (no zero-size allocation, no zero-vertex draw):** the
+/// world holds no textured entities, so the textured bake leaves an empty
+/// frame — and `draw_textured_frame` must still begin, end, and submit the
+/// pass (clearing the target) while binding nothing. A zero-size buffer
+/// creation is driver-risky and a zero-vertex draw proves nothing, so both
+/// are skipped by the `is_empty` guard; this test proves the skip path
+/// reaches real pixels instead of panicking or leaving stale contents.
+#[test]
+#[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
+fn empty_textured_frame_clears_without_creating_a_texture() {
+    // Given: a world with no textured entities through the full schedule.
+    let mut world = World::new();
+    let mut schedule = full_render_schedule();
+    schedule.run(&mut world);
+    let frame = world
+        .resource::<BakedTexturedFrame>()
+        .expect("schedule.run() must have baked a BakedTexturedFrame resource even with no textured entities");
+    assert!(
+        frame.is_empty(),
+        "no textured entities must bake to an empty textured frame"
+    );
+    assert_eq!(
+        frame.vertex_count(),
+        0,
+        "an empty textured frame draws zero vertices"
+    );
+
+    // When: the empty frame is drawn with a real texture on a real device.
+    let texture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../canary-assets/tests/fixtures/rgba2x2.png");
+    let texture = load_texture(&texture_path).expect("RGBA fixture must load");
+    let device = real_device();
+    let target = device.create_color_target(&ColorTargetDescriptor {
+        width: WIDTH,
+        height: HEIGHT,
+    });
+    let pipeline = textured_bridge_pipeline(&device);
+    let pixels = draw_textured_and_readback(&device, &target, &pipeline, &texture, &world);
+
+    // Then: every sampled pixel is exactly the clear color — the pass ran
+    // and cleared, with no buffer, no texture upload, and no draw call.
+    for (x, y) in [
+        (0, 0),
+        (WIDTH - 1, 0),
+        (0, HEIGHT - 1),
+        (WIDTH - 1, HEIGHT - 1),
+        (WIDTH / 2, HEIGHT / 2),
+        (32, 32),
+        (96, 96),
+    ] {
+        assert_eq!(
+            pixel_at(&pixels, WIDTH, x, y),
+            [0, 0, 0, 255],
+            "empty textured frame: pixel ({x}, {y}) should be the clear color"
+        );
+    }
+}

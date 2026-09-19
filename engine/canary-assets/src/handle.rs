@@ -124,6 +124,25 @@ impl<T> AssetHandle<T> {
     /// unchanged — identity is type-independent by construction (see
     /// the `PartialEq` impl), so this converts the key without
     /// touching what it points at.
+    ///
+    /// # Deprecation: cross-type aliasing is provable, not theoretical
+    ///
+    /// Stores are per-type (`AssetStore<Mesh>` and `AssetStore<Texture>`
+    /// allocate slot indices independently, both starting at 0), so a
+    /// reinterpreted handle can resolve to a *live, unrelated* asset in
+    /// the other store: insert one mesh and one texture, and
+    /// `mesh_handle.with_type::<Texture>()` resolves to that texture.
+    /// The `cross_type_reinterpretation_can_alias_a_live_asset` test
+    /// proves it. Nothing checks that the slot "actually holds `U`" —
+    /// the soundness condition above is unenforceable at the call site.
+    /// Prefer inserting into the correctly typed store and threading
+    /// the resulting handle through; a typed removal path is Phase 11's
+    /// disposition for this method.
+    #[deprecated(
+        since = "0.0.2",
+        note = "cross-type reinterpretation can alias a live asset in the other store; \
+                insert into the correctly typed store instead"
+    )]
     pub fn with_type<U>(&self) -> AssetHandle<U> {
         AssetHandle::from_raw_parts(self.index, self.generation)
     }
@@ -183,9 +202,49 @@ mod tests {
     #[test]
     fn type_reinterpretation_preserves_slot_identity() {
         let mesh = AssetHandle::<Mesh>::from_raw_parts(7, 2);
+        #[allow(deprecated)]
         let texture: AssetHandle<Texture> = mesh.with_type();
         assert_eq!(texture.index(), 7);
         assert_eq!(texture.generation(), 2);
         assert_eq!(mesh.to_string(), "Asset(7v2)");
+    }
+
+    #[test]
+    fn cross_type_reinterpretation_can_alias_a_live_asset() {
+        // Given: one mesh and one texture in their own stores. Both
+        // stores allocate slot indices independently from zero, so both
+        // live assets sit at index 0, generation 0.
+        let mut meshes = crate::AssetStore::new();
+        let mesh_handle = meshes.insert(Mesh);
+        let mut textures = crate::AssetStore::new();
+        let texture_handle = textures.insert(Texture);
+        assert_eq!((mesh_handle.index(), mesh_handle.generation()), (0, 0));
+        assert_eq!(
+            (texture_handle.index(), texture_handle.generation()),
+            (0, 0)
+        );
+
+        // When: the mesh handle is reinterpreted as a texture handle.
+        #[allow(deprecated)]
+        let aliased: AssetHandle<Texture> = mesh_handle.with_type();
+
+        // Then: it resolves — to the live, unrelated texture, not to
+        // nothing. This is the C2 hazard made observable: the
+        // "caller knows the slot holds U" soundness condition is
+        // unenforceable, and misuse silently yields the wrong asset
+        // rather than a stale handle. Pinned here so Phase 11's
+        // disposition (constrain or remove) must move this test first.
+        // (Compared by handle parts plus liveness: the test asset types
+        // deliberately carry no Debug/PartialEq bounds, mirroring the
+        // manual bound-free impls above.)
+        assert_eq!(
+            (aliased.index(), aliased.generation()),
+            (texture_handle.index(), texture_handle.generation()),
+            "the reinterpreted handle is slot-identical to the live texture handle"
+        );
+        assert!(
+            textures.get(aliased).is_some(),
+            "and it resolves to a live asset — the wrong one — not to a stale None"
+        );
     }
 }

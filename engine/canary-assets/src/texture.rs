@@ -188,30 +188,13 @@ pub fn load_texture_with_budget(path: &Path, max_decode_bytes: u64) -> Result<Te
             .map_err(|source| invalid(format!("not a parseable PNG file: {source}")))?;
         (info.width, info.height)
     };
-    let claimed_bytes = rgba8_byte_count(header_width, header_height);
-    match claimed_bytes {
-        None => {
-            return Err(AssetError::over_budget(path, max_decode_bytes, u64::MAX));
-        }
-        Some(claimed) if claimed > max_decode_bytes => {
-            return Err(AssetError::over_budget(path, max_decode_bytes, claimed));
-        }
-        Some(_) => {}
-    }
+    check_rgba8_budget(path, max_decode_bytes, header_width, header_height)?;
 
     let mut reader = decoder
         .read_info()
         .map_err(|source| map_decode_error(path, max_decode_bytes, source))?;
     let (width, height) = (reader.info().width, reader.info().height);
-    let decoded_size = match rgba8_byte_count(width, height) {
-        None => {
-            return Err(AssetError::over_budget(path, max_decode_bytes, u64::MAX));
-        }
-        Some(size) if size > max_decode_bytes => {
-            return Err(AssetError::over_budget(path, max_decode_bytes, size));
-        }
-        Some(size) => size,
-    };
+    let decoded_size = check_rgba8_budget(path, max_decode_bytes, width, height)?;
 
     // `output_buffer_size` is `None` exactly when the frame does not fit
     // the address space the decoder was told about — another face of
@@ -259,6 +242,29 @@ fn rgba8_byte_count(width: u32, height: u32) -> Option<u64> {
     u64::from(width)
         .checked_mul(u64::from(height))
         .and_then(|pixels| pixels.checked_mul(4))
+}
+
+/// Refuses an image whose RGBA8 byte count exceeds `max_decode_bytes`.
+///
+/// Shared by the header pre-check (claimed dimensions, refused before any
+/// pixel allocation) and the post-decode check (actual dimensions): both
+/// gates report [`AssetError::OverBudget`] with the same numbers, and an
+/// overflowing dimension product counts as larger than any budget. One
+/// function so the two gates cannot drift into different taxonomies for
+/// the same condition.
+fn check_rgba8_budget(
+    path: &Path,
+    max_decode_bytes: u64,
+    width: u32,
+    height: u32,
+) -> Result<u64, AssetError> {
+    match rgba8_byte_count(width, height) {
+        None => Err(AssetError::over_budget(path, max_decode_bytes, u64::MAX)),
+        Some(size) if size > max_decode_bytes => {
+            Err(AssetError::over_budget(path, max_decode_bytes, size))
+        }
+        Some(size) => Ok(size),
+    }
 }
 
 /// Maps a `png` crate decode failure onto the [`AssetError`] taxonomy.
@@ -559,6 +565,19 @@ mod tests {
     }
 
     #[test]
+    fn zero_budget_refuses_even_the_smallest_fixture() {
+        let err = load_texture_with_budget(&fixture("rgba2x2.png"), 0)
+            .expect_err("a zero budget must refuse everything");
+        match err {
+            AssetError::OverBudget { limit, actual, .. } => {
+                assert_eq!(limit, 0);
+                assert_eq!(actual, 16, "the 2x2 RGBA fixture needs exactly 16 bytes");
+            }
+            other => panic!("zero budget must be OverBudget, got: {other:?}"),
+        }
+    }
+
+    #[test]
     fn lying_header_claiming_gigapixels_is_over_budget() {
         // A 1x1 file whose IHDR claims u32::MAX dimensions: the explicit
         // pre-check must refuse it without attempting the allocation.
@@ -618,5 +637,302 @@ mod tests {
         let handle = store.insert(texture);
         let stored = store.get(handle).expect("live handle must resolve");
         assert_eq!(stored.pixel(0, 0), Some([255, 0, 0, 255]));
+    }
+
+    #[test]
+    fn git_lfs_pointer_bytes_are_invalid_format_not_a_panic() {
+        // Given: what a fixture resolves to when Git LFS objects were not
+        // fetched (CI without `lfs: true`): pointer text, not a PNG.
+        let pointer =
+            b"version https://git-lfs.github.com/spec/v1\noid sha256:0000000000000000000000000000000000000000000000000000000000000000\nsize 12345\n";
+        let path = write_temp("lfs-pointer.png", pointer);
+
+        // When: loaded. Then: Err (InvalidFormat), never a panic.
+        let err = load_texture(&path).expect_err("LFS pointer text must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "LFS pointer bytes must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn missing_parent_directory_is_io_not_a_panic() {
+        // Given: a path under a directory that does not exist at all.
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/does-not-exist-dir/rgba2x2.png");
+
+        // When: loaded. Then: Io (the read fails before any decode).
+        let err = load_texture(&path).expect_err("missing directory must fail");
+        assert!(
+            matches!(err, AssetError::Io { .. }),
+            "missing parent directory must be Io, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn unreadable_file_reports_io_even_under_zero_budget() {
+        // Given: a path that cannot be read at all, with a budget of zero.
+        // Then: Io, not OverBudget — the read runs before every budget
+        // guard, so a missing file can never report a budget failure.
+        let err = load_texture_with_budget(Path::new("definitely-not-a-texture.png"), 0)
+            .expect_err("missing file must fail");
+        assert!(
+            matches!(err, AssetError::Io { .. }),
+            "read-before-budget: missing file must be Io even with budget 0, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn png_truncated_mid_idat_is_invalid_format() {
+        // Given: the RGBA fixture cut off three-quarters through — past the
+        // header and into the image data.
+        let full = std::fs::read(fixture("rgba2x2.png")).expect("RGBA fixture must exist");
+        let path = write_temp("mid-idat-truncated.png", &full[..full.len() * 3 / 4]);
+
+        // When: loaded. Then: InvalidFormat, never a panic.
+        let err = load_texture(&path).expect_err("mid-IDAT truncation must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "truncated IDAT must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn png_with_flipped_idat_byte_is_invalid_format() {
+        // Given: the RGBA fixture with one byte flipped inside the IDAT
+        // payload (past the 8-byte signature + 25-byte IHDR chunk, into
+        // the IDAT length/type region) — the header parses, but the
+        // chunk CRC no longer matches.
+        let mut bytes = std::fs::read(fixture("rgba2x2.png")).expect("RGBA fixture must exist");
+        assert!(
+            bytes.len() > 45,
+            "fixture must be long enough to hold an IDAT chunk"
+        );
+        bytes[45] ^= 0xFF;
+        let path = write_temp("flipped-idat.png", &bytes);
+
+        // When: loaded. Then: InvalidFormat, never a panic.
+        let err = load_texture(&path).expect_err("corrupt IDAT must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "CRC-broken IDAT must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn png_trailing_iend_crc_flip_stays_ok_with_correct_pixels() {
+        // Given: the RGBA fixture with its LAST byte flipped — inside the
+        // trailing IEND CRC, which guards no pixel data (Phase 09 W1).
+        let mut bytes = std::fs::read(fixture("rgba2x2.png")).expect("RGBA fixture must exist");
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xFF;
+        let path = write_temp("trailing-crc-flip.png", &bytes);
+
+        // When: loaded. Then: Ok with byte-correct pixels — trailing-CRC
+        // leniency is classified legitimate (the `png` crate does not gate
+        // pixel output on it), NOT a failure. This pins the W1
+        // classification so a future `png` bump that hardens CRC handling
+        // shows up here as an intended-contract change, not a mystery.
+        let texture = load_texture(&path).expect("trailing CRC flip must stay Ok");
+        let reference = load_texture(&fixture("rgba2x2.png")).expect("fixture must load");
+        assert_eq!(
+            texture.rgba8(),
+            reference.rgba8(),
+            "trailing-CRC leniency must never corrupt pixels"
+        );
+    }
+
+    /// One hostile shape applied to the 75-byte RGBA fixture: the chaos
+    /// feed (mid-IDAT truncation, IDAT mutation) plus IHDR-lie patches
+    /// with and without a repaired CRC, plus byte flips and truncation.
+    #[derive(Debug, Clone)]
+    enum PngFuzzMutation {
+        /// XOR one byte with a nonzero mask.
+        Flip { offset: usize, xor: u8 },
+        /// Cut the file to `len` bytes (0 = empty file).
+        Truncate { len: usize },
+        /// Overwrite the IHDR width/height (big-endian bytes 16..24),
+        /// optionally repairing the IHDR CRC so the lie reaches the
+        /// budget pre-check instead of dying at the CRC gate.
+        PatchIhdrDims {
+            width: u32,
+            height: u32,
+            fix_crc: bool,
+        },
+    }
+
+    /// Whether this mutation stays inside the trailing 12-byte IEND
+    /// chunk (length + type + CRC): the only region where an Ok with
+    /// unchanged pixels is legitimate leniency rather than a wrong-Ok.
+    fn touches_only_trailing_iend(mutation: &PngFuzzMutation, base_len: usize) -> bool {
+        match *mutation {
+            PngFuzzMutation::Flip { offset, .. } => {
+                offset % base_len >= base_len.saturating_sub(12)
+            }
+            PngFuzzMutation::Truncate { .. } | PngFuzzMutation::PatchIhdrDims { .. } => false,
+        }
+    }
+
+    /// Strategy over [`PngFuzzMutation`]; offsets clamp onto the 75-byte
+    /// fixture at apply time so input construction itself stays total.
+    fn png_mutation_strategy(
+        max_len: usize,
+    ) -> impl proptest::strategy::Strategy<Value = PngFuzzMutation> {
+        use proptest::prelude::*;
+        prop_oneof![
+            (0..max_len, 1u8..=255).prop_map(|(offset, xor)| PngFuzzMutation::Flip { offset, xor }),
+            (0..=max_len).prop_map(|len| PngFuzzMutation::Truncate { len }),
+            (
+                prop_oneof![
+                    Just(0u32),
+                    Just(1u32),
+                    Just(2u32),
+                    Just(0x1000u32),
+                    Just(u32::MAX),
+                    any::<u32>(),
+                ],
+                prop_oneof![
+                    Just(0u32),
+                    Just(1u32),
+                    Just(2u32),
+                    Just(0x1000u32),
+                    Just(u32::MAX),
+                    any::<u32>(),
+                ],
+                proptest::bool::ANY,
+            )
+                .prop_map(|(width, height, fix_crc)| PngFuzzMutation::PatchIhdrDims {
+                    width,
+                    height,
+                    fix_crc,
+                }),
+        ]
+    }
+
+    /// Applies a mutation to `base`; total over all inputs like its GLB
+    /// twin in `mesh.rs` tests. The IHDR patch path reuses the
+    /// IEEE-CRC32 helper above so `fix_crc` truly repairs the chunk.
+    fn apply_png_mutation(base: &[u8], mutation: &PngFuzzMutation) -> Vec<u8> {
+        assert!(
+            base.len() > 33,
+            "fuzz base must hold signature + IHDR + IEND"
+        );
+        match *mutation {
+            PngFuzzMutation::Flip { offset, xor } => {
+                let mut out = base.to_vec();
+                let index = offset % base.len();
+                out[index] ^= xor;
+                out
+            }
+            PngFuzzMutation::Truncate { len } => base[..len.min(base.len())].to_vec(),
+            PngFuzzMutation::PatchIhdrDims {
+                width,
+                height,
+                fix_crc,
+            } => {
+                let mut out = base.to_vec();
+                out[16..20].copy_from_slice(&width.to_be_bytes());
+                out[20..24].copy_from_slice(&height.to_be_bytes());
+                if fix_crc {
+                    let crc = crc32(&out[12..29]);
+                    out[29..33].copy_from_slice(&crc.to_be_bytes());
+                }
+                out
+            }
+        }
+    }
+
+    /// The texture-side oracle's Ok arm: dimensions are nonzero, the
+    /// pixel buffer is exactly `width * height * 4`, and the `pixel`
+    /// accessor agrees with the raw buffer on every corner while
+    /// refusing out-of-bounds coordinates.
+    fn assert_texture_invariants(texture: &Texture) {
+        assert!(texture.width() > 0, "decoded width must be nonzero");
+        assert!(texture.height() > 0, "decoded height must be nonzero");
+        let expected = u64::from(texture.width())
+            .checked_mul(u64::from(texture.height()))
+            .and_then(|pixels| pixels.checked_mul(4))
+            .expect("u32 dimensions times 4 always fits u64");
+        assert_eq!(
+            texture.rgba8().len() as u64,
+            expected,
+            "rgba8 must hold exactly width*height*4 bytes"
+        );
+        let raw = texture.rgba8();
+        for (x, y) in [
+            (0, 0),
+            (texture.width() - 1, 0),
+            (0, texture.height() - 1),
+            (texture.width() - 1, texture.height() - 1),
+        ] {
+            let offset = (u64::from(y) * u64::from(texture.width()) + u64::from(x)) * 4;
+            let offset = usize::try_from(offset).expect("decoded buffer fits the address space");
+            let want = [
+                raw[offset],
+                raw[offset + 1],
+                raw[offset + 2],
+                raw[offset + 3],
+            ];
+            assert_eq!(
+                texture.pixel(x, y),
+                Some(want),
+                "pixel() must agree with the raw buffer at ({x}, {y})"
+            );
+        }
+        assert_eq!(
+            texture.pixel(texture.width(), 0),
+            None,
+            "past the right edge must be None"
+        );
+        assert_eq!(
+            texture.pixel(0, texture.height()),
+            None,
+            "past the bottom edge must be None"
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config { cases: 256, ..Default::default() })]
+        /// Oracle-first bounded PNG fuzz: mutated fixture bytes fed
+        /// through [`load_texture_with_budget`] must NEVER panic or
+        /// wrong-Ok. Any Err variant is acceptable; an Ok must satisfy
+        /// [`assert_texture_invariants`], and an Ok whose mutation stays
+        /// inside the trailing IEND chunk must additionally carry the
+        /// fixture's exact pixels (W1 leniency classification: tolerate,
+        /// never corrupt). The budget is 4 KiB — 256× the fixture's
+        /// 16-byte output — so a missed guard can allocate at most
+        /// kilobytes before the decoder-internal limit fires. Raw-noise
+        /// fuzzing and `cargo-fuzz` were judged unnecessary for the same
+        /// reasons as the GLB twin (tiny inputs, validation logic under
+        /// test, deterministic proptest regressions).
+        #[test]
+        fn png_byte_mutations_never_panic_and_ok_means_valid(
+            mutation in png_mutation_strategy(75)
+        ) {
+            // Given: the 75-byte RGBA fixture's exact bytes, hostilely mutated.
+            let base = std::fs::read(fixture("rgba2x2.png")).expect("RGBA fixture must exist");
+            let bytes = apply_png_mutation(&base, &mutation);
+            let path = write_temp("png-fuzz.png", &bytes);
+
+            // When: loaded under a 4 KiB ceiling (file I/O first per the
+            // documented read-before-budget R1 order — this fuzzes the
+            // decode path, not the disk path).
+            let result = load_texture_with_budget(&path, 4096);
+
+            // Then: Err of any typed variant, or a structurally valid Ok;
+            // trailing-IEND-only Ok must additionally be pixel-identical.
+            if let Ok(texture) = result {
+                assert_texture_invariants(&texture);
+                if touches_only_trailing_iend(&mutation, base.len()) {
+                    let reference =
+                        load_texture(&fixture("rgba2x2.png")).expect("fixture must load");
+                    proptest::prop_assert_eq!(
+                        texture.rgba8(),
+                        reference.rgba8(),
+                        "trailing-IEND leniency must never corrupt pixels"
+                    );
+                }
+            }
+        }
     }
 }

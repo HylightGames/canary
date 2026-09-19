@@ -252,4 +252,57 @@ mod tests {
             "no store resource means no resolvable meshes, not a panic"
         );
     }
+
+    #[test]
+    fn recycled_slot_new_handle_extracts_new_geometry_old_handle_skips() {
+        let quad = quad_mesh();
+        let mut store = AssetStore::new();
+        let stale = store.insert(quad);
+        store.remove(stale);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../canary-assets/tests/fixtures/box.glb");
+        let box_mesh = load_mesh(&path)
+            .expect("box fixture must load")
+            .into_iter()
+            .nth(1)
+            .expect("box fixture holds two meshes");
+        assert_eq!(box_mesh.triangle_count(), 6);
+        let live = store.insert(box_mesh);
+        assert_eq!(
+            stale.index(),
+            live.index(),
+            "the freed slot must be recycled, so aliasing pressure is real"
+        );
+        assert_ne!(stale, live, "the recycled handle must differ by generation");
+        let mut world = World::new();
+        world.insert_resource(store);
+        let stale_entity = world.spawn();
+        world
+            .insert(stale_entity, GlobalTransform::default())
+            .expect("fresh entity accepts GlobalTransform");
+        world
+            .insert(stale_entity, MeshRenderable::new(stale, [1.0, 0.0, 0.0]))
+            .expect("fresh entity accepts MeshRenderable");
+        let live_entity = world.spawn();
+        world
+            .insert(live_entity, GlobalTransform::default())
+            .expect("fresh entity accepts GlobalTransform");
+        world
+            .insert(live_entity, MeshRenderable::new(live, [0.0, 0.0, 1.0]))
+            .expect("fresh entity accepts MeshRenderable");
+
+        let items = extract_mesh_scene(&world);
+
+        assert_eq!(
+            items.len(),
+            1,
+            "the stale quad handle must skip while the recycled box handle extracts"
+        );
+        assert_eq!(
+            items[0].vertices.len(),
+            18,
+            "the extracted geometry must be the box's six triangles, not the quad's two"
+        );
+        assert_eq!(items[0].color, [0.0, 0.0, 1.0]);
+    }
 }

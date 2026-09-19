@@ -245,4 +245,127 @@ mod tests {
             "missing file must be Io, got: {err:?}"
         );
     }
+
+    #[test]
+    fn version_separator_blocks_prefix_extension_collisions() {
+        let left = AssetId::with_version(b"c", "ab");
+        let right = AssetId::with_version(b"bc", "a");
+        assert_ne!(
+            left, right,
+            "the 0x00 separator must keep (version, bytes) pairs unambiguous: \
+             without it \"ab\"+\"c\" and \"a\"+\"bc\" would hash identically"
+        );
+    }
+
+    #[test]
+    fn from_hex_accepts_uppercase_but_rejects_wrong_lengths() {
+        let id = AssetId::new(b"case probe");
+        let upper = id.to_hex().to_uppercase();
+        assert_eq!(
+            AssetId::from_hex(&upper).expect("uppercase hex must parse"),
+            id,
+            "hex parsing must accept uppercase digits, matching u8::from_str_radix"
+        );
+        assert!(
+            AssetId::from_hex(&"ab".repeat(32)[..63]).is_err(),
+            "63 hex chars must be Err"
+        );
+        assert!(
+            AssetId::from_hex(&"ab".repeat(33)).is_err(),
+            "66 hex chars must be Err"
+        );
+    }
+    #[test]
+    fn empty_bytes_hash_deterministically() {
+        assert_eq!(
+            AssetId::new(b""),
+            AssetId::with_version(b"", LOADER_VERSION),
+            "`new` and `with_version` must agree even on empty input"
+        );
+        assert_ne!(
+            AssetId::new(b""),
+            AssetId::new(b"\0"),
+            "empty input must not collide with a single NUL byte"
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config { cases: 256, ..Default::default() })]
+        /// Oracle-first AssetId fuzz: hashing and hex parsing are total
+        /// over arbitrary bytes and text — never a panic — and every
+        /// constructed ID satisfies determinism plus hex round-trip.
+        /// Deliberately asserts NO inequality between distinct inputs:
+        /// distinct-bytes-distinct-ID is a collision-resistance claim
+        /// about SHA-256, not a property testable without flake risk,
+        /// and the fixed divergent-input tests above already pin it.
+        #[test]
+        fn hashing_is_total_and_hex_round_trips(
+            bytes in proptest::collection::vec(proptest::num::u8::ANY, 0..256),
+            version in proptest::string::string_regex("[a-z0-9/._-]{0,24}").unwrap(),
+        ) {
+            // Given: arbitrary input bytes and an arbitrary version string.
+            let first = AssetId::with_version(&bytes, &version);
+            let second = AssetId::with_version(&bytes, &version);
+
+            // When/Then: determinism, current-version agreement, and a
+            // hex round trip that also agrees with Display — all total,
+            // all panic-free by construction.
+            proptest::prop_assert_eq!(
+                first, second,
+                "hashing the same (version, bytes) twice must agree"
+            );
+            if version == LOADER_VERSION {
+                proptest::prop_assert_eq!(
+                    first,
+                    AssetId::new(&bytes),
+                    "`new` must equal `with_version` under the current version"
+                );
+            }
+            let hex = first.to_hex();
+            proptest::prop_assert_eq!(hex.len(), 64, "SHA-256 always renders 64 hex chars");
+            proptest::prop_assert!(
+                hex.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+                "to_hex must render lowercase hex only"
+            );
+            match AssetId::from_hex(&hex) {
+                Ok(back) => proptest::prop_assert_eq!(
+                    back, first,
+                    "hex we just rendered must parse back to the same ID"
+                ),
+                Err(reason) => proptest::prop_assert!(
+                    false,
+                    "hex we just rendered must parse, got: {reason:?}"
+                ),
+            }
+            proptest::prop_assert_eq!(
+                first.to_string(),
+                hex,
+                "Display must agree with to_hex"
+            );
+        }
+
+        /// `from_hex` over arbitrary text: Err for garbage, and any Ok
+        /// re-renders to parseable lowercase hex for the same ID.
+        #[test]
+        fn from_hex_never_panics_on_arbitrary_text(text in proptest::string::string_regex(".{0,80}").unwrap()) {
+            // Given: any short text, including wrong lengths, non-hex,
+            // mixed case, and non-ASCII.
+            let result = AssetId::from_hex(&text);
+
+            // Then: no panic (reaching here IS the totality proof), and
+            // an Ok always round-trips through the canonical rendering.
+            if let Ok(id) = result {
+                match AssetId::from_hex(&id.to_hex()) {
+                    Ok(back) => proptest::prop_assert_eq!(
+                        back, id,
+                        "an accepted ID must re-render to accepted hex"
+                    ),
+                    Err(reason) => proptest::prop_assert!(
+                        false,
+                        "re-rendered hex must parse, got: {reason:?}"
+                    ),
+                }
+            }
+        }
+    }
 }

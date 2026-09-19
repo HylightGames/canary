@@ -173,8 +173,34 @@ fn load_mesh_from_bytes(path: &Path, bytes: &[u8]) -> Result<Vec<Mesh>, AssetErr
     let invalid = |reason: &str| AssetError::invalid_format(path, reason);
     let unsupported = |feature: &str| AssetError::unsupported_feature(path, feature);
 
-    let gltf = gltf::Gltf::from_slice(bytes)
-        .map_err(|source| invalid(&format!("not a parseable glTF file: {source}")))?;
+    // The `gltf` crate's own container validation indexes its tables by
+    // file-supplied indices without bounds-checking every path first: a
+    // hostile JSON chunk with dangling references (e.g. a primitive
+    // pointing at a nonexistent accessor) panics inside the dependency
+    // instead of returning its error type. Found by bounded property
+    // fuzzing (Phase 10: a `PatchU32` mutation of the quad fixture's
+    // JSON chunk panicked in `gltf-json`'s primitive validator); the
+    // deterministic pin is `gltf_parser_panic_becomes_invalid_format`
+    // below. This loader's contract is total over its inputs (Err,
+    // never panic), so the parse call is guarded at exactly this
+    // boundary and a trapped parse reports InvalidFormat — the file is
+    // broken, not narrowly unsupported. The closure only borrows the
+    // input bytes and builds an owned value, so unwinding through it
+    // leaves no shared state behind. Honest limit: this catches
+    // unwinding panics, not allocation failure or abort-class faults.
+    let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        gltf::Gltf::from_slice(bytes)
+    }));
+    let gltf = match parsed {
+        Err(_) => {
+            return Err(invalid(
+                "glTF container validation trapped on hostile input",
+            ));
+        }
+        Ok(inner) => {
+            inner.map_err(|source| invalid(&format!("not a parseable glTF file: {source}")))?
+        }
+    };
 
     // A self-contained GLB carries exactly one buffer — its own BIN chunk,
     // exposed as `blob`. Anything else (a `.gltf` JSON sidecar, a data-URI
@@ -248,13 +274,7 @@ fn read_primitive(
     if position_count == 0 {
         return Err(invalid("primitive has no vertices".to_string()));
     }
-    if position_count > MAX_MESH_VERTICES_PER_PRIMITIVE {
-        return Err(AssetError::over_budget(
-            path,
-            MAX_MESH_VERTICES_PER_PRIMITIVE as u64,
-            position_count as u64,
-        ));
-    }
+    check_count_budget(path, position_count, MAX_MESH_VERTICES_PER_PRIMITIVE)?;
 
     // Indices are required, not synthesized (see `Mesh` docs for why):
     // a non-indexed primitive would force this loader to invent the very
@@ -266,13 +286,7 @@ fn read_primitive(
     if index_count == 0 {
         return Err(invalid("primitive has no indices".to_string()));
     }
-    if index_count > MAX_MESH_INDICES_PER_PRIMITIVE {
-        return Err(AssetError::over_budget(
-            path,
-            MAX_MESH_INDICES_PER_PRIMITIVE as u64,
-            index_count as u64,
-        ));
-    }
+    check_count_budget(path, index_count, MAX_MESH_INDICES_PER_PRIMITIVE)?;
     if index_count % 3 != 0 {
         return Err(invalid(format!(
             "triangle primitive has {index_count} indices, not a multiple of 3"
@@ -391,6 +405,20 @@ fn check_attribute_count(
         return Err(format!(
             "{name} holds {count} vertices but POSITION holds {position_count}"
         ));
+    }
+    Ok(())
+}
+
+/// Refuses a primitive whose declared element `count` exceeds the `limit`
+/// budget.
+///
+/// Shared by the vertex-count and index-count gates: both report
+/// [`AssetError::OverBudget`] with the budget limit and the claimed count.
+/// One function so the two gates cannot drift into different taxonomies
+/// for the same condition.
+fn check_count_budget(path: &Path, count: usize, limit: usize) -> Result<(), AssetError> {
+    if count > limit {
+        return Err(AssetError::over_budget(path, limit as u64, count as u64));
     }
     Ok(())
 }
@@ -770,5 +798,547 @@ mod tests {
         let stored = store.get(handle).expect("live handle must resolve");
         assert_eq!(stored.triangle_count(), 2);
         assert_eq!(stored.indices(), &[0, 1, 2, 0, 2, 3]);
+    }
+
+    #[test]
+    fn vertex_budget_boundary_accepts_exact_max_but_rejects_one_more() {
+        let at_max = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
+            r#""bufferView":0,"componentType":5126,"count":4"#,
+            &format!(
+                r#""bufferView":0,"componentType":5126,"count":{MAX_MESH_VERTICES_PER_PRIMITIVE}"#
+            ),
+        );
+        let path = write_temp(
+            "vertex-at-max.glb",
+            &glb_bytes(&at_max, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("tiny data under a max claim must still fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "count == MAX must pass the budget check and fail later on data, got: {err:?}"
+        );
+        let over_max = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
+            r#""bufferView":0,"componentType":5126,"count":4"#,
+            &format!(
+                r#""bufferView":0,"componentType":5126,"count":{}"#,
+                MAX_MESH_VERTICES_PER_PRIMITIVE + 1
+            ),
+        );
+        let path = write_temp(
+            "vertex-over-max.glb",
+            &glb_bytes(&over_max, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("MAX+1 vertex claim must fail");
+        match err {
+            AssetError::OverBudget { limit, actual, .. } => {
+                assert_eq!(limit, MAX_MESH_VERTICES_PER_PRIMITIVE as u64);
+                assert_eq!(actual, MAX_MESH_VERTICES_PER_PRIMITIVE as u64 + 1);
+            }
+            other => panic!("count == MAX+1 must be OverBudget, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn index_budget_boundary_accepts_exact_max_but_rejects_one_more() {
+        let at_max = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
+            r#""bufferView":2,"componentType":5123,"count":6"#,
+            &format!(
+                r#""bufferView":2,"componentType":5123,"count":{MAX_MESH_INDICES_PER_PRIMITIVE}"#
+            ),
+        );
+        let path = write_temp(
+            "index-at-max.glb",
+            &glb_bytes(&at_max, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("tiny data under a max claim must still fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "count == MAX must pass the budget check and fail later, got: {err:?}"
+        );
+        let over_max = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
+            r#""bufferView":2,"componentType":5123,"count":6"#,
+            &format!(
+                r#""bufferView":2,"componentType":5123,"count":{}"#,
+                MAX_MESH_INDICES_PER_PRIMITIVE + 1
+            ),
+        );
+        let path = write_temp(
+            "index-over-max.glb",
+            &glb_bytes(&over_max, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("MAX+1 index claim must fail");
+        match err {
+            AssetError::OverBudget { limit, actual, .. } => {
+                assert_eq!(limit, MAX_MESH_INDICES_PER_PRIMITIVE as u64);
+                assert_eq!(actual, MAX_MESH_INDICES_PER_PRIMITIVE as u64 + 1);
+            }
+            other => panic!("count == MAX+1 must be OverBudget, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn zero_vertex_primitive_is_invalid_format() {
+        let json = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
+            r#""bufferView":0,"componentType":5126,"count":4"#,
+            r#""bufferView":0,"componentType":5126,"count":0"#,
+        );
+        let path = write_temp(
+            "zero-vertex.glb",
+            &glb_bytes(&json, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("zero vertices must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "empty geometry must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn missing_position_attribute_is_invalid_format() {
+        let json = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
+            r#""attributes":{"POSITION":0,"TEXCOORD_0":1}"#,
+            r#""attributes":{"TEXCOORD_0":1}"#,
+        );
+        assert!(
+            !json.contains("POSITION"),
+            "surgery must actually drop the POSITION reference"
+        );
+        let path = write_temp(
+            "no-position.glb",
+            &glb_bytes(&json, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("missing POSITION must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "missing POSITION must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn index_count_not_a_multiple_of_three_is_invalid_format() {
+        let json = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
+            r#""bufferView":2,"componentType":5123,"count":6"#,
+            r#""bufferView":2,"componentType":5123,"count":5"#,
+        );
+        let path = write_temp(
+            "mod3.glb",
+            &glb_bytes(&json, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("5 indices must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "non-multiple-of-3 indices must be InvalidFormat, got: {err:?}"
+        );
+        assert!(
+            err.to_string().contains('5'),
+            "message must name the count, got: {err}"
+        );
+    }
+
+    #[test]
+    fn normals_load_alongside_geometry_without_changing_it() {
+        let mut bin = quad_bin_with_indices(&[0, 1, 2, 0, 2, 3]);
+        for _ in 0..12 {
+            bin.extend_from_slice(&0.0f32.to_le_bytes());
+        }
+        let json = QUAD_JSON_TEMPLATE
+            .replace("{MODE}", "4")
+            .replace(
+                r#"{"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"}"#,
+                r#"{"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"},{"bufferView":3,"componentType":5126,"count":4,"type":"VEC3"}"#,
+            )
+            .replace(
+                r#"{"buffer":0,"byteLength":12,"byteOffset":80}"#,
+                r#"{"buffer":0,"byteLength":12,"byteOffset":80},{"buffer":0,"byteLength":48,"byteOffset":92}"#,
+            )
+            .replace(
+                r#""buffers":[{"byteLength":92}]"#,
+                r#""buffers":[{"byteLength":140}]"#,
+            )
+            .replace(
+                r#""attributes":{"POSITION":0,"TEXCOORD_0":1}"#,
+                r#""attributes":{"NORMAL":3,"POSITION":0,"TEXCOORD_0":1}"#,
+            );
+        let path = write_temp("with-normals.glb", &glb_bytes(&json, &bin));
+        let meshes = load_mesh(&path).expect("quad plus NORMAL must load");
+        assert_eq!(meshes.len(), 1);
+        let plain = load_mesh(&fixture("quad.glb")).expect("quad fixture must load");
+        assert_eq!(
+            meshes[0].positions(),
+            plain[0].positions(),
+            "carrying normals must not alter positions"
+        );
+        assert_eq!(
+            meshes[0].indices(),
+            plain[0].indices(),
+            "carrying normals must not alter indices"
+        );
+        assert_eq!(
+            meshes[0].normals().map(<[[f32; 3]]>::len),
+            Some(4),
+            "normals load and are stored even though the renderer ignores them \
+             (arch H2: Mesh.normals is Phase 12's decision, not this phase's)"
+        );
+    }
+
+    #[test]
+    fn interleaved_position_and_uv_views_resolve_through_stride() {
+        // Given: the quad's positions and UVs interleaved per-vertex
+        // ([pos:3xf32, uv:2xf32], stride 20) instead of the fixture's
+        // two contiguous blocks.
+        let positions: [f32; 12] = [
+            -0.5, -0.5, 0.0, 0.5, -0.5, 0.0, 0.5, 0.5, 0.0, -0.5, 0.5, 0.0,
+        ];
+        let uvs: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        let mut bin = Vec::with_capacity(92);
+        for vertex in 0..4 {
+            for component in &positions[vertex * 3..vertex * 3 + 3] {
+                bin.extend_from_slice(&component.to_le_bytes());
+            }
+            for component in &uvs[vertex * 2..vertex * 2 + 2] {
+                bin.extend_from_slice(&component.to_le_bytes());
+            }
+        }
+        for i in [0u16, 1, 2, 0, 2, 3] {
+            bin.extend_from_slice(&i.to_le_bytes());
+        }
+        let json = r#"{"accessors":[{"bufferView":0,"componentType":5126,"count":4,"max":[0.5,0.5,0.0],"min":[-0.5,-0.5,0.0],"type":"VEC3"},{"bufferView":1,"componentType":5126,"count":4,"type":"VEC2"},{"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"}],"asset":{"version":"2.0"},"bufferViews":[{"buffer":0,"byteLength":80,"byteOffset":0,"byteStride":20},{"buffer":0,"byteLength":68,"byteOffset":12,"byteStride":20},{"buffer":0,"byteLength":12,"byteOffset":80}],"buffers":[{"byteLength":92}],"meshes":[{"name":"quad","primitives":[{"attributes":{"POSITION":0,"TEXCOORD_0":1},"indices":2,"mode":4}]}],"nodes":[{"mesh":0}],"scene":0,"scenes":[{"nodes":[0]}]}"#;
+        let path = write_temp("interleaved.glb", &glb_bytes(json, &bin));
+
+        // When: loaded.
+        let meshes = load_mesh(&path).expect("interleaved views must load");
+
+        // Then: identical geometry to the contiguous-layout fixture —
+        // stride arithmetic in the reader must land on the same floats.
+        let plain = load_mesh(&fixture("quad.glb")).expect("quad fixture must load");
+        assert_eq!(meshes.len(), 1);
+        assert_eq!(
+            meshes[0].positions(),
+            plain[0].positions(),
+            "strided positions must match the contiguous fixture"
+        );
+        assert_eq!(
+            meshes[0].uvs(),
+            plain[0].uvs(),
+            "strided UVs must match the contiguous fixture"
+        );
+        assert_eq!(meshes[0].indices(), &[0, 1, 2, 0, 2, 3]);
+    }
+
+    #[test]
+    fn sparse_position_override_resolves_instead_of_silently_zeroing() {
+        // Given: positions stored as all zeros with a sparse patch
+        // replacing vertex 0 with (-0.5, -0.5, 0.0) — the shape an
+        // exporter emits for mostly-default morph or delta data.
+        let mut bin = vec![0u8; 48];
+        for v in [0.0f32, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0] {
+            bin.extend_from_slice(&v.to_le_bytes());
+        }
+        for i in [0u16, 1, 2, 0, 2, 3] {
+            bin.extend_from_slice(&i.to_le_bytes());
+        }
+        bin.extend_from_slice(&0u16.to_le_bytes());
+        for v in [-0.5f32, -0.5, 0.0] {
+            bin.extend_from_slice(&v.to_le_bytes());
+        }
+        assert_eq!(bin.len(), 106);
+        let json = r#"{"accessors":[{"bufferView":0,"componentType":5126,"count":4,"max":[0.5,0.5,0.0],"min":[-0.5,-0.5,0.0],"type":"VEC3","sparse":{"count":1,"indices":{"bufferView":3,"componentType":5123},"values":{"bufferView":4}}},{"bufferView":1,"componentType":5126,"count":4,"type":"VEC2"},{"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"}],"asset":{"version":"2.0"},"bufferViews":[{"buffer":0,"byteLength":48,"byteOffset":0},{"buffer":0,"byteLength":32,"byteOffset":48},{"buffer":0,"byteLength":12,"byteOffset":80},{"buffer":0,"byteLength":2,"byteOffset":92},{"buffer":0,"byteLength":12,"byteOffset":94}],"buffers":[{"byteLength":106}],"meshes":[{"name":"sparse","primitives":[{"attributes":{"POSITION":0,"TEXCOORD_0":1},"indices":2,"mode":4}]}],"nodes":[{"mesh":0}],"scene":0,"scenes":[{"nodes":[0]}]}"#;
+        let path = write_temp("sparse.glb", &glb_bytes(json, &bin));
+
+        // When: loaded.
+        let meshes = load_mesh(&path).expect("sparse positions must load");
+
+        // Then: vertex 0 carries the sparse value — a reader that ignored
+        // the sparse patch would silently serve zeros, which the
+        // count cross-checks cannot catch (the count still agrees).
+        assert_eq!(meshes.len(), 1);
+        assert_f32_slice_eq(
+            &flatten3(meshes[0].positions()),
+            &[-0.5, -0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        );
+    }
+
+    #[test]
+    fn git_lfs_pointer_bytes_are_invalid_format_not_a_panic() {
+        // Given: what a fixture resolves to when Git LFS objects were not
+        // fetched (CI without `lfs: true`): pointer text, not a GLB.
+        let pointer =
+            b"version https://git-lfs.github.com/spec/v1\noid sha256:0000000000000000000000000000000000000000000000000000000000000000\nsize 12345\n";
+        let path = write_temp("lfs-pointer.glb", pointer);
+
+        // When: loaded. Then: Err (InvalidFormat), never a panic.
+        let err = load_mesh(&path).expect_err("LFS pointer text must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "LFS pointer bytes must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn missing_parent_directory_is_io_not_a_panic() {
+        // Given: a path under a directory that does not exist at all.
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/does-not-exist-dir/quad.glb");
+
+        // When: loaded. Then: Io (the read fails before any parse).
+        let err = load_mesh(&path).expect_err("missing directory must fail");
+        assert!(
+            matches!(err, AssetError::Io { .. }),
+            "missing parent directory must be Io, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn bad_glb_magic_is_invalid_format() {
+        // Given: the quad fixture with its 4 magic bytes corrupted.
+        let mut bytes = std::fs::read(fixture("quad.glb")).expect("quad fixture must exist");
+        bytes[0..4].copy_from_slice(b"BAD!");
+        let path = write_temp("bad-magic.glb", &bytes);
+
+        // When: loaded. Then: InvalidFormat, never a panic.
+        let err = load_mesh(&path).expect_err("bad magic must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "corrupt magic must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn bad_glb_version_is_invalid_format() {
+        // Given: the quad fixture claiming GLB version 99.
+        let mut bytes = std::fs::read(fixture("quad.glb")).expect("quad fixture must exist");
+        bytes[4..8].copy_from_slice(&99u32.to_le_bytes());
+        let path = write_temp("bad-version.glb", &bytes);
+
+        // When: loaded. Then: InvalidFormat, never a panic.
+        let err = load_mesh(&path).expect_err("bad version must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "unsupported GLB version must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn lying_json_chunk_length_is_invalid_format_not_a_panic() {
+        // Given: the quad fixture with its JSON chunk length (bytes 12..16)
+        // inflated to u32::MAX — the chunk overruns the file.
+        let mut bytes = std::fs::read(fixture("quad.glb")).expect("quad fixture must exist");
+        bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        let path = write_temp("lying-chunk-length.glb", &bytes);
+
+        // When: loaded. Then: InvalidFormat (bounds-checked), never a panic
+        // and never a gigapixel-class allocation attempt.
+        let err = load_mesh(&path).expect_err("lying chunk length must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "overrunning chunk length must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn truncated_bin_tail_is_invalid_format() {
+        // Given: the quad fixture with its BIN tail cut off — the header
+        // still declares the full counts, so the collects come up short.
+        let full = std::fs::read(fixture("quad.glb")).expect("quad fixture must exist");
+        let path = write_temp("short-bin.glb", &full[..full.len() - 10]);
+
+        // When: loaded. Then: InvalidFormat via the count cross-checks.
+        let err = load_mesh(&path).expect_err("short BIN must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "truncated BIN tail must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn gltf_parser_panic_becomes_invalid_format() {
+        // Given: the minimized fuzz finding (Phase 10, oracle-first
+        // bounded fuzz at 4096 cases): the quad fixture with 4 JSON-chunk
+        // bytes at offset 22 overwritten with 0x46546C67. The rewritten
+        // JSON leaves a primitive referencing an accessor index the
+        // file no longer declares, and `gltf-json 1.4.1`'s primitive
+        // validator indexes `root.accessors` blindly — panicking with
+        // "index out of bounds: the len is 0 but the index is 0"
+        // instead of returning its error type.
+        let mut bytes = std::fs::read(fixture("quad.glb")).expect("quad fixture must exist");
+        bytes[22..26].copy_from_slice(&1179937895u32.to_le_bytes());
+        let path = write_temp("dangling-accessor.glb", &bytes);
+
+        // When: loaded. Then: InvalidFormat via the parse boundary
+        // guard — never a panic propagating out of the dependency.
+        let err = load_mesh(&path).expect_err("dangling accessor reference must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "a trapped parser panic must surface as InvalidFormat, got: {err:?}"
+        );
+    }
+
+    /// One hostile shape applied to a valid fixture's exact bytes: the
+    /// chaos feed (chunk-length inflation, short-BIN splices, mid-file
+    /// truncation) expressed as a composable grammar, plus single-byte
+    /// flips and u32 patches over the header/chunk region.
+    #[derive(Debug, Clone)]
+    enum GlbFuzzMutation {
+        /// XOR one byte with a nonzero mask.
+        Flip { offset: usize, xor: u8 },
+        /// Cut the file to `len` bytes (0 = empty file).
+        Truncate { len: usize },
+        /// Overwrite 4 bytes with `value` (little-endian: GLB header and
+        /// chunk lengths are LE, so this is chunk-length inflation when
+        /// it lands on bytes 12..16).
+        PatchU32 { offset: usize, value: u32 },
+        /// Drop the last `cut` bytes (short-BIN splice when small,
+        /// whole-chunk amputation when large).
+        CutTail { cut: usize },
+    }
+
+    /// Strategy over [`GlbFuzzMutation`]; `max_len` is the longest base
+    /// input so every generated offset/length clamps onto a real index
+    /// at apply time (never panics while building the input).
+    fn glb_mutation_strategy(
+        max_len: usize,
+    ) -> impl proptest::strategy::Strategy<Value = GlbFuzzMutation> {
+        use proptest::prelude::*;
+        prop_oneof![
+            (0..max_len, 1u8..=255).prop_map(|(offset, xor)| GlbFuzzMutation::Flip { offset, xor }),
+            (0..=max_len).prop_map(|len| GlbFuzzMutation::Truncate { len }),
+            (
+                0..max_len,
+                prop_oneof![
+                    Just(0u32),
+                    Just(1u32),
+                    Just(u32::MAX),
+                    Just(0x4654_6C67u32),
+                    any::<u32>(),
+                ],
+            )
+                .prop_map(|(offset, value)| GlbFuzzMutation::PatchU32 { offset, value }),
+            (1..=max_len).prop_map(|cut| GlbFuzzMutation::CutTail { cut }),
+        ]
+    }
+
+    /// Applies a mutation to `base`; total over all inputs (every
+    /// out-of-range offset/length clamps instead of indexing blindly,
+    /// so the fuzzer itself can never be the source of a panic).
+    fn apply_glb_mutation(base: &[u8], mutation: &GlbFuzzMutation) -> Vec<u8> {
+        assert!(
+            !base.is_empty(),
+            "fuzz bases are checked-in fixtures, never empty"
+        );
+        match *mutation {
+            GlbFuzzMutation::Flip { offset, xor } => {
+                let mut out = base.to_vec();
+                let index = offset % base.len();
+                out[index] ^= xor;
+                out
+            }
+            GlbFuzzMutation::Truncate { len } => base[..len.min(base.len())].to_vec(),
+            GlbFuzzMutation::PatchU32 { offset, value } => {
+                let mut out = base.to_vec();
+                let start = offset % base.len();
+                let end = (start + 4).min(base.len());
+                let bytes = value.to_le_bytes();
+                out[start..end].copy_from_slice(&bytes[..end - start]);
+                out
+            }
+            GlbFuzzMutation::CutTail { cut } => {
+                let keep = base.len().saturating_sub(cut);
+                base[..keep].to_vec()
+            }
+        }
+    }
+
+    /// The mesh-side oracle's Ok arm: every successfully loaded mesh must
+    /// satisfy the loader's own documented invariants (non-empty,
+    /// triangle-only index shape, in-bounds indices, consistent
+    /// attribute counts). An Ok that violates any of these is a
+    /// wrong-Ok — worse than an Err, because a corrupt mesh would flow
+    /// silently into the renderer bridge.
+    fn assert_mesh_invariants(meshes: &[Mesh]) {
+        assert!(
+            !meshes.is_empty(),
+            "an Ok load must yield at least one mesh, never an empty Vec"
+        );
+        for mesh in meshes {
+            assert!(
+                !mesh.positions().is_empty(),
+                "positions are non-empty by construction"
+            );
+            assert!(
+                !mesh.indices().is_empty(),
+                "indices are non-empty by construction"
+            );
+            assert_eq!(
+                mesh.indices().len() % 3,
+                0,
+                "indices must stay a multiple of 3, got {}",
+                mesh.indices().len()
+            );
+            let vertices = mesh.vertex_count();
+            for index in mesh.indices() {
+                assert!(
+                    (*index as usize) < vertices,
+                    "index {index} escapes {vertices} vertices"
+                );
+            }
+            if let Some(normals) = mesh.normals() {
+                assert_eq!(
+                    normals.len(),
+                    vertices,
+                    "NORMAL count must match POSITION count"
+                );
+            }
+            if let Some(uvs) = mesh.uvs() {
+                assert_eq!(
+                    uvs.len(),
+                    vertices,
+                    "TEXCOORD_0 count must match POSITION count"
+                );
+            }
+            assert_eq!(
+                mesh.triangle_count(),
+                mesh.indices().len() / 3,
+                "triangle_count must agree with the index buffer"
+            );
+        }
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config { cases: 256, ..Default::default() })]
+        /// Oracle-first bounded GLB fuzz: mutated fixture bytes fed to
+        /// `load_mesh_from_bytes` must NEVER panic, hang, or wrong-Ok.
+        /// Any Err variant is acceptable (the taxonomy is exhaustive by
+        /// construction); an Ok must satisfy [`assert_mesh_invariants`].
+        /// Seeded by the chaos feed: chunk-length inflation
+        /// (`PatchU32` on the length fields, incl. `u32::MAX`),
+        /// short-BIN splices (`CutTail`), mid-file truncation
+        /// (`Truncate`), plus byte flips. `cargo-fuzz` was judged
+        /// unnecessary: inputs stay under 1.3 KiB, the parser under
+        /// test is our validation logic (the `gltf` crate owns raw
+        /// container parsing), and proptest yields deterministic
+        /// shrinking plus in-repo regression files for free.
+        #[test]
+        fn glb_byte_mutations_never_panic_and_ok_means_valid(
+            use_box in proptest::bool::ANY,
+            mutation in glb_mutation_strategy(1292)
+        ) {
+            // Given: one checked-in fixture's exact bytes, hostilely mutated.
+            let name = if use_box { "box.glb" } else { "quad.glb" };
+            let base = std::fs::read(fixture(name)).expect("fixture must exist");
+            let bytes = apply_glb_mutation(&base, &mutation);
+
+            // When: parsed as a GLB in memory (no disk involved, so the
+            // read-before-budget R1 path is out of scope by construction).
+            let path = PathBuf::from("fuzz-input.glb");
+            let result = load_mesh_from_bytes(&path, &bytes);
+
+            // Then: Err of any typed variant, or an Ok whose every mesh
+            // satisfies the loader invariants. A panic fails the run
+            // (proptest records it); a hang would exceed the case budget
+            // — inputs are ≤1292 B so decode is microseconds.
+            if let Ok(meshes) = result {
+                assert_mesh_invariants(&meshes);
+            }
+        }
     }
 }

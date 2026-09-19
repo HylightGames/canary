@@ -25,16 +25,29 @@ use crate::texture::VulkanTexture;
 pub struct VulkanCommandEncoder<'a> {
     vk_device: &'a VulkanDevice,
     command_buffer: vk::CommandBuffer,
-    /// The layout of the most recently bound pipeline, or `None` before
-    /// any `set_pipeline` call.
+    /// The layout of the most recently bound pipeline plus whether that
+    /// pipeline carries the texture layout — or `None` before any
+    /// `set_pipeline` call.
     ///
     /// Descriptor sets bind against a pipeline layout, not into the
     /// void: [`CommandEncoder::set_texture`](canary_render::CommandEncoder::set_texture)
     /// needs the current pipeline's layout, so `set_pipeline` records
-    /// it here. A `set_texture` before any `set_pipeline` is a caller
+    /// it here. A `set_texture` before any `set_pipeline`, or after a
+    /// pipeline built *without* the texture layout, is a caller
     /// ordering violation, reported loudly rather than recorded as
-    /// undefined work.
-    bound_layout: Option<vk::PipelineLayout>,
+    /// undefined work (binding set 0 into a set-less layout segfaults
+    /// at least one real driver — observed on llvmpipe while
+    /// hardening — so host-side refusal is soundness, not polish).
+    bound: Option<BoundPipeline>,
+}
+
+/// What [`VulkanCommandEncoder`] remembers about the bound pipeline:
+/// its layout to bind descriptor sets into, and whether that layout
+/// actually holds the texture set.
+#[derive(Debug, Clone, Copy)]
+struct BoundPipeline {
+    layout: vk::PipelineLayout,
+    textured: bool,
 }
 
 impl<'a> VulkanCommandEncoder<'a> {
@@ -57,7 +70,7 @@ impl<'a> VulkanCommandEncoder<'a> {
         Self {
             vk_device,
             command_buffer,
-            bound_layout: None,
+            bound: None,
         }
     }
 
@@ -130,7 +143,10 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn set_pipeline(&mut self, pipeline: &VulkanPipeline) {
-        self.bound_layout = Some(pipeline.layout);
+        self.bound = Some(BoundPipeline {
+            layout: pipeline.layout,
+            textured: pipeline.textured,
+        });
         unsafe {
             self.vk_device.device.cmd_bind_pipeline(
                 self.command_buffer,
@@ -152,12 +168,21 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn set_texture(&mut self, texture: &VulkanTexture) {
-        let layout = self.bound_layout.expect(
+        let bound = self.bound.expect(
             "set_texture requires a bound pipeline: call set_pipeline \
-             (with a textured pipeline) before set_texture",
+              (with a textured pipeline) before set_texture",
         );
-        // SAFETY: `layout` is the currently bound textured pipeline's
-        // own layout (recorded in `set_pipeline`), set 0 of which is
+        if !bound.textured {
+            panic!(
+                "set_texture requires a textured pipeline (one created by \
+                 create_textured_pipeline): the bound pipeline's layout holds \
+                 no descriptor sets to bind into"
+            );
+        }
+        let layout = bound.layout;
+        // SAFETY: `layout` is the currently bound *textured* pipeline's
+        // own layout (recorded in `set_pipeline`, refused above when the
+        // pipeline is not textured), set 0 of which is
         // the shared texture layout the texture's set was allocated
         // from — so binding set 0 here always matches. No dynamic
         // offsets; one set, first set.

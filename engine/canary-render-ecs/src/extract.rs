@@ -122,7 +122,9 @@ const FLOATS_PER_VERTEX: usize = 5;
 /// the camera), not an engine bug — so such triangles are skipped. The value
 /// is a small epsilon rather than exactly zero so that near-plane-grazing
 /// floating-point noise cannot sneak an astronomical-but-finite vertex past
-/// the guard.
+/// the guard. Non-finite corners (`NaN`/`inf` from degenerate file data or
+/// transform overflow) skip by the same guard: comparisons alone cannot catch
+/// them (`NaN <= threshold` is false), so finiteness is checked explicitly.
 const MIN_CAMERA_DEPTH: f32 = 1e-6;
 
 /// One entity's contribution to a frame: its world transform plus its
@@ -295,7 +297,10 @@ pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f3
                 Vec3::new(corners[1].x, corners[1].y, corners[1].z + CAMERA_DISTANCE),
                 Vec3::new(corners[2].x, corners[2].y, corners[2].z + CAMERA_DISTANCE),
             ];
-            if camera_space.iter().any(|v| v.z <= MIN_CAMERA_DEPTH) {
+            if camera_space
+                .iter()
+                .any(|v| !v.is_finite() || v.z <= MIN_CAMERA_DEPTH)
+            {
                 continue;
             }
             let avg_depth = (camera_space[0].z + camera_space[1].z + camera_space[2].z) / 3.0;
@@ -548,5 +553,83 @@ mod tests {
         // the frame's vertex alignment for every triangle after it.
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].color, [0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn bake_skips_triangles_with_nan_depth() {
+        // Given: a triangle whose first vertex has a NaN depth, otherwise
+        // in front of the camera.
+        let nan_depth = RenderItem {
+            global: GlobalTransform::default(),
+            vertices: vec![[0.0, 0.0, f32::NAN], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            color: [1.0, 0.0, 0.0],
+        };
+
+        // When: baked.
+        let baked = bake_scene_to_vertices(std::slice::from_ref(&nan_depth));
+
+        // Then: skipped — NaN fails the `z <= MIN_CAMERA_DEPTH` comparison,
+        // so the behind-camera guard lets it through and the projection
+        // emits NaN NDC vertices that poison the uploaded buffer (and
+        // diverge from the textured bake, which already skips NaN depths).
+        assert!(
+            baked.is_empty(),
+            "a NaN depth has no defined projection and must skip, got {baked:?}"
+        );
+    }
+
+    #[test]
+    fn bake_skips_triangles_with_nan_lateral_position() {
+        // Given: a triangle with a NaN x coordinate (finite depth).
+        let nan_x = RenderItem {
+            global: GlobalTransform::default(),
+            vertices: vec![[f32::NAN, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            color: [0.0, 1.0, 0.0],
+        };
+
+        // When: baked.
+        let baked = bake_scene_to_vertices(std::slice::from_ref(&nan_x));
+
+        // Then: skipped — the affine multiply poisons `w` (`0 * NaN` is
+        // NaN), so the whole transformed corner including its depth goes
+        // NaN; the depth guard alone still lets it through (NaN fails the
+        // `<=` comparison), so only a finiteness check catches it.
+        assert!(
+            baked.is_empty(),
+            "a NaN lateral position must skip, got {baked:?}"
+        );
+        assert!(
+            baked.iter().all(|v| v.is_finite()),
+            "no bake output may carry inf/NaN, got {baked:?}"
+        );
+    }
+
+    #[test]
+    fn bake_skips_triangles_with_infinite_projected_position() {
+        // Given: finite inputs under a scale so large the transformed x
+        // overflows to infinity while z stays finite — so `w` stays 1.0,
+        // the depth guard passes, and only a lateral finiteness check can
+        // catch it.
+        let blown_out = RenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_scale(glam::Vec3::new(
+                1e20, 1.0, 1.0,
+            ))),
+            vertices: vec![[1e20, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            color: [0.0, 1.0, 0.0],
+        };
+
+        // When: baked.
+        let baked = bake_scene_to_vertices(std::slice::from_ref(&blown_out));
+
+        // Then: skipped — 1e20 * 1e20 overflows f32 to infinity, and an
+        // infinite NDC vertex would poison the uploaded buffer.
+        assert!(
+            baked.is_empty(),
+            "an infinite projected position must skip, got {baked:?}"
+        );
+        assert!(
+            baked.iter().all(|v| v.is_finite()),
+            "no bake output may carry inf/NaN, got {baked:?}"
+        );
     }
 }

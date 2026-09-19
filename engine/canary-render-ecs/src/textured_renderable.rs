@@ -56,7 +56,10 @@ const FLOATS_PER_TEXTURED_VERTEX: usize = 4;
 
 /// Camera-space depths at or below this threshold are treated as
 /// on-or-behind the camera plane — same guard, same value, same
-/// rationale as the soup bake's `MIN_CAMERA_DEPTH`.
+/// rationale as the soup bake's `MIN_CAMERA_DEPTH`, including its
+/// explicit finiteness check (`NaN` comparisons never fire, so
+/// non-finite corners from degenerate data or transform overflow skip
+/// by finiteness rather than by depth).
 const MIN_CAMERA_DEPTH: f32 = 1e-6;
 
 /// A file-loaded textured mesh attached to one entity: which geometry
@@ -279,33 +282,35 @@ pub fn bake_textured_scene_to_vertices_with_aspect(
             "extract guarantees parallel positions and UVs; a mismatch is an engine bug, not game content"
         );
         let matrix = item.global.matrix();
-        let mut triangle_corners = Vec::with_capacity(3);
-        let mut triangle_uvs = Vec::with_capacity(3);
-        for (position, uv) in item.vertices.iter().zip(item.uvs.iter()) {
-            triangle_corners.push(matrix.transform_point3(Vec3::from(*position)));
-            triangle_uvs.push(*uv);
-            if triangle_corners.len() == 3 {
-                let corners = [
-                    triangle_corners[0],
-                    triangle_corners[1],
-                    triangle_corners[2],
-                ];
-                let camera_space = [
-                    Vec3::new(corners[0].x, corners[0].y, corners[0].z + CAMERA_DISTANCE),
-                    Vec3::new(corners[1].x, corners[1].y, corners[1].z + CAMERA_DISTANCE),
-                    Vec3::new(corners[2].x, corners[2].y, corners[2].z + CAMERA_DISTANCE),
-                ];
-                if camera_space.iter().all(|v| v.z > MIN_CAMERA_DEPTH) {
-                    let avg_depth =
-                        (camera_space[0].z + camera_space[1].z + camera_space[2].z) / 3.0;
-                    triangles.push(PendingTexturedTriangle {
-                        avg_depth,
-                        corners: camera_space,
-                        uvs: [triangle_uvs[0], triangle_uvs[1], triangle_uvs[2]],
-                    });
-                }
-                triangle_corners.clear();
-                triangle_uvs.clear();
+        // `chunks_exact(3)` over both slices in lockstep: no per-item
+        // scratch allocation (the previous push/clear scratch `Vec`s cost
+        // two allocs per item per tick), and a trailing 1–2 vertices form
+        // no triangle and are dropped — the same partial-tail doctrine as
+        // the soup bake. Lengths agree by the extract contract above, so
+        // the zipped chunks stay aligned triangle-for-triangle.
+        for (position_chunk, uv_chunk) in
+            item.vertices.chunks_exact(3).zip(item.uvs.chunks_exact(3))
+        {
+            let corners = [
+                matrix.transform_point3(Vec3::from(position_chunk[0])),
+                matrix.transform_point3(Vec3::from(position_chunk[1])),
+                matrix.transform_point3(Vec3::from(position_chunk[2])),
+            ];
+            let camera_space = [
+                Vec3::new(corners[0].x, corners[0].y, corners[0].z + CAMERA_DISTANCE),
+                Vec3::new(corners[1].x, corners[1].y, corners[1].z + CAMERA_DISTANCE),
+                Vec3::new(corners[2].x, corners[2].y, corners[2].z + CAMERA_DISTANCE),
+            ];
+            if camera_space
+                .iter()
+                .all(|v| v.is_finite() && v.z > MIN_CAMERA_DEPTH)
+            {
+                let avg_depth = (camera_space[0].z + camera_space[1].z + camera_space[2].z) / 3.0;
+                triangles.push(PendingTexturedTriangle {
+                    avg_depth,
+                    corners: camera_space,
+                    uvs: [uv_chunk[0], uv_chunk[1], uv_chunk[2]],
+                });
             }
         }
         // A trailing 1–2 vertices form no triangle and are dropped, the
@@ -537,6 +542,55 @@ mod tests {
     }
 
     #[test]
+    fn extract_skips_stale_mesh_handles_without_trapping() {
+        let mut world = World::new();
+        let mut mesh_store = AssetStore::new();
+        let mesh_handle = mesh_store.insert(quad_mesh());
+        mesh_store.remove(mesh_handle);
+        world.insert_resource(mesh_store);
+        let mut texture_store = AssetStore::new();
+        let texture_handle = texture_store.insert(quad_texture());
+        world.insert_resource(texture_store);
+        let entity = world.spawn();
+        world
+            .insert(entity, GlobalTransform::default())
+            .expect("fresh entity accepts GlobalTransform");
+        world
+            .insert(entity, TexturedRenderable::new(mesh_handle, texture_handle))
+            .expect("fresh entity accepts TexturedRenderable");
+
+        let items = extract_textured_scene(&world);
+
+        assert!(
+            items.is_empty(),
+            "a stale mesh handle must skip like a stale texture handle does"
+        );
+    }
+
+    #[test]
+    fn extract_without_mesh_store_yields_empty_not_a_panic() {
+        let mut world = World::new();
+        let mut texture_store = AssetStore::new();
+        let texture_handle = texture_store.insert(quad_texture());
+        world.insert_resource(texture_store);
+        let entity = world.spawn();
+        world
+            .insert(entity, GlobalTransform::default())
+            .expect("fresh entity accepts GlobalTransform");
+        world
+            .insert(
+                entity,
+                TexturedRenderable::new(AssetHandle::from_raw_parts(0, 0), texture_handle),
+            )
+            .expect("fresh entity accepts TexturedRenderable");
+
+        assert!(
+            extract_textured_scene(&world).is_empty(),
+            "no mesh store means no resolvable textured entities, not a panic"
+        );
+    }
+
+    #[test]
     fn bake_projects_positions_and_carries_uvs_untouched() {
         let item = unit_textured_triangle();
 
@@ -583,6 +637,80 @@ mod tests {
         assert!(
             baked.is_empty(),
             "triangles behind the camera must be skipped with their UVs, got {baked:?}"
+        );
+    }
+
+    #[test]
+    fn bake_skips_textured_triangles_with_nan_depth() {
+        // Given: a triangle whose first vertex has a NaN depth, otherwise
+        // in front of the camera.
+        let nan_depth = TexturedRenderItem {
+            global: GlobalTransform::default(),
+            vertices: vec![[0.0, 0.0, f32::NAN], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        };
+
+        // When: baked.
+        let baked = bake_textured_scene_to_vertices(std::slice::from_ref(&nan_depth));
+
+        // Then: skipped — the all-depths-finite-and-positive guard already
+        // rejects NaN here (unlike the soup bake, which lets it through).
+        // This pins the correct side of the path-consistency contract.
+        assert!(
+            baked.is_empty(),
+            "a NaN depth has no defined projection and must skip, got {baked:?}"
+        );
+    }
+
+    #[test]
+    fn bake_skips_textured_triangles_with_nan_lateral_position() {
+        // Given: a triangle with a NaN x coordinate (finite depth).
+        let nan_x = TexturedRenderItem {
+            global: GlobalTransform::default(),
+            vertices: vec![[f32::NAN, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        };
+
+        // When: baked.
+        let baked = bake_textured_scene_to_vertices(std::slice::from_ref(&nan_x));
+
+        // Then: skipped — but note the mechanism: the affine multiply
+        // poisons `w` (`0 * NaN` is NaN), so the whole transformed corner
+        // including its depth goes NaN and the depth guard catches it.
+        // This pins the behavior, not a lateral guard (see next test for
+        // the lateral hole this does NOT cover).
+        assert!(
+            baked.is_empty(),
+            "a NaN lateral position must skip, got {baked:?}"
+        );
+    }
+
+    #[test]
+    fn bake_skips_textured_triangles_with_infinite_projected_position() {
+        // Given: finite inputs under a scale so large the transformed x
+        // overflows to infinity while z stays finite — so `w` stays 1.0,
+        // the depth guard passes, and only a lateral finiteness check can
+        // catch it.
+        let blown_out = TexturedRenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_scale(glam::Vec3::new(
+                1e20, 1.0, 1.0,
+            ))),
+            vertices: vec![[1e20, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        };
+
+        // When: baked.
+        let baked = bake_textured_scene_to_vertices(std::slice::from_ref(&blown_out));
+
+        // Then: skipped — 1e20 * 1e20 overflows f32 to infinity, and an
+        // infinite NDC vertex would poison the uploaded buffer.
+        assert!(
+            baked.is_empty(),
+            "an infinite projected position must skip, got {baked:?}"
+        );
+        assert!(
+            baked.iter().all(|v| v.is_finite()),
+            "no bake output may carry inf/NaN, got {baked:?}"
         );
     }
 

@@ -257,6 +257,7 @@ dependencies = [
  "canary-ecs",
  "gltf",
  "png",
+ "proptest",
  "sha2",
  "thiserror 2.0.20",
 ]

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7b8124f4081f0ec4cd284a17a52edbc3765afa0a8885be625e69c71576bd9173 # shrinks to use_box = false, mutation = PatchU32 { offset: 22, value: 1179937895 }
