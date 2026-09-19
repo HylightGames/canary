@@ -356,6 +356,7 @@ version = "0.0.10"
 dependencies = [
  "canary-assets",
  "canary-ecs",
+ "canary-physics",
  "canary-render",
  "canary-render-vulkan",
  "canary-scheduler",
