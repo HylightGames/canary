@@ -10,8 +10,10 @@ GIF — driven, since `v0.0.9`, by the ECS-to-render bridge
 This is the example [`../README.md`](../README.md) named, back in
 `v0.0.1`, as the first thing that would belong here once rendering
 existed. It's a demo, not a test — `canary-render-vulkan`'s own
-`hello_triangle` integration test is what actually asserts on rendered
-pixel values; this exists to look at.
+`hello_triangle` integration test plus `canary-render-ecs`'s three
+offscreen pixel tests (`render_ecs_readback`: distinct colors,
+moved-entity redraw, empty-scene clear) are what actually assert on
+rendered pixel values; this exists to look at.
 
 ## Run it
 

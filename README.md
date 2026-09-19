@@ -67,6 +67,8 @@ cd canary
 
 cargo build --workspace
 cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
 cargo run -p canary-runtime
 ```
 

@@ -76,9 +76,11 @@ items-remaining = { $count ->
 
 ## Fallback and missing translations
 
-A locale that's missing a given key falls back to a configured default
-locale (typically the locale development happens in) rather than showing
-a blank string or a raw key. Locale-fallback-chain resolution is handled
+A locale that's missing a given key falls back through the chain to a
+configured default locale (typically the locale development happens
+in); only if *no* locale in the chain resolves the key does the raw key
+string surface (logged via `tracing::warn!`, never a blank string or a
+panic). Locale-fallback-chain resolution is handled
 via `fluent-langneg` directly rather than `fluent-fallback`'s higher-level
 `Localization` abstraction — see
 [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md)

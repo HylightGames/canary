@@ -10,9 +10,14 @@ server, editor, or test harness) shares:
 
 ```rust
 // Illustrative target shape — see engine/canary-core/src/lib.rs for the
-// current, deliberately minimal v0.0.1-pre1 implementation.
+// current, deliberately minimal v0.0.1-pre1 implementation. (The
+// subsystem here is a placeholder name: real subsystems live in their
+// own crates — e.g. hierarchy propagation and the render bake are
+// registered on a `canary-scheduler` `Schedule` owned by
+// `canary-runtime`'s `EcsSubsystem`; see
+// docs/architecture/rendering.md#schedule-ordering-propagation-first-via-solo-write-staging.)
 let mut app = canary_core::App::new();
-app.add_subsystem(canary_ecs::EcsSubsystem::default());
+app.add_subsystem(some_crate::SomeSubsystem::default());
 app.add_plugin_dir("plugins/");
 app.run();
 ```

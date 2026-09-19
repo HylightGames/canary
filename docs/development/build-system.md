@@ -17,14 +17,15 @@ This document is the day-to-day mechanics.
 ## Common commands
 
 ```sh
-# Build everything
+# Build everything (CI adds --all-targets to cover benches/examples/tests)
 cargo build --workspace
 
-# Run all tests
+# Run all tests (CI runs the same command, plus dedicated jobs for the
+# #[ignore]-gated GPU/windowing suites — see .github/workflows/ci.yml)
 cargo test --workspace
 
-# Format
-cargo fmt --all
+# Format (CI enforces with --check)
+cargo fmt --all -- --check
 
 # Lint (CI denies warnings)
 cargo clippy --workspace --all-targets -- -D warnings
@@ -173,16 +174,20 @@ including two **critical** (9.0) Wasmtime sandbox-escape bugs
 filesystem sandbox escape (`RUSTSEC-2026-0269`) — serious for the one
 crate whose entire job is sandboxing untrusted plugin code.
 
-**`wasmtime = "=36.0.15"` and `wasmtime-wasi = "=36.0.15"`** replace
-that pin: the earliest `36.x` patch closing every advisory `cargo
-audit` found (checked against each advisory's own patched-version
-range, not just the newest available), and — thanks to the rustc-1.91
-discovery above — still validatable in this sandbox, since `36.x`
-declares `rust-version = "1.86.0"`, comfortably under 1.91 (confirmed
-with a real `cargo build`, not just the declared field). This pin is no
-longer a *floor* pin the way `21.0.2` was — it's pinned because `wasmtime`/`wasmtime-wasi` must move together in
-lockstep (see `.github/dependabot.yml`), not because anything newer
-fails to compile here. Bumping past `36.x` (e.g. once a future session
+**`wasmtime = "=36.0.15"`** replaces that pin: the earliest `36.x`
+patch closing every advisory `cargo audit` found (checked against each
+advisory's own patched-version range, not just the newest available),
+and — thanks to the rustc-1.91 discovery above — still validatable in
+this sandbox, since `36.x` declares `rust-version = "1.86.0"`,
+comfortably under 1.91 (confirmed with a real `cargo build`, not just
+the declared field). This pin is no longer a *floor* pin the way
+`21.0.2` was — it's pinned so the version stays human-verified against
+`cargo audit` (see `.github/dependabot.yml`), not because anything
+newer fails to compile here. (`wasmtime-wasi` is deliberately *not* a
+dependency at all — nothing in `canary-plugin-api/src/` references it;
+see that crate's `Cargo.toml`. An earlier draft of this paragraph named
+a `wasmtime-wasi = "=36.0.15"` lockstep pin; that entry was removed
+along with the dependency.) Bumping past `36.x` (e.g. once a future session
 can reach rustc 1.94 for `46.x`+) is a "re-verify against `cargo audit`
 and this sandbox's current toolchain ceiling" task, not a security
 requirement — `36.0.15` has no known open advisories as of this
@@ -300,8 +305,9 @@ Two things worth knowing before adding another one:
   that declared the range was published. Confirming a pin actually
   works means a real `cargo build`, not just reading one `rust-version`
   field. All five of those transitive pins are gone now too, along with
-  the `wasmtime`/`wasmtime-wasi` pin that needed them — but the lesson
-  applies to whatever pin gets added next.
+  the old `21.0.2` pin that needed them (the current
+  `wasmtime = "=36.0.15"` pin needs no transitive floor pins) — but the
+  lesson applies to whatever pin gets added next.
 - **Bump these pins opportunistically, not on a schedule.** Any session
   with access to a current `stable` toolchain (via `rustup`, or a
   less-constrained sandbox) should feel free to re-verify whether a pin
@@ -320,12 +326,13 @@ Two things worth knowing before adding another one:
   instead. See
   [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
   Finding 2.1, and risk register R-02.
-- **`xtask check` currently skips `clippy`** (documented reason: the
-  component isn't guaranteed installed locally), which means it can pass
-  locally while CI's separate clippy gate still fails on the same push.
-  Not yet fixed — a small code change, tracked as a follow-up rather than
-  made during that review (which scoped itself to no major implementation
-  code). See the review, Finding 8.2, and risk register R-18.
+- **`xtask check` runs `clippy` when the component is available.**
+  `tools/xtask/src/main.rs` detects `clippy` and runs
+  `cargo clippy --workspace --all-targets -- -D warnings`, printing a
+  clear skip warning when the component isn't installed — so it can no
+  longer pass locally while CI's separate clippy gate fails on the same
+  push. Fixed for `v0.0.1` (see the review, Finding 8.2, and risk
+  register R-18).
 - **No CI build-cache strategy exists.** Not urgent at the current crate
   count and contributor count; worth planning for before CI cost/latency
   becomes a visible problem rather than after. See the review, Finding
