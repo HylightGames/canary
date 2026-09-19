@@ -1,0 +1,774 @@
+// ============================================================================
+// Canary Engine
+// https://github.com/HylightGames/canary
+//
+// Copyright (c) 2026-present Canary Engine contributors
+//
+// Licensed under the MIT License.
+// See LICENSE in the project root for details.
+// ============================================================================
+
+//! GLB mesh loading: file bytes become validated [`Mesh`] values.
+//!
+//! The one format this release reads is GLB, the binary container for glTF
+//! 2.0 (ADR 0018): a single self-contained file — JSON chunk plus BIN
+//! chunk — so fixtures are hash-stable with no sidecar-buffer path
+//! resolution to drift. Parsing is delegated to the `gltf` crate, but its
+//! types never escape this module: the public surface is [`Mesh`] (plain
+//! `Vec`s of arrays) and [`load_mesh`] (a path in, validated values out).
+//!
+//! Fixture provenance: `tests/fixtures/quad.glb` (one triangle primitive)
+//! and `tests/fixtures/box.glb` (two triangle primitives sharing one
+//! buffer) are checked in and hash-stable; see
+//! `tests/fixtures/README.md` for how they were generated. Tests assert
+//! loader *output values* (positions, indices, counts) against checked-in
+//! expectations — never hashes of toolchain behavior.
+
+use std::path::Path;
+
+use crate::AssetError;
+
+/// Maximum vertices accepted from a single GLB primitive.
+///
+/// Untrusted-file discipline: a corrupt header could otherwise claim
+/// billions of vertices and make the collect below allocate first and
+/// apologize after. One million vertices is orders of magnitude past this
+/// release's kilobyte fixtures while still fitting comfortably in memory
+/// (~12 MiB of positions); the value is **provisional** pending measured
+/// calibration against real content, exactly like the texture budgets in
+/// [`crate::texture`].
+pub const MAX_MESH_VERTICES_PER_PRIMITIVE: usize = 1 << 20;
+
+/// Maximum indices accepted from a single GLB primitive.
+///
+/// Same rationale as [`MAX_MESH_VERTICES_PER_PRIMITIVE`]: bounds the
+/// index collect before it happens. Sixteen million `u32` indices (~64
+/// MiB) dwarfs anything this release loads; provisional pending
+/// calibration.
+pub const MAX_MESH_INDICES_PER_PRIMITIVE: usize = 1 << 24;
+
+/// Triangle mesh loaded from a GLB primitive: indexed geometry with optional
+/// normals and UVs.
+///
+/// Positions and indices are always present; normals and UVs are `Some`
+/// exactly when the source primitive carried them. They are loaded and
+/// stored even though the renderer ignores them this release (the roadmap
+/// records them as "loaded, stored, unused"): dropping them at load time
+/// would silently discard author intent, and a later phase should not have
+/// to re-derive what the file already said.
+///
+/// Why triangle-only: the Phase 3 bridge expands indices into the
+/// renderer's triangle-soup bake, so points/lines/strips have no consumer
+/// and would need a parallel untested path. [`load_mesh`] rejects them as
+/// [`AssetError::UnsupportedFeature`] — the file is fine, the loader is
+/// deliberately narrow — rather than misrendering them as triangles.
+///
+/// Why indices are preserved, not pre-expanded: expanding index triples
+/// into soup at load time would bake in one consumer's layout and hide the
+/// vertex-duplication cost of doing so. The asset stays honest
+/// (shared vertices shared); index-to-soup expansion happens at the
+/// renderer bridge, which is where the soup layout is actually known.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mesh {
+    positions: Vec<[f32; 3]>,
+    normals: Option<Vec<[f32; 3]>>,
+    uvs: Option<Vec<[f32; 2]>>,
+    indices: Vec<u32>,
+}
+
+impl Mesh {
+    /// Vertex positions in model space, one per vertex.
+    ///
+    /// Non-empty by construction: [`load_mesh`] rejects primitives with
+    /// zero vertices, so downstream code may rely on this being populated
+    /// without re-checking.
+    pub fn positions(&self) -> &[[f32; 3]] {
+        &self.positions
+    }
+
+    /// Vertex normals, present exactly when the source primitive carried a
+    /// `NORMAL` attribute.
+    ///
+    /// When present, its length always equals [`Mesh::positions`]' length:
+    /// [`load_mesh`] rejects inconsistent attribute counts rather than
+    /// zipping uneven arrays and silently dropping the tail.
+    pub fn normals(&self) -> Option<&[[f32; 3]]> {
+        self.normals.as_deref()
+    }
+
+    /// Texture coordinates (glTF `TEXCOORD_0`), present exactly when the
+    /// source primitive carried them.
+    ///
+    /// Only set 0 is read: multi-UV workflows belong to the deferred
+    /// materials system, not to this release's single-texture slice. Same
+    /// length guarantee as [`Mesh::normals`].
+    pub fn uvs(&self) -> Option<&[[f32; 2]]> {
+        self.uvs.as_deref()
+    }
+
+    /// Triangle indices into [`Mesh::positions`], always a multiple of 3.
+    ///
+    /// Every index is bounds-checked at load time, so indexing with these
+    /// cannot panic for any successfully loaded mesh. Non-empty by
+    /// construction, like positions.
+    pub fn indices(&self) -> &[u32] {
+        &self.indices
+    }
+
+    /// The number of vertices (length of [`Mesh::positions`]).
+    pub fn vertex_count(&self) -> usize {
+        self.positions.len()
+    }
+
+    /// The number of triangles (length of [`Mesh::indices`] divided by 3).
+    pub fn triangle_count(&self) -> usize {
+        self.indices.len() / 3
+    }
+}
+
+/// Loads every triangle primitive from the GLB file at `path` as its own
+/// [`Mesh`] value, in mesh-then-primitive document order.
+///
+/// One primitive becomes one mesh — never merged, never split — because
+/// primitives are the file's own unit of "one draw with one material
+/// slot", and merging them would destroy the boundary a later materials
+/// phase needs. A file with no meshes, or meshes with no primitives,
+/// yields [`AssetError::InvalidFormat`]: an empty result would let a
+/// missing-geometry bug travel silently to the renderer.
+///
+/// Identity (which content is this?) is intentionally *not* part of the
+/// return: callers hash the same file bytes with
+/// [`crate::AssetId::for_file`], which mixes in
+/// [`crate::LOADER_VERSION`] so a loader fix deterministically changes
+/// IDs. Keeping identity beside loading (not inside it) means the loader
+/// never has to agree with the hasher about what "the bytes" were.
+///
+/// Failure taxonomy (all variants carry `path`):
+/// - Missing/unreadable file → [`AssetError::Io`].
+/// - Unparseable bytes, missing `POSITION`, empty geometry, inconsistent
+///   attribute counts, out-of-bounds indices, index count not a multiple
+///   of 3 → [`AssetError::InvalidFormat`] (the *file* is broken).
+/// - Non-triangle primitive modes, non-indexed primitives, buffers outside
+///   the GLB's own BIN chunk → [`AssetError::UnsupportedFeature`] (the
+///   file is fine; this minimal loader declines it).
+/// - Claimed vertex/index counts past the `MAX_MESH_*` budgets →
+///   [`AssetError::OverBudget`] (untrusted-file discipline: refused before
+///   any large allocation).
+///
+/// The function is synchronous and total over its inputs: malformed files
+/// produce `Err`, never a panic. There is no `async` API because the
+/// scheduler has no threading story for background loading yet (ADR 0018).
+pub fn load_mesh(path: &Path) -> Result<Vec<Mesh>, AssetError> {
+    let bytes = std::fs::read(path).map_err(|source| AssetError::io(path, source))?;
+    load_mesh_from_bytes(path, &bytes)
+}
+
+/// Parses GLB `bytes` (attributed to `path` in errors) into [`Mesh`] values.
+///
+/// Split from [`load_mesh`] so tests can feed in-memory mutations of fixture
+/// bytes (truncated, mode-swapped, index-corrupted) without touching disk,
+/// while every error still names the originating file. Private: callers
+/// outside this crate load from paths, keeping "which file" unambiguous.
+fn load_mesh_from_bytes(path: &Path, bytes: &[u8]) -> Result<Vec<Mesh>, AssetError> {
+    let invalid = |reason: &str| AssetError::invalid_format(path, reason);
+    let unsupported = |feature: &str| AssetError::unsupported_feature(path, feature);
+
+    let gltf = gltf::Gltf::from_slice(bytes)
+        .map_err(|source| invalid(&format!("not a parseable glTF file: {source}")))?;
+
+    // A self-contained GLB carries exactly one buffer — its own BIN chunk,
+    // exposed as `blob`. Anything else (a `.gltf` JSON sidecar, a data-URI
+    // buffer, a second buffer entry) is precisely the external-resolution
+    // machinery this release declined when it skipped the `gltf` crate's
+    // `import` feature (see the dependency rationale in `Cargo.toml`), so
+    // it fails here as UnsupportedFeature rather than resolving halfway.
+    // Checked before buffer resolution on purpose: a file with no
+    // geometry at all is InvalidFormat regardless of what its buffer
+    // table looks like, and reporting it as such keeps the "which
+    // failure class" answer independent of unrelated file sections.
+    if gltf.document.meshes().next().is_none() {
+        return Err(invalid("file contains no mesh primitives"));
+    }
+
+    let mut buffers = gltf.document.buffers();
+    let blob: &[u8] = match (buffers.next(), buffers.next(), gltf.blob.as_deref()) {
+        (Some(buffer), None, Some(data)) => {
+            if !matches!(buffer.source(), gltf::buffer::Source::Bin) {
+                return Err(unsupported("external mesh buffer referenced by URI"));
+            }
+            data
+        }
+        _ => {
+            return Err(unsupported(
+                "mesh buffers outside the GLB's embedded BIN chunk",
+            ));
+        }
+    };
+
+    let mut meshes = Vec::new();
+    for mesh in gltf.document.meshes() {
+        for primitive in mesh.primitives() {
+            meshes.push(read_primitive(path, &primitive, blob)?);
+        }
+    }
+    if meshes.is_empty() {
+        return Err(invalid("file contains no mesh primitives"));
+    }
+    Ok(meshes)
+}
+
+/// Reads one GLB primitive into a validated [`Mesh`].
+///
+/// The `blob` parameter is the file's whole BIN chunk; buffer views slice
+/// into it through the `gltf` reader closure, which borrows rather than
+/// copies. Every rejection below names the failure class documented on
+/// [`load_mesh`].
+fn read_primitive(
+    path: &Path,
+    primitive: &gltf::Primitive<'_>,
+    blob: &[u8],
+) -> Result<Mesh, AssetError> {
+    let invalid = |reason: String| AssetError::invalid_format(path, reason);
+    let unsupported = |feature: String| AssetError::unsupported_feature(path, feature);
+
+    // Triangle-mode only (see `Mesh` docs for why): note glTF defaults an
+    // omitted `mode` to triangles, and `primitive.mode()` already applies
+    // that default, so an absent mode loads rather than rejects.
+    if primitive.mode() != gltf::mesh::Mode::Triangles {
+        return Err(unsupported(format!(
+            "primitive mode {:?}: only triangle primitives are supported",
+            primitive.mode()
+        )));
+    }
+
+    let position_accessor = primitive
+        .get(&gltf::Semantic::Positions)
+        .ok_or_else(|| invalid("primitive is missing the POSITION attribute".to_string()))?;
+    let position_count = position_accessor.count();
+    if position_count == 0 {
+        return Err(invalid("primitive has no vertices".to_string()));
+    }
+    if position_count > MAX_MESH_VERTICES_PER_PRIMITIVE {
+        return Err(AssetError::over_budget(
+            path,
+            MAX_MESH_VERTICES_PER_PRIMITIVE as u64,
+            position_count as u64,
+        ));
+    }
+
+    // Indices are required, not synthesized (see `Mesh` docs for why):
+    // a non-indexed primitive would force this loader to invent the very
+    // expansion policy it exists to defer to the bridge.
+    let index_accessor = primitive
+        .indices()
+        .ok_or_else(|| unsupported("non-indexed primitive: indices are required".to_string()))?;
+    let index_count = index_accessor.count();
+    if index_count == 0 {
+        return Err(invalid("primitive has no indices".to_string()));
+    }
+    if index_count > MAX_MESH_INDICES_PER_PRIMITIVE {
+        return Err(AssetError::over_budget(
+            path,
+            MAX_MESH_INDICES_PER_PRIMITIVE as u64,
+            index_count as u64,
+        ));
+    }
+    if index_count % 3 != 0 {
+        return Err(invalid(format!(
+            "triangle primitive has {index_count} indices, not a multiple of 3"
+        )));
+    }
+
+    let normal_accessor = primitive.get(&gltf::Semantic::Normals);
+    if let Some(accessor) = &normal_accessor {
+        check_attribute_count(accessor, position_count, "NORMAL").map_err(invalid)?;
+    }
+    let uv_accessor = primitive.get(&gltf::Semantic::TexCoords(0));
+    if let Some(accessor) = &uv_accessor {
+        check_attribute_count(accessor, position_count, "TEXCOORD_0").map_err(invalid)?;
+    }
+
+    let reader = primitive.reader(|buffer| {
+        if buffer.index() == 0 {
+            Some(blob)
+        } else {
+            None
+        }
+    });
+
+    // Each collect is cross-checked against the accessor's declared count
+    // immediately below: the `gltf` iterators stop at the end of the
+    // available buffer data, so a short/truncated BIN chunk surfaces as a
+    // short collect, not a panic — and a short collect is InvalidFormat.
+    let positions: Vec<[f32; 3]> = reader
+        .read_positions()
+        .ok_or_else(|| invalid("POSITION attribute is unreadable".to_string()))?
+        .collect();
+    if positions.len() != position_count {
+        return Err(invalid(format!(
+            "POSITION holds {} vertices but declares {position_count}",
+            positions.len()
+        )));
+    }
+
+    let normals: Option<Vec<[f32; 3]>> = match (normal_accessor, reader.read_normals()) {
+        (None, _) => None,
+        (Some(_), Some(iter)) => {
+            let values: Vec<[f32; 3]> = iter.collect();
+            if values.len() != position_count {
+                return Err(invalid(format!(
+                    "NORMAL holds {} vertices but declares {position_count}",
+                    values.len()
+                )));
+            }
+            Some(values)
+        }
+        (Some(_), None) => {
+            return Err(invalid("NORMAL attribute is unreadable".to_string()));
+        }
+    };
+
+    let uvs: Option<Vec<[f32; 2]>> = match (uv_accessor, reader.read_tex_coords(0)) {
+        (None, _) => None,
+        (Some(_), Some(iter)) => {
+            let values: Vec<[f32; 2]> = read_tex_coords_into_f32(iter);
+            if values.len() != position_count {
+                return Err(invalid(format!(
+                    "TEXCOORD_0 holds {} vertices but declares {position_count}",
+                    values.len()
+                )));
+            }
+            Some(values)
+        }
+        (Some(_), None) => {
+            return Err(invalid("TEXCOORD_0 attribute is unreadable".to_string()));
+        }
+    };
+
+    let indices: Vec<u32> = reader
+        .read_indices()
+        .ok_or_else(|| invalid("indices are unreadable".to_string()))?
+        .into_u32()
+        .collect();
+    if indices.len() != index_count {
+        return Err(invalid(format!(
+            "indices hold {} entries but declare {index_count}",
+            indices.len()
+        )));
+    }
+    let vertex_count_u32 = u32::try_from(position_count).unwrap_or(u32::MAX);
+    for index in &indices {
+        if *index >= vertex_count_u32 {
+            return Err(invalid(format!(
+                "index {index} is out of bounds for {position_count} vertices"
+            )));
+        }
+    }
+
+    Ok(Mesh {
+        positions,
+        normals,
+        uvs,
+        indices,
+    })
+}
+
+/// Rejects a per-vertex attribute whose declared count differs from the
+/// primitive's position count.
+///
+/// Returns the reason clause for [`AssetError::InvalidFormat`] on
+/// mismatch, `Ok` on agreement. A mismatch means the file's own arrays
+/// disagree with each other — no zipping convention (truncate? pad with
+/// zeros?) could rescue it without inventing vertex data, so it is an
+/// error, not a warning.
+fn check_attribute_count(
+    accessor: &gltf::Accessor<'_>,
+    position_count: usize,
+    name: &str,
+) -> Result<(), String> {
+    let count = accessor.count();
+    if count != position_count {
+        return Err(format!(
+            "{name} holds {count} vertices but POSITION holds {position_count}"
+        ));
+    }
+    Ok(())
+}
+
+/// Converts glTF texture coordinates into the stored `[f32; 2]` values.
+///
+/// glTF genericizes texcoords over `u8`, `u16`, and `f32` component types;
+/// the reader surfaces one iterator per representation, while [`Mesh`]
+/// stores exactly one. Normalization keeps the asset honest the same way
+/// the texture loader's RGBA8 normalization does: one in-memory layout,
+/// converted once at the boundary, documented here rather than silently
+/// assumed by every consumer. Normalized-integer inputs divide by the
+/// type maximum, matching the glTF specification's own mapping of stored
+/// integers onto `[0, 1]` texture space.
+fn read_tex_coords_into_f32(coords: gltf::mesh::util::ReadTexCoords<'_>) -> Vec<[f32; 2]> {
+    use gltf::mesh::util::ReadTexCoords;
+    match coords {
+        ReadTexCoords::U8(iter) => iter
+            .map(|array| {
+                [
+                    f32::from(array[0]) / f32::from(u8::MAX),
+                    f32::from(array[1]) / f32::from(u8::MAX),
+                ]
+            })
+            .collect(),
+        ReadTexCoords::U16(iter) => iter
+            .map(|array| {
+                [
+                    f32::from(array[0]) / f32::from(u16::MAX),
+                    f32::from(array[1]) / f32::from(u16::MAX),
+                ]
+            })
+            .collect(),
+        ReadTexCoords::F32(iter) => iter.collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Checked-in fixture path (tests run with the crate dir as CWD, but
+    /// `CARGO_MANIFEST_DIR` keeps this robust to invocation differences).
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+    }
+
+    /// Scratch file for runtime-built (negative-control) inputs, unique per
+    /// test name so parallel tests never share a path.
+    fn write_temp(name: &str, bytes: &[u8]) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("canary-assets-mesh-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("scratch dir must be creatable");
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).expect("scratch fixture must be writable");
+        path
+    }
+
+    /// Exact float comparison via bit patterns: loader outputs round-trip
+    /// the file's little-endian bytes with no arithmetic in between, so
+    /// bitwise equality is the honest assertion (and it sidesteps
+    /// epsilon debates entirely).
+    fn assert_f32_slice_eq(actual: &[f32], expected: &[f32]) {
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "length mismatch: {} vs {}",
+            actual.len(),
+            expected.len()
+        );
+        for (index, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(
+                a.to_bits(),
+                e.to_bits(),
+                "float mismatch at flat index {index}: {a} vs {e}"
+            );
+        }
+    }
+
+    fn flatten3(values: &[[f32; 3]]) -> Vec<f32> {
+        values.iter().flat_map(|v| *v).collect()
+    }
+
+    fn flatten2(values: &[[f32; 2]]) -> Vec<f32> {
+        values.iter().flat_map(|v| *v).collect()
+    }
+
+    /// Frames `json` + `bin` as a GLB file, mirroring the checked-in
+    /// generator's layout (12-byte header, space-padded JSON chunk,
+    /// zero-padded BIN chunk).
+    fn glb_bytes(json: &str, bin: &[u8]) -> Vec<u8> {
+        let mut json_padded = json.as_bytes().to_vec();
+        while json_padded.len() % 4 != 0 {
+            json_padded.push(b' ');
+        }
+        let mut bin_padded = bin.to_vec();
+        while bin_padded.len() % 4 != 0 {
+            bin_padded.push(0);
+        }
+        let total = 12 + 8 + json_padded.len() + 8 + bin_padded.len();
+        let mut out = Vec::with_capacity(total);
+        out.extend_from_slice(&0x46546C67u32.to_le_bytes());
+        out.extend_from_slice(&2u32.to_le_bytes());
+        out.extend_from_slice(&(total as u32).to_le_bytes());
+        out.extend_from_slice(&(json_padded.len() as u32).to_le_bytes());
+        out.extend_from_slice(b"JSON");
+        out.extend_from_slice(&json_padded);
+        out.extend_from_slice(&(bin_padded.len() as u32).to_le_bytes());
+        out.extend_from_slice(b"BIN\x00");
+        out.extend_from_slice(&bin_padded);
+        out
+    }
+
+    /// Canonical quad document; `{MODE}` is substituted with the primitive
+    /// mode under test (4 = triangles).
+    const QUAD_JSON_TEMPLATE: &str = r#"{"accessors":[{"bufferView":0,"componentType":5126,"count":4,"max":[0.5,0.5,0.0],"min":[-0.5,-0.5,0.0],"type":"VEC3"},{"bufferView":1,"componentType":5126,"count":4,"type":"VEC2"},{"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"}],"asset":{"version":"2.0"},"bufferViews":[{"buffer":0,"byteLength":48,"byteOffset":0},{"buffer":0,"byteLength":32,"byteOffset":48},{"buffer":0,"byteLength":12,"byteOffset":80}],"buffers":[{"byteLength":92}],"meshes":[{"name":"quad","primitives":[{"attributes":{"POSITION":0,"TEXCOORD_0":1},"indices":2,"mode":{MODE}}]}],"nodes":[{"mesh":0}],"scene":0,"scenes":[{"nodes":[0]}]}"#;
+
+    /// Canonical quad buffer: 4 positions, 4 UVs, 6 u16 indices.
+    fn quad_bin_with_indices(indices: &[u16; 6]) -> Vec<u8> {
+        let positions: [f32; 12] = [
+            -0.5, -0.5, 0.0, 0.5, -0.5, 0.0, 0.5, 0.5, 0.0, -0.5, 0.5, 0.0,
+        ];
+        let uvs: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        let mut bin = Vec::with_capacity(92);
+        for v in positions {
+            bin.extend_from_slice(&v.to_le_bytes());
+        }
+        for v in uvs {
+            bin.extend_from_slice(&v.to_le_bytes());
+        }
+        for i in indices {
+            bin.extend_from_slice(&i.to_le_bytes());
+        }
+        bin
+    }
+
+    #[test]
+    fn quad_fixture_loads_with_known_positions_and_indices() {
+        let meshes = load_mesh(&fixture("quad.glb")).expect("quad fixture must load");
+        assert_eq!(meshes.len(), 1, "quad holds a single primitive");
+        let mesh = &meshes[0];
+        assert_f32_slice_eq(
+            &flatten3(mesh.positions()),
+            &[
+                -0.5, -0.5, 0.0, 0.5, -0.5, 0.0, 0.5, 0.5, 0.0, -0.5, 0.5, 0.0,
+            ],
+        );
+        assert_eq!(
+            mesh.indices(),
+            &[0, 1, 2, 0, 2, 3],
+            "quad triangulation must match the fixture README"
+        );
+        assert_eq!(mesh.vertex_count(), 4);
+        assert_eq!(mesh.triangle_count(), 2);
+    }
+
+    #[test]
+    fn quad_fixture_carries_uvs_but_no_normals() {
+        let meshes = load_mesh(&fixture("quad.glb")).expect("quad fixture must load");
+        let uvs = meshes[0].uvs().expect("quad carries TEXCOORD_0");
+        assert_f32_slice_eq(&flatten2(uvs), &[0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]);
+        assert_eq!(
+            meshes[0].normals(),
+            None,
+            "quad has no NORMAL attribute, so normals must be None"
+        );
+    }
+
+    #[test]
+    fn box_fixture_yields_one_mesh_per_primitive() {
+        let meshes = load_mesh(&fixture("box.glb")).expect("box fixture must load");
+        assert_eq!(meshes.len(), 2, "two primitives must become two meshes");
+        assert_eq!(meshes[0].vertex_count(), 8);
+        assert_eq!(meshes[0].indices().len(), 18);
+        assert_eq!(meshes[0].triangle_count(), 6);
+        assert_eq!(meshes[1].vertex_count(), 8);
+        assert_eq!(meshes[1].indices().len(), 18);
+        assert_eq!(
+            meshes[0].indices(),
+            &[4, 5, 6, 4, 6, 7, 1, 0, 3, 1, 3, 2, 5, 1, 2, 5, 2, 6],
+            "first primitive covers the +z/-z/+x faces per the README"
+        );
+    }
+
+    #[test]
+    fn box_second_primitive_carries_normals_and_uvs() {
+        let meshes = load_mesh(&fixture("box.glb")).expect("box fixture must load");
+        assert_eq!(
+            meshes[0].normals(),
+            None,
+            "first primitive has no NORMAL attribute"
+        );
+        assert_eq!(meshes[0].uvs(), None, "first primitive has no UVs");
+        let normals = meshes[1]
+            .normals()
+            .expect("second primitive carries NORMAL");
+        assert_f32_slice_eq(
+            &flatten3(normals),
+            &[
+                1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0,
+                0.0, -1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+            ],
+        );
+        let uvs = meshes[1]
+            .uvs()
+            .expect("second primitive carries TEXCOORD_0");
+        assert_eq!(uvs.len(), 8);
+        assert_f32_slice_eq(&uvs[0], &[0.0, 0.0]);
+    }
+
+    #[test]
+    fn missing_file_is_io_not_a_panic() {
+        let err =
+            load_mesh(Path::new("definitely-not-a-mesh.glb")).expect_err("missing file must fail");
+        assert!(
+            matches!(err, AssetError::Io { .. }),
+            "missing file must be Io, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn garbage_bytes_are_invalid_format() {
+        let path = write_temp("garbage.glb", b"this is not a glb file at all");
+        let err = load_mesh(&path).expect_err("garbage must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "garbage must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn truncated_fixture_is_invalid_format() {
+        let full = std::fs::read(fixture("quad.glb")).expect("quad fixture must exist");
+        let path = write_temp("truncated.glb", &full[..20]);
+        let err = load_mesh(&path).expect_err("truncated file must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "truncated file must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn points_primitive_is_unsupported_not_misrendered() {
+        let json = QUAD_JSON_TEMPLATE.replace("{MODE}", "1");
+        let path = write_temp(
+            "points.glb",
+            &glb_bytes(&json, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("POINTS primitive must fail");
+        assert!(
+            matches!(err, AssetError::UnsupportedFeature { .. }),
+            "non-triangle mode must be UnsupportedFeature, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn out_of_bounds_index_is_invalid_format() {
+        let json = QUAD_JSON_TEMPLATE.replace("{MODE}", "4");
+        let path = write_temp(
+            "oob.glb",
+            &glb_bytes(&json, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 99])),
+        );
+        let err = load_mesh(&path).expect_err("OOB index must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "OOB index must be InvalidFormat, got: {err:?}"
+        );
+        assert!(
+            err.to_string().contains("99"),
+            "message must name the index"
+        );
+    }
+
+    #[test]
+    fn inconsistent_normal_count_is_invalid_format() {
+        let mut bin = quad_bin_with_indices(&[0, 1, 2, 0, 2, 3]);
+        for _ in 0..9 {
+            bin.extend_from_slice(&0.0f32.to_le_bytes());
+        }
+        let json = r#"{"accessors":[{"bufferView":0,"componentType":5126,"count":4,"max":[0.5,0.5,0.0],"min":[-0.5,-0.5,0.0],"type":"VEC3"},{"bufferView":1,"componentType":5126,"count":4,"type":"VEC2"},{"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"},{"bufferView":3,"componentType":5126,"count":3,"type":"VEC3"}],"asset":{"version":"2.0"},"bufferViews":[{"buffer":0,"byteLength":48,"byteOffset":0},{"buffer":0,"byteLength":32,"byteOffset":48},{"buffer":0,"byteLength":12,"byteOffset":80},{"buffer":0,"byteLength":36,"byteOffset":92}],"buffers":[{"byteLength":128}],"meshes":[{"name":"bad","primitives":[{"attributes":{"NORMAL":3,"POSITION":0,"TEXCOORD_0":1},"indices":2,"mode":4}]}],"nodes":[{"mesh":0}],"scene":0,"scenes":[{"nodes":[0]}]}"#;
+        let path = write_temp("inconsistent.glb", &glb_bytes(json, &bin));
+        let err = load_mesh(&path).expect_err("3 normals vs 4 positions must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "inconsistent counts must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn non_indexed_primitive_is_unsupported() {
+        let json = QUAD_JSON_TEMPLATE
+            .replace("{MODE}", "4")
+            .replace(r#""indices":2,"#, "");
+        assert!(
+            !json.contains("indices"),
+            "surgery must actually drop the indices reference"
+        );
+        let path = write_temp(
+            "non-indexed.glb",
+            &glb_bytes(&json, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("non-indexed primitive must fail");
+        assert!(
+            matches!(err, AssetError::UnsupportedFeature { .. }),
+            "non-indexed geometry must be UnsupportedFeature, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn external_buffer_reference_is_unsupported() {
+        // Plain JSON (not GLB): the buffer lives in a sidecar file this
+        // minimal loader deliberately never resolves.
+        let json = r#"{"accessors":[{"bufferView":0,"componentType":5126,"count":1,"max":[0.0,0.0,0.0],"min":[0.0,0.0,0.0],"type":"VEC3"}],"asset":{"version":"2.0"},"bufferViews":[{"buffer":0,"byteLength":12,"byteOffset":0}],"buffers":[{"byteLength":12,"uri":"sidecar.bin"}],"meshes":[{"name":"ext","primitives":[{"attributes":{"POSITION":0},"mode":4}]}],"nodes":[{"mesh":0}],"scene":0,"scenes":[{"nodes":[0]}]}"#;
+        let path = write_temp("external.gltf", json.as_bytes());
+        let err = load_mesh(&path).expect_err("external buffer must fail");
+        assert!(
+            matches!(err, AssetError::UnsupportedFeature { .. }),
+            "sidecar buffers must be UnsupportedFeature, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn file_with_no_meshes_is_invalid_format() {
+        let json = r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[]}]}"#;
+        let path = write_temp("empty.glb", &glb_bytes(json, &[]));
+        let err = load_mesh(&path).expect_err("mesh-less file must fail");
+        assert!(
+            matches!(err, AssetError::InvalidFormat { .. }),
+            "no meshes must be InvalidFormat, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn over_budget_vertex_claim_is_refused_before_allocating() {
+        let json = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
+            r#""bufferView":0,"componentType":5126,"count":4"#,
+            r#""bufferView":0,"componentType":5126,"count":2097152"#,
+        );
+        let path = write_temp(
+            "over-budget.glb",
+            &glb_bytes(&json, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
+        );
+        let err = load_mesh(&path).expect_err("2M vertex claim must fail");
+        assert!(
+            matches!(err, AssetError::OverBudget { .. }),
+            "over-budget claim must be OverBudget, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn loaded_mesh_flows_through_asset_store_with_stable_identity() {
+        use crate::{AssetId, AssetStore, LOADER_VERSION};
+
+        let path = fixture("quad.glb");
+        let bytes = std::fs::read(&path).expect("quad fixture must exist");
+        // Identity and values come from the same file bytes: the hash
+        // mixes in LOADER_VERSION (proved in `id.rs` tests), so a loader
+        // fix deterministically changes IDs without the loader itself
+        // hashing anything.
+        assert_eq!(
+            AssetId::for_file(&path).expect("readable fixture must hash"),
+            AssetId::new(&bytes),
+            "file identity must equal the in-memory hash of the same bytes"
+        );
+        assert_eq!(
+            AssetId::new(&bytes),
+            AssetId::with_version(&bytes, LOADER_VERSION),
+            "`new` must hash under LOADER_VERSION"
+        );
+
+        let meshes = load_mesh(&path).expect("quad fixture must load");
+        let mut store = AssetStore::new();
+        let handle = store.insert(meshes.into_iter().next().expect("one mesh"));
+        let stored = store.get(handle).expect("live handle must resolve");
+        assert_eq!(stored.triangle_count(), 2);
+        assert_eq!(stored.indices(), &[0, 1, 2, 0, 2, 3]);
+    }
+}

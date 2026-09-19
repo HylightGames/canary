@@ -25,3 +25,28 @@ thiserror = "2.0.19"
 # docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
 # (same wall that forced the `block-buffer`/`ignore`/`globset` pins there).
 sha2 = "0.10"
+
+# Mesh source parsing (Phase 2, ADR 0018: GLB for meshes). `default-features
+# = false` plus only `utils` is deliberate, verified by a real spike build +
+# `cargo tree` on this toolchain (rustc 1.98.1, 2026-09-19): the `import`
+# feature unconditionally pulls `image 0.25` (moxcms, pxfm, zune-jpeg, ...)
+# plus `base64` + `urlencoding` — the exact format-breadth bloat ADR 0018
+# rejected when it rejected the full `image` crate — while `utils = []`
+# pulls nothing further and is what gates the `primitive.reader()` API this
+# loader is built on. A self-contained GLB needs no more: `Gltf::from_slice`
+# exposes the BIN chunk as `blob`, and `reader()` maps 1:1 onto `Mesh`.
+# Files needing what was declined (external buffer URIs, base64 data URIs,
+# which is what `import` would have resolved) fail with a typed error
+# instead of silently resolving. Minimal tree confirmed: byteorder,
+# gltf-json (+proc-macro stack), lazy_static, serde_json only.
+# `gltf 1.4.1` declares rust-version 1.61; no edition2024 wall.
+gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
+
+# Texture source decoding (Phase 2, ADR 0018: PNG via the pure-Rust `png`
+# crate, not the full `image` crate). Verified by the same spike build +
+# `cargo tree`: bitflags, crc32fast, fdeflate, flate2, miniz_oxide (x2),
+# simd-adler32, adler2, cfg-if — all pure Rust, no build scripts, no C
+# compiler. `png 0.18.1` carries no default features to trim (only opt-in
+# `benchmarks`/`unstable`/`zlib-rs`), so a plain version requirement is
+# already the minimal set.
+png = "0.18.1"
