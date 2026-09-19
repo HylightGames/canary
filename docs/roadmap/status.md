@@ -356,12 +356,25 @@ rendering) → `v0.0.10` (asset loading) → `v0.0.11` (physics, 2D first)
 editor, marketplace, and beginner-friendly tooling remain explicitly
 deferred past `v0.1.0`, unchanged from this document's prior framing.
 
-**`v0.0.9` is in progress** — real delta-time + wall-clock `App::run`
-landed; `canary-transform` (`Transform`/`GlobalTransform`/`Parent`/
-`Children` + scheduler-registered hierarchy propagation, 23 tests)
-implemented on `dev`, not yet tagged. Still open in `v0.0.9`: ECS-driven
-rendering (a system querying `World` for `GlobalTransform` + a renderable
-component and drawing it through `canary-render`/`canary-render-vulkan`).
+**`v0.0.9` is implemented on `dev`, not yet tagged** — all three
+parts landed: real delta-time + wall-clock `App::run`;
+`canary-transform` (`Transform`/`GlobalTransform`/`Parent`/
+`Children` + scheduler-registered hierarchy propagation, 23 tests);
+and ECS-driven rendering, also on `dev`. The rendering half is a new
+`canary-render-ecs` bridge crate (`Renderable` + `extract_scene` +
+CPU-bake to a `BakedFrame` resource + `draw_baked_frame` through the
+unchanged RHI, zero RHI churn), wired propagation-then-bake into
+`canary-runtime`'s `EcsSubsystem::tick` via `Schedule`, proven by
+three `#[ignore]`-gated offscreen pixel tests
+(`engine/canary-render-ecs/tests/render_ecs_readback.rs`: distinct
+colors, moved-entity redraw, empty-scene clear), with
+`examples/spinning-cube` rewritten on the bridge (root + six face
+entities, quaternion spin, GIF output kept). Full design record in
+[`docs/architecture/rendering.md`](../architecture/rendering.md#v009-the-ecs-to-render-bridge-canary-render-ecs).
+Still open past `v0.0.9`: every RHI upgrade the bridge deliberately
+defers (push constants/uniforms, depth/culling, buffer updates,
+textures, materials, swapchain/presentation), the camera component,
+mesh assets, and the App-level scheduler — all `v0.0.10+` scope.
 
 ## Full architecture-to-implementation map
 
@@ -379,7 +392,7 @@ about working code in `engine/`.
 | Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented on `dev`, not yet tagged |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
-| Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6` |
+| Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6`. ECS-driven rendering via the `canary-render-ecs` bridge (CPU-bake, propagation-then-bake schedule, pixel-tested, spinning-cube rewritten on it); `v0.0.9` |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ❌ | Designed (2D+3D via Rapier); not yet scheduled |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |

@@ -17,6 +17,280 @@ built versus still deferred (the render graph, materials, textures,
 multiple draw calls, and every backend beyond Vulkan all remain real,
 intended future work, not yet started).
 
+**`v0.0.9` wired real ECS state to that RHI** without changing it: a new
+`canary-render-ecs` bridge crate extracts `GlobalTransform` + a flat
+`Renderable` component out of the `World`, CPU-bakes one frame of NDC
+vertices per tick, and draws it through the existing trait with one
+fresh buffer plus one draw per frame. Zero RHI churn by construction
+(the trait surface in `engine/canary-render/src/lib.rs` is untouched:
+`create_buffer`, `create_color_target`, `create_pipeline`,
+`create_command_encoder`, `submit_and_wait`, `read_color_target_rgba8`,
+nothing else). Proven by three `#[ignore]`-gated offscreen pixel tests
+plus the `spinning-cube` example rewritten on top of the bridge. Full
+detail below; the deferred list at the end names what stays v0.0.10+
+RHI work.
+
+## `v0.0.9`: the ECS-to-render bridge (`canary-render-ecs`)
+
+### Why a third crate
+
+Problem: something has to own the `World` query, the projection math,
+and the draw call, and it needs `canary-ecs`, `canary-transform`,
+`glam`, and `canary-render` all at once. `canary-render` itself has
+zero dependencies of any kind (checked mechanically with `cargo tree`,
+not just claimed), and that property is what keeps every backend
+independently optional: a game build compiles only the backend crates
+it names. Giving `canary-render` an ECS or math dependency would end
+that guarantee, and a dependency flowing the other way (a feature on
+`canary-render` pulling in a backend) is a literal Cargo cycle, the
+same reason ADR 0016's first draft had to be corrected during `v0.0.6`.
+
+Chosen approach: the bridge lives in its own crate,
+`engine/canary-render-ecs`, depending on `canary-ecs`,
+`canary-scheduler`, `canary-transform`, `canary-render`, and `glam`
+`0.30` (see `engine/canary-render-ecs/Cargo.toml`). Composition points
+upward, per the usual direction: leaves know nothing about the bridge,
+the bridge knows about them.
+
+Rejected alternatives: putting the query and bake inside
+`canary-render` (breaks the zero-dependency invariant above); putting
+them inside the Vulkan backend (ties ECS-facing API to one graphics
+API, defeating the replaceable-backend goal); growing a second
+example-local implementation (that was the pre-bridge state, and two
+competing copies of the same projection math is how they silently
+diverge).
+
+Consequences: the RHI trait never names an ECS type, the bridge never
+names a concrete device type (`draw_baked_frame` is generic over
+`D: RenderDevice`), and any future backend works with the bridge
+unmodified. The price is one more crate in the workspace, which is
+exactly what the one-crate-per-subsystem rule expects.
+
+### `Renderable`: flat color, triangle soup, and why
+
+Problem: the RHI dictates what per-entity data can possibly reach the
+screen. `VertexFormat` offers only `Float32x2` and `Float32x3`
+(`engine/canary-render/src/lib.rs` via `types.rs`); `CommandEncoder`
+binds exactly one vertex buffer ("no index buffer yet") and `draw`
+consumes a plain `vertex_count` with no instancing. There are no
+uniforms, no descriptor sets, no materials, no textures anywhere on
+the trait. A component carrying UVs, normals, material handles, or
+indexed geometry would have nothing to bind to.
+
+Chosen approach (`engine/canary-render-ecs/src/renderable.rs`):
+`pub struct Renderable { pub vertices: Vec<[f32; 3]>, pub color: [f32; 3] }`,
+object-space triangles with `len % 3 == 0`, one flat RGB triple per
+entity, plus `triangle_count()` and `is_valid()` (`len % 3 == 0`, empty
+counts as valid with zero triangles). The flat color is replicated into
+each baked vertex's `Float32x3` color attribute at bake time, which is
+the only channel the RHI leaves open for telling two entities apart,
+and per-entity colors are what let the pixel tests distinguish them.
+
+Rejected alternatives: a `Mesh` resource plus material handles (needs
+descriptor-backed data the RHI lacks; deferred to v0.0.10 asset work);
+indexed geometry (no index binding exists); per-vertex colors (no
+producer for them yet, and per-entity color is sufficient for every
+test the bridge needs to pass).
+
+Consequences: triangle soup is pre-expanded, so memory grows with face
+count rather than vertex count, acceptable for a CPU-baked stage and
+replaceable when index support lands. Construction stays infallible by
+design (`new` stores as-is); the triangle invariant is enforced at
+extract time, where invalid renderables are skipped, not panicked over,
+since a half-built prefab is game-content trouble, not an engine
+invariant violation. Emitting a partial tail would corrupt the whole
+frame's vertex alignment past that point, so skipping is load-bearing,
+not lenient.
+
+### Extract, don't query: `BakedFrame` as the scheduled snapshot
+
+Problem: the doctrine this document already states ("the graph consumes
+a read-only snapshot of ECS-visible render state prepared by an
+explicit extract step, rather than passes reaching back into the live
+`World` mid-frame") needs a concrete mechanism, and the GPU must stay
+out of the `Schedule`. A scheduled system's body is `FnMut(&World)` or
+`FnMut(&mut World)`; capturing a `&VulkanDevice` inside that closure
+ties the device borrow (owned by `main`'s frame scope) to the
+schedule's registration lifetime, which is fragile by construction.
+
+Chosen approach
+(`engine/canary-render-ecs/src/extract.rs`,
+`engine/canary-render-ecs/src/systems.rs`): `extract_scene` snapshots
+the `World::query2::<GlobalTransform, Renderable>` intersection into
+owned `RenderItem`s (world matrix copy plus cloned soup and color, no
+borrow retained), the pure bake turns them into a `BakedFrame`
+(`pub vertices: Vec<f32>`, NDC x/y plus flat r/g/b, 5 floats per
+vertex), and a scheduled write system overwrites the `BakedFrame` ECS
+resource every tick via `insert_resource` (at most one resource per
+type, so overwrite semantics are total: no stale frame can survive a
+tick). `draw_baked_frame` (`engine/canary-render-ecs/src/pipeline.rs`)
+then runs explicitly after `schedule.run()` returns, with device,
+target, and pipeline still owned by the calling binary. `BakedFrame`
+carries plain floats, no device handles, no lifetimes, so nothing GPU
+shaped ever crosses the scheduling boundary.
+
+Rejected alternatives: a scheduled system closing over the device
+(lifetime-fragile, and a direct violation of the extract doctrine);
+reading the live `World` from the draw call (same violation, plus it
+holds a borrow across submission); a second scheduler at the `App`
+layer to order all of this (splits ordering authority across two
+schedules with no cross-schedule conflict analysis; deferred to
+v0.0.10+ as the plan always intended).
+
+Consequences: the schedule never sees the GPU, the draw never sees the
+`World`, and the bake step is a pure function testable without Vulkan.
+When the RHI grows push constants or uniform buffers, the bake is what
+gets replaced; the extract step stays.
+
+### CPU-bake semantics: constants, Y-flip, painter sort, limits
+
+Problem: with no per-frame transform path on the RHI (buffers are
+write-once: `create_buffer` takes initial-content bytes and
+`BufferDescriptor` documents no update story), the world matrix and the
+camera projection have to happen on the CPU, once per frame, with the
+result uploaded as a fresh buffer per frame. That bake must define a
+camera, a projection, and an occlusion strategy from a trait that
+provides none of them.
+
+Chosen approach
+(`engine/canary-render-ecs/src/extract.rs::bake_scene_to_vertices_with_aspect`):
+each object-space vertex is transformed by its item's world matrix
+(`GlobalTransform::matrix` plus `transform_point3`), shifted +3.2 on Z
+into camera space (`CAMERA_DISTANCE`, camera modeled at the origin
+looking down +Z), and perspective-projected with focal length 2.2
+(`FOCAL_LENGTH`) and the caller-supplied aspect
+(`x = (x * FOCAL) / (z * aspect)`, square targets use the neutral 1.0
+default). Both constants are reused verbatim from the pre-bridge
+spinning-cube's proven values. Y is negated because Vulkan NDC points
++Y down while object space is Y-up; without the negate, up renders as
+down. Triangles are painter-sorted back-to-front by average
+camera-space depth (`total_cmp` for a deterministic order on every
+bit pattern) and emitted as `Float32x2` position plus `Float32x3`
+color. Triangles at or behind the camera plane (depth at or below a
+`1e-6` epsilon, so near-plane float noise cannot sneak an
+astronomical-but-finite vertex past the guard) are skipped: their
+projection divides by `z`, which is infinite at zero and mirrored
+behind, so either outcome would poison the buffer with `inf`/`NaN`.
+
+Rejected alternatives: GPU-side transforms via uniforms or push
+constants (no such trait method exists; inventing one is v0.0.10 RHI
+work, not bridge work); a depth buffer (same, needs real RHI state the
+Vulkan backend hard-codes `CullMode::NONE` against today); a camera
+component with view matrices (no second consumer exists yet; a
+half-camera now becomes compatibility surface the real one must honor
+later, so the constants stay constants).
+
+Consequences and explicit limits: the sort is exactly correct for
+convex, non-self-intersecting shapes viewed from outside (a cube
+qualifies) and insufficient for concave or interpenetrating geometry,
+where per-pixel depth resolution is required. That needs a real depth
+buffer, not a smarter sort. There is no camera component, no
+configurable clear color (`DEFAULT_CLEAR_COLOR` is opaque black,
+matching hello-triangle's, owned by the pass the bridge records), and
+byte upload uses safe `flat_map(to_ne_bytes)`; the old example's
+`unsafe from_raw_parts` reinterpretation was deliberately not carried
+over, since it needs a `SAFETY` case for zero benefit.
+
+### Schedule ordering: propagation first, via solo-write staging
+
+Problem: bake must read `GlobalTransform`s that propagation recomputed
+this same tick. Nothing may run bake on stale globals, and the ordering
+mechanism has to come from the scheduler as built, with no scheduler
+changes.
+
+Chosen approach (`engine/canary-render-ecs/src/systems.rs`,
+`engine/canary-runtime/src/main.rs:48-79`): `bake_access` declares
+reads on `GlobalTransform` and `Renderable` plus
+`writes_resource::<BakedFrame>`. That resource write is the whole
+trick. `Schedule` stages greedily: a system joins the current stage
+only if everything stays read-only and conflict-free, and every system
+that writes anything gets a stage entirely to itself. Propagation
+(registered first, `writes::<GlobalTransform>`) occupies its own
+stage; bake's `GlobalTransform` read conflicts with that write, so
+bake can never merge into it and lands in a strictly later stage. Had
+bake declared reads only, it could share an early read stage and bake
+stale transforms, possibly concurrently. `EcsSubsystem` owns the
+registration order (propagation, then `register_render_bake`) and
+`ticks` it with `schedule.run(&mut self.world)`; registering bake
+first would bake stale globals, which the order test proves by failing
+in that arrangement.
+
+Rejected alternatives: scheduler changes for explicit priorities or
+dependencies (a larger redesign than a two-system pipeline needs);
+declaring bake read-only and hoping registration order suffices
+(order without a conflict is not an ordering guarantee under greedy
+staging); the App-level `Schedule` (deferred, as above).
+
+Consequences: two write systems mean two solo stages per tick, always
+in registration order. The subsystem constructor owns that order, and
+the `bake_runs_after_propagation_sees_fresh_global` unit test pins it:
+a moved `Transform` with a stale cached global bakes to the fresh
+position after one `schedule.run()`.
+
+### What the pixel tests prove
+
+Problem: unit tests pin the bake math, but math without rasterization
+is trust, not proof. Wrong stride, wrong attribute offsets, flipped
+projection, or stale-frame uploads all survive pure-function tests and
+die only on real pixels.
+
+Chosen approach
+(`engine/canary-render-ecs/tests/render_ecs_readback.rs`,
+`#[ignore]`-gated like hello-triangle since every test needs a real
+Vulkan ICD; dev-deps mirror the Vulkan crate's own pins,
+`naga = "=22.1.0"`): a shared 128x128 target, per-frame fresh buffers,
+`submit_and_wait`, `read_color_target_rgba8` asserts. Three tests.
+`two_entities_render_distinct_colors` spawns red-left and blue-right
+quads at non-overlapping NDC and asserts dominant-channel interiors
+(over 150 on the entity channel, under 80 elsewhere, alpha exactly
+255) plus neighbor-pixel coverage and an exactly-clear gap pixel, which
+proves extraction picks up both entities, each bakes through its own
+transform, colors survive upload, and one draw rasterizes both.
+`moved_entity_redraws_moved` redraws the same shared target after a
+`Transform` move and a second `schedule.run()`, asserting the old
+pixel returns to exactly `[0, 0, 0, 255]` (stale frame replaced, target
+re-cleared, not painted over) and the mirrored pixel shows the color;
+this is the test that fails if propagation and bake ever run in the
+wrong order. `empty_scene_clears_to_clear_color` proves the degenerate
+end: an empty bake still begins, ends, and submits the pass (target
+clears) without creating a zero-size buffer or issuing a zero-vertex
+draw. Thresholds follow hello-triangle's dominant-channel style
+because llvmpipe proves rasterization correctness, not exact edge
+rounding or driver quirks.
+
+### The example is the animated proof
+
+`examples/spinning-cube` was rewritten on the bridge (the plan's
+rewrite option, keeping the GIF artifact) instead of superseded: one
+cube root holding the animated `Transform` plus six face entities, one
+`Renderable` per face, because a single flat color per entity cannot
+hold six face colors any other way. Each of the 36 frames overwrites
+the root rotation as one quaternion (fixed −30° X tilt composed with
+the animated Y yaw, replacing the hand-rolled `rotate_y`/`rotate_x`),
+runs the propagation-then-bake schedule, draws the `BakedFrame`,
+reads back, and appends to the 480x360 GIF. The wide 4:3 target bakes
+through an aspect-aware system (`bake_frame_wide`, registered under
+the bridge's own `bake_access`) since baking square would stretch the
+image; no projection or sort code remains in the example
+(`build_frame_vertices`/`project`/the hand sort are deleted). Device,
+target, pipeline setup, and GIF encoding stay example-side, which is
+the part no engine crate could own.
+
+### Explicitly deferred (v0.0.10+ RHI work, not bridge gaps)
+
+None of these is implementable in the bridge; each needs trait surface
+that does not exist yet. Push constants and uniform buffers (the
+eventual replacement for the CPU bake); depth testing, depth buffers,
+and backface culling (the eventual replacement for painter sort and
+its convex-only limit); `write_buffer` or any buffer-update story (the
+eventual replacement for one fresh buffer per frame); textures,
+materials, and a shader-variant system; swapchain and window-surface
+presentation (everything here is offscreen color targets); a real
+camera component (view matrix, projection choice); mesh asset
+resources feeding the renderer from disk; and the App-level scheduler
+that would order rendering against physics, audio, and UI once those
+exist. Absences stated plainly: no swapchain, no textures, no depth.
+
 ## Two layers: RHI and render graph
 
 Rendering is split into two layers that must not be conflated:
