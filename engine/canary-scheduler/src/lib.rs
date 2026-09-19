@@ -36,7 +36,7 @@ mod tests {
     use canary_ecs::World;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     struct Position {
@@ -120,14 +120,16 @@ mod tests {
 
     #[test]
     fn independent_read_only_systems_actually_run_concurrently() {
-        // Two read-only systems that each take noticeably longer than
-        // spawning a thread costs. If they truly run concurrently, the
-        // whole schedule takes roughly one system's duration, not the
-        // sum of both -- a real, if timing-based, proof that this
-        // isn't secretly just sequential execution dressed up as a
-        // "schedule". A generous threshold (well under the sum, well
-        // over one duration) keeps this reliable on a loaded CI runner
-        // without risking a flaky failure in either direction.
+        // Two read-only systems that each sleep well beyond thread-spawn
+        // cost. Overlap is proven deterministically, not by timing: each
+        // system records how many systems are in flight while it runs,
+        // keeping the maximum. Sequential execution could never record
+        // more than 1 in flight, so observing 2 is a strict proof both
+        // ran concurrently -- with no wall-clock threshold for a loaded
+        // CI runner to trip over. (An `elapsed < 2 * sleep` timing
+        // assertion stood here before; macOS CI runners exceeded it by
+        // ~8ms twice through pure scheduling jitter, so it was replaced
+        // with this counter, which cannot false-pass.)
         let mut world = World::new();
         world.insert_resource(Position { x: 0.0 });
 
@@ -150,18 +152,12 @@ mod tests {
             );
         }
 
-        let start = Instant::now();
         schedule.run(&mut world);
-        let elapsed = start.elapsed();
 
         assert_eq!(
             observed_concurrency.load(Ordering::SeqCst),
             2,
             "both read-only systems should have been in flight at the same time"
-        );
-        assert!(
-            elapsed < sleep_duration * 2,
-            "two 120ms read-only systems took {elapsed:?}; expected well under 240ms if they ran concurrently"
         );
     }
 
