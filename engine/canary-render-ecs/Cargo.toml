@@ -1,0 +1,17 @@
+[package]
+name = "canary-render-ecs"
+description = "Canary Engine ECS-to-render bridge: extract renderables from the World, CPU-bake frames, and draw through canary-render."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-ecs = { path = "../canary-ecs" }
+canary-scheduler = { path = "../canary-scheduler" }
+canary-transform = { path = "../canary-transform" }
+canary-render = { path = "../canary-render" }
+glam = "0.30"

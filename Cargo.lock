@@ -322,6 +322,17 @@ name = "canary-render"
 version = "0.0.2"
 
 [[package]]
+name = "canary-render-ecs"
+version = "0.0.2"
+dependencies = [
+ "canary-ecs",
+ "canary-render",
+ "canary-scheduler",
+ "canary-transform",
+ "glam",
+]
+
+[[package]]
 name = "canary-render-vulkan"
 version = "0.0.2"
 dependencies = [

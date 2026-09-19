@@ -10,6 +10,7 @@ members = [
     "engine/canary-loc",
     "engine/canary-render",
     "engine/canary-render-vulkan",
+    "engine/canary-render-ecs",
     "engine/canary-runtime",
     "examples/spinning-cube",
     "tools/xtask",

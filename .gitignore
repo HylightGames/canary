@@ -111,3 +111,9 @@ Desktop.ini
 # Cargo.lock is intentionally tracked.
 
 # Canary ships binaries and executable tooling, so dependency resolution is part of the repository and must remain under version control.
+
+# --- Local scratch (never committed) ---
+
+.omo/
+.claude/
+.serena/
