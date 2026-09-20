@@ -111,7 +111,32 @@ pub fn propagate_transforms(world: &mut World) {
     // global is already in `composed` when its child is visited — unless
     // the parent has no `Transform` (or is gone), in which case the child
     // falls back to its local matrix.
-    let mut composed: HashMap<Entity, glam::Mat4> = HashMap::with_capacity(ordered.len());
+    let mut composed: HashMap<Entity, glam::Mat4> =
+        HashMap::with_capacity(if parent_of.is_empty() {
+            0
+        } else {
+            ordered.len()
+        });
+    if parent_of.is_empty() {
+        for (entity, global) in ordered.iter().map(|(e, local, _)| (*e, *local)) {
+            let needs_write = world
+                .get::<GlobalTransform>(entity)
+                .is_none_or(|slot| *slot != GlobalTransform(global));
+            if !needs_write {
+                continue;
+            }
+            match world.get_mut::<GlobalTransform>(entity) {
+                Some(slot) => {
+                    *slot = GlobalTransform(global);
+                }
+                None => {
+                    let _ = world.insert(entity, GlobalTransform(global));
+                }
+            }
+        }
+        return;
+    }
+
     for (entity, local, parent) in &ordered {
         let global = parent
             .and_then(|link| composed.get(&link).copied())
