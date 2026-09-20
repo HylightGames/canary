@@ -29,14 +29,7 @@ canary-ecs = { path = "../canary-ecs" }
 # rather than chasing that error directly, since letting them build for
 # wasm32-wasip2 was never correct to begin with.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-# Pinned below latest for this sandbox's validation build: libloading's own
-# latest release (0.9.0) has raised its MSRV to rustc 1.88, newer than the
-# apt-installed rustc 1.75 available here (see
-# docs/development/build-system.md and the analogous note in
-# engine/canary-ecs/Cargo.toml). 0.8.6 is the newest release still
-# compatible with 1.75. Bump once building against a current `stable`
-# toolchain.
-libloading = "=0.8.6"
+libloading = "0.8"
 
 # Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. Pinned to
 # 36.0.15 -- not "latest" (48.x) and not the original 21.0.2 -- for two

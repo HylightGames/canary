@@ -52,13 +52,7 @@ gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 png = "0.18.1"
 
 [dev-dependencies]
-# Mirrors engine/canary-ecs's `proptest = "=1.4.0"` pin exactly (same
-# rationale comment lives there): reuses the already-locked 1.4.0
-# resolution so no new version enters Cargo.lock, and stays under the
-# sandbox floor the workspace still validates against (see
-# docs/development/build-system.md). Used for the store's
-# generational-aliasing property test (in the same `proptest!` style as
-# the ECS entity-aliasing test this handle/store shape was copied from)
-# plus the Phase-10 bounded parser fuzz (GLB/PNG byte mutations) and
-# AssetId totality/round-trip properties.
-proptest = "=1.4.0"
+# Property tests for the store's generational-aliasing behavior, the
+# Phase-10 bounded parser fuzz (GLB/PNG byte mutations), and AssetId
+# totality/round-trip properties.
+proptest = "1"

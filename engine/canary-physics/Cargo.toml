@@ -34,8 +34,5 @@ thiserror = "2.0.19"
 rapier2d = "0.35"
 
 [dev-dependencies]
-# Mirrors engine/canary-ecs's pins and rationale: proptest's latest release
-# raised its MSRV and unpinned transitive `tempfile` can resolve past this
-# workspace's validation floor (see docs/development/build-system.md).
-proptest = "=1.4.0"
-tempfile = "=3.10.1"
+proptest = "1"
+tempfile = "3"
