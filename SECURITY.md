@@ -180,6 +180,27 @@ Maintainers will coordinate with upstream projects when appropriate.
 
 ---
 
+## Automated scanning
+
+Two complementary checks run in CI; neither replaces human reporting
+above:
+
+* **`cargo audit`** (`security.yml`, weekly + every push/PR) watches
+  the RustSec Advisory Database for the locked dependency tree.
+* **Trivy** (`.github/workflows/trivy.yml`, every push/PR to
+  `stable`/`dev`) filesystem-scans for vulnerabilities, builtin
+  secret rules, and misconfigurations, reporting to code scanning
+  as SARIF. Configuration lives in `.github/trivy.yaml`; reproduce
+  locally with `trivy fs --config .github/trivy.yaml .`.
+
+Only **HIGH/CRITICAL findings with an available fix** fail the
+Trivy check (`ignore-unfixed: true`). A failure means: update the
+affected dependency if a fixed release exists, or record why it
+cannot move yet. MEDIUM and below never block; unfixed-upstream
+items stay visible in code scanning without holding up development.
+
+---
+
 ## Out of scope
 
 Not every bug is a security vulnerability.

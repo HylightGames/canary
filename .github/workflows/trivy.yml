@@ -1,0 +1,55 @@
+name: Trivy
+
+# Filesystem security scan (vulnerabilities, secrets, misconfigurations)
+# with SARIF uploaded to code scanning. Complements (does not replace)
+# the `cargo audit` job in security.yml: cargo audit watches RustSec
+# advisories on a schedule; Trivy additionally covers secrets and
+# misconfigurations and reports per-PR through code scanning.
+# No Docker or containers involved — plain `fs` scan of the checkout.
+
+on:
+  push:
+    branches: [stable, dev]
+  pull_request:
+    branches: [stable, dev]
+
+# Least privilege: checkout + local scan need read; the SARIF upload
+# needs security-events:write. No secrets are used, so fork PRs
+# (which run as `pull_request`, never `pull_request_target`) are safe.
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy-fs:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Same LFS rule as every other job in this repo: fixtures
+          # (*.glb/*.png, see .gitattributes) must resolve to real
+          # bytes or file-content scans read pointer text instead.
+          lfs: true
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          trivy-config: '.github/trivy.yaml'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          # Fail only on actionable (HIGH/CRITICAL, fixed upstream)
+          # findings — severity and ignore-unfixed come from
+          # .github/trivy.yaml; the exit code itself stays here so
+          # the gate behavior is visible at the workflow level.
+          exit-code: '1'
+      - name: Upload Trivy scan results to code scanning
+        uses: github/codeql-action/upload-sarif@v4
+        # SARIF must upload even when the scan found (and failed on)
+        # findings — otherwise the Security tab never shows what
+        # failed the check.
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-fs'

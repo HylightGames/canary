@@ -1,0 +1,36 @@
+# Canary Trivy configuration — consumed by .github/workflows/trivy.yml
+# (`trivy-config` input) and reproducible locally via
+# `trivy fs --config .github/trivy.yaml .`.
+#
+# Deliberately minimal: severity/scanner selection lives here so every
+# invocation (CI, local runs) enforces the same bar; the workflow owns
+# only what must differ per invocation (scan target, SARIF output path,
+# exit code). Precedence reminders: action flags beat this file, so do
+# not duplicate these keys as action inputs or the file silently stops
+# being authoritative.
+
+# HIGH and CRITICAL only. MEDIUM/LOW/UNKNOWN never fail the build and
+# never reach code scanning — they are noise at this project's scale,
+# not signal. Raise this list only with a recorded reason.
+severity:
+  - HIGH
+  - CRITICAL
+
+# What gets scanned: dependency/OS vulnerabilities, builtin secret
+# rules, and misconfigurations (currently a no-op set — this repo
+# ships no Dockerfiles, Terraform, or Kubernetes manifests — kept so
+# the day IaC appears it is scanned without a workflow change).
+scanners:
+  - vuln
+  - secret
+  - misconfig
+
+# OS + language-library vulnerabilities (covers Cargo.lock).
+vuln-type: os,library
+
+# Only fail on vulnerabilities that actually have a fix available.
+# An unfixed upstream CVE with no remediation path would otherwise
+# hard-block every PR with unactionable red — the finding still
+# appears in the SARIF/code-scanning record, it just doesn't fail
+# the check. Revisit if an ignored-unfixed item needs tracking.
+ignore-unfixed: true
