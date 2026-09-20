@@ -54,7 +54,18 @@ gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 png = "0.18.1"
 
 [dev-dependencies]
+divan = { version = "5", package = "codspeed-divan-compat" }
 # Property tests for the store's generational-aliasing behavior, the
 # Phase-10 bounded parser fuzz (GLB/PNG byte mutations), and AssetId
 # totality/round-trip properties.
 proptest = "1"
+
+# Synthetic PNG fixtures for `benches/assets.rs`, written to a temporary
+# directory rather than read from `tests/fixtures/` (those are Git-LFS
+# objects; a benchmark measuring pointer text instead of image bytes
+# would be silently meaningless).
+tempfile = "3"
+
+[[bench]]
+name = "assets"
+harness = false

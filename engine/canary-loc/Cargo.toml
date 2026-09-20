@@ -53,3 +53,8 @@ unic-langid-macros-impl = "0.9"
 [dev-dependencies]
 tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
 tempfile = "3"
+divan = { version = "5", package = "codspeed-divan-compat" }
+
+[[bench]]
+name = "localization"
+harness = false

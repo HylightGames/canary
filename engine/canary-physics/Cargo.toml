@@ -34,5 +34,10 @@ thiserror = "2.0.19"
 rapier2d = "0.35"
 
 [dev-dependencies]
+divan = { version = "5", package = "codspeed-divan-compat" }
 proptest = "1"
 tempfile = "3"
+
+[[bench]]
+name = "physics"
+harness = false

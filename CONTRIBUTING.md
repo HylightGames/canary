@@ -139,6 +139,8 @@ For changes involving build orchestration, asset processing, development tooling
 * [`docs/development/build-system.md`](docs/development/build-system.md)
 * `tools/xtask`
 
+For changes to a benchmarked subsystem (ECS, scheduler, transforms, assets, localization, physics, the render bridge), run that crate's benchmarks before and after — see [`docs/development/benchmarking.md`](docs/development/benchmarking.md). Benchmarks report rather than block: a regression is something to explain in the pull request, not an automatic failure.
+
 For subsystem-specific work, run the tests and checks documented by that subsystem.
 
 ---
