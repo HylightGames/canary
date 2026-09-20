@@ -814,4 +814,225 @@ mod tests {
 
         assert_eq!(backend.entity_handle(entity), None);
     }
+
+    /// Backend parity with the trait contract: non-finite poses fail
+    /// typed (creation has no previous state worth retaining), and any
+    /// non-fixed dt — including zero — fails as a usage error.
+    #[test]
+    fn rapier_rejects_nonfinite_pose_and_nonfixed_dt_typed() {
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+
+        assert!(matches!(
+            backend.create_body(&RigidBody::dynamic(), [f32::NAN, 0.0], 0.0),
+            Err(PhysicsError::NonFinitePose { .. })
+        ));
+        assert!(matches!(
+            backend.create_body(&RigidBody::dynamic(), [0.0, 0.0], f32::INFINITY),
+            Err(PhysicsError::NonFinitePose { .. })
+        ));
+
+        for bad_dt in [0.0, 1.0 / 30.0, 1.0 / 60.0 + 1e-6] {
+            let error = backend
+                .step(bad_dt)
+                .expect_err("only exactly FIXED_DT may step");
+            assert_eq!(
+                error,
+                PhysicsError::VariableTimestep {
+                    got: bad_dt,
+                    expected: FIXED_DT,
+                },
+                "dt={bad_dt}"
+            );
+        }
+        assert!(matches!(
+            backend.step(f32::NAN),
+            Err(PhysicsError::VariableTimestep { .. })
+        ));
+    }
+
+    /// Backend parity: construction with non-finite gravity degrades to
+    /// zero gravity (documented in `RapierBackend::new`), while
+    /// `set_gravity` with non-finite input retains the previous value.
+    #[test]
+    fn rapier_gravity_hygiene_falls_back_on_build_and_retains_on_set() {
+        let backend = RapierBackend::new([0.0, f32::NAN]);
+        assert_eq!(backend.gravity(), [0.0, 0.0]);
+
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+        backend.set_gravity([f32::INFINITY, 0.0]);
+        assert_eq!(backend.gravity(), [0.0, -9.81]);
+        backend.set_gravity([0.0, -1.62]);
+        assert_eq!(backend.gravity(), [0.0, -1.62]);
+    }
+
+    /// Backend parity: attach validates shape AND material before
+    /// touching solver state, fails typed on a stale body, and mints a
+    /// distinct collider handle per attach.
+    #[test]
+    fn rapier_attach_validates_material_and_body_liveness() {
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+        let body = backend
+            .create_body(&RigidBody::dynamic(), [0.0, 5.0], 0.0)
+            .expect("finite pose must create");
+
+        assert_eq!(
+            backend
+                .attach_collider(
+                    body,
+                    &Collider::ball(0.5),
+                    &ColliderMaterial::new(-0.1, 0.0),
+                )
+                .expect_err("negative friction must fail"),
+            PhysicsError::InvalidFriction { friction: -0.1 }
+        );
+        assert_eq!(
+            backend
+                .attach_collider(body, &Collider::ball(0.5), &ColliderMaterial::new(0.5, 1.5),)
+                .expect_err("restitution above one must fail"),
+            PhysicsError::InvalidRestitution { restitution: 1.5 }
+        );
+
+        let first = backend
+            .attach_collider(body, &Collider::ball(0.5), &ColliderMaterial::default())
+            .expect("valid attach must succeed");
+        let second = backend
+            .attach_collider(body, &Collider::ball(0.5), &ColliderMaterial::default())
+            .expect("valid attach must succeed");
+        assert_ne!(first, second, "each attach mints a distinct handle");
+
+        assert!(backend.remove_body(body));
+        assert_eq!(
+            backend
+                .attach_collider(body, &Collider::ball(0.5), &ColliderMaterial::default())
+                .expect_err("attach to a removed body must fail"),
+            PhysicsError::UnknownBody {
+                index: body.index(),
+                generation: body.generation(),
+            }
+        );
+    }
+
+    /// Kinematic driving routes only to position-kinematic bodies: a
+    /// dynamic body must never be teleported by the frame loop (it would
+    /// fight integration), and stale/non-finite inputs drive nothing.
+    #[test]
+    fn kinematic_drive_reaches_only_position_kinematic_bodies() {
+        let mut backend = RapierBackend::new([0.0, 0.0]);
+        let platform = backend
+            .create_body(&RigidBody::kinematic_position(), [0.0, 0.0], 0.0)
+            .expect("finite pose must create");
+        let falling = backend
+            .create_body(&RigidBody::dynamic(), [0.0, 5.0], 0.0)
+            .expect("finite pose must create");
+
+        assert!(backend.drive_kinematic_pose(platform, [3.0, 1.0], 0.0));
+        assert!(!backend.drive_kinematic_pose(falling, [3.0, 1.0], 0.0));
+        assert!(!backend.drive_kinematic_pose(platform, [f32::NAN, 1.0], 0.0));
+        assert!(!backend.drive_kinematic_pose(
+            BodyHandle::from_raw_parts(9999, 0),
+            [1.0, 1.0],
+            0.0
+        ));
+
+        backend.step(FIXED_DT).expect("fixed step must succeed");
+        let (position, _) = backend
+            .sync_transform(platform)
+            .expect("live body must sync");
+        assert!(
+            (position.x - 3.0).abs() < 1e-4 && (position.y - 1.0).abs() < 1e-4,
+            "the driven platform must reach its scripted pose: {position:?}"
+        );
+    }
+
+    /// Per-body gravity scale and axis locks apply to live bodies and
+    /// skip stale handles and non-finite scales without touching solver
+    /// state.
+    #[test]
+    fn gravity_scale_and_locks_apply_live_and_skip_stale() {
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+        let body = backend
+            .create_body(&RigidBody::dynamic(), [0.0, 5.0], 0.0)
+            .expect("finite pose must create");
+        let stale = BodyHandle::from_raw_parts(body.index(), body.generation() + 1);
+
+        assert!(backend.set_body_gravity_scale(body, 0.0));
+        assert!(!backend.set_body_gravity_scale(body, f32::NAN));
+        assert!(!backend.set_body_gravity_scale(stale, 1.0));
+        assert!(backend.set_body_locked_axes(body, &crate::LockedAxes::rotation_locked()));
+        assert!(!backend.set_body_locked_axes(stale, &crate::LockedAxes::rotation_locked()));
+    }
+
+    /// Soak: fifty bodies stepped for four simulated seconds stay live,
+    /// countable, and finite — no panic, no leak, no NaN poisoning.
+    #[test]
+    fn fifty_bodies_survive_four_simulated_seconds_finite() {
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+        let mut bodies = Vec::with_capacity(50);
+        for i in 0..50 {
+            let body = backend
+                .create_body(
+                    &RigidBody::dynamic(),
+                    [(i as f32 % 10.0) - 5.0, 5.0 + (i as f32 / 10.0)],
+                    0.0,
+                )
+                .expect("finite pose must create");
+            backend
+                .attach_collider(body, &Collider::ball(0.3), &ColliderMaterial::default())
+                .expect("valid collider must attach");
+            bodies.push(body);
+        }
+
+        for _ in 0..240 {
+            backend.step(FIXED_DT).expect("fixed step must succeed");
+        }
+
+        assert_eq!(backend.body_count(), 50);
+        for body in bodies {
+            let (position, angle) = backend
+                .sync_transform(body)
+                .expect("every soaked body must still sync");
+            assert!(
+                position.x.is_finite() && position.y.is_finite() && angle.is_finite(),
+                "soaked poses must stay finite: {position:?} {angle}"
+            );
+        }
+    }
+
+    /// Removing one body mid-soak leaves its neighbours live and synced:
+    /// despawn-racing-step degrades to a skip, never cross-talk.
+    #[test]
+    fn mid_soak_removal_leaves_neighbours_live() {
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+        let mut bodies = Vec::with_capacity(8);
+        for i in 0..8 {
+            let body = backend
+                .create_body(&RigidBody::dynamic(), [i as f32 - 4.0, 5.0], 0.0)
+                .expect("finite pose must create");
+            backend
+                .attach_collider(body, &Collider::ball(0.3), &ColliderMaterial::default())
+                .expect("valid collider must attach");
+            bodies.push(body);
+        }
+        for _ in 0..30 {
+            backend.step(FIXED_DT).expect("fixed step must succeed");
+        }
+
+        let removed = bodies[3];
+        assert!(backend.remove_body(removed));
+        for _ in 0..30 {
+            backend.step(FIXED_DT).expect("fixed step must succeed");
+        }
+
+        assert_eq!(backend.body_count(), 7);
+        assert!(backend.sync_transform(removed).is_none());
+        for (i, body) in bodies.iter().enumerate() {
+            if i == 3 {
+                continue;
+            }
+            assert!(
+                backend.sync_transform(*body).is_some(),
+                "neighbour {i} must stay live"
+            );
+        }
+    }
 }

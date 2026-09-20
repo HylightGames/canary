@@ -978,4 +978,368 @@ mod tests {
         let time = world.resource::<SimulationTime>().unwrap().seconds;
         assert!((time - 2.0 * FIXED_DT).abs() < 1e-6);
     }
+
+    #[test]
+    fn missing_frame_delta_defaults_to_exactly_one_step() {
+        // No subsystem around the system (no FrameDelta resource): the
+        // least surprising degradation is exactly one fixed step.
+        let mut world = World::new();
+        let body = spawn_falling(&mut world, 5.0);
+
+        physics_step_system(&mut world);
+
+        let time = world
+            .resource::<SimulationTime>()
+            .expect("system must ensure SimulationTime")
+            .seconds;
+        assert!((time - FIXED_DT).abs() < 1e-6);
+        assert!(
+            translation_of(&world, body).y < 5.0,
+            "one default step must move the body"
+        );
+    }
+
+    #[test]
+    fn huge_frame_time_clamps_to_four_steps_and_resets() {
+        // A ten-second hitch at the system level: four steps run,
+        // simulation time advances by exactly four quanta, and the
+        // accumulator resets so the next tick starts clean.
+        let mut world = World::new();
+        spawn_falling(&mut world, 5.0);
+
+        tick_with(&mut world, 10.0);
+
+        let time = world.resource::<SimulationTime>().unwrap().seconds;
+        assert!((time - 4.0 * FIXED_DT).abs() < 1e-6);
+        assert_eq!(
+            world.resource::<PhysicsClock>().unwrap().accumulator,
+            0.0,
+            "the spiral guard drops the leftover, never carries the debt"
+        );
+
+        tick_with(&mut world, FIXED_DT);
+        let time = world.resource::<SimulationTime>().unwrap().seconds;
+        assert!((time - 5.0 * FIXED_DT).abs() < 1e-6);
+    }
+
+    #[test]
+    fn zero_frame_time_steps_nothing_and_moves_nothing() {
+        let mut world = World::new();
+        let body = spawn_falling(&mut world, 5.0);
+        let before = translation_of(&world, body);
+
+        tick_with(&mut world, 0.0);
+
+        let after = translation_of(&world, body);
+        assert!((after.x - before.x).abs() < 1e-9 && (after.y - before.y).abs() < 1e-9);
+        assert_eq!(
+            world.resource::<SimulationTime>().unwrap().seconds,
+            0.0,
+            "zero steps advance zero simulation time"
+        );
+    }
+
+    #[test]
+    fn nan_transform_entity_never_simulates_while_neighbours_fall() {
+        // A non-finite Transform is caller error the trait reports; the
+        // system answers by not simulating that entity — never by failing
+        // the tick, and never by poisoning the backend.
+        let mut world = World::new();
+        let bad = world.spawn();
+        world.insert(bad, RigidBody::dynamic()).unwrap();
+        world.insert(bad, Collider::ball(0.5)).unwrap();
+        world
+            .insert(
+                bad,
+                Transform::from_translation(glam::Vec3::new(f32::NAN, 5.0, 0.0)),
+            )
+            .unwrap();
+        let good = spawn_falling(&mut world, 5.0);
+
+        tick_with(&mut world, FIXED_DT);
+
+        assert_eq!(
+            world.resource::<RapierBackend>().unwrap().body_count(),
+            1,
+            "only the finite entity owns a solver body"
+        );
+        assert!(
+            translation_of(&world, good).y < 5.0,
+            "the healthy neighbour still falls"
+        );
+    }
+
+    #[test]
+    fn degenerate_collider_entity_does_not_fail_the_tick() {
+        // Creation succeeds (the body is real); the degenerate attach is
+        // refused with the validator's typed error and skipped. The tick
+        // completes and healthy bodies are unaffected.
+        let mut world = World::new();
+        let bad = world.spawn();
+        world.insert(bad, RigidBody::dynamic()).unwrap();
+        world.insert(bad, Collider::ball(-1.0)).unwrap();
+        world
+            .insert(
+                bad,
+                Transform::from_translation(glam::Vec3::new(10.0, 5.0, 0.0)),
+            )
+            .unwrap();
+        let good = spawn_falling(&mut world, 5.0);
+
+        tick_with(&mut world, FIXED_DT);
+
+        assert_eq!(
+            world.resource::<RapierBackend>().unwrap().body_count(),
+            2,
+            "the body exists; only its collider was refused"
+        );
+        assert!(
+            translation_of(&world, good).y < 5.0,
+            "the healthy neighbour still falls"
+        );
+    }
+
+    #[test]
+    fn removing_the_body_component_reaps_the_solver_body() {
+        // Despawn is not the only teardown: losing `RigidBody` while the
+        // entity lives must also destroy the solver-side body (the reap
+        // path keys on component presence, not entity liveness).
+        let mut world = World::new();
+        let body = spawn_falling(&mut world, 5.0);
+        tick_with(&mut world, FIXED_DT);
+        assert_eq!(world.resource::<RapierBackend>().unwrap().body_count(), 1);
+
+        world.remove::<RigidBody>(body);
+        tick_with(&mut world, FIXED_DT);
+
+        assert_eq!(
+            world.resource::<RapierBackend>().unwrap().body_count(),
+            0,
+            "the component-less entity must own no solver body"
+        );
+    }
+
+    #[test]
+    fn velocity_component_seeds_motion_through_the_solver() {
+        // The game drives motion through `Velocity`, never by integrating
+        // poses itself: a strong +x seed must displace +x in one step.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, RigidBody::dynamic()).unwrap();
+        world.insert(entity, Collider::ball(0.5)).unwrap();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(0.0, 5.0, 0.0)),
+            )
+            .unwrap();
+        world
+            .insert(
+                entity,
+                Velocity {
+                    linvel: [10.0, 0.0],
+                    angvel: 0.0,
+                },
+            )
+            .unwrap();
+
+        tick_with(&mut world, FIXED_DT);
+
+        let at = translation_of(&world, entity);
+        assert!(at.x > 0.05, "one step at 10 units/s must carry +x: {at:?}");
+    }
+
+    #[test]
+    fn kinematic_body_follows_its_scripted_pose() {
+        // Position-kinematic bodies are posed by game code: the system
+        // drives the solver from the entity's `Transform` each tick, so
+        // the synced pose tracks the script.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(entity, RigidBody::kinematic_position())
+            .unwrap();
+        world.insert(entity, Collider::cuboid([1.0, 0.25])).unwrap();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(0.0, 2.0, 0.0)),
+            )
+            .unwrap();
+
+        tick_with(&mut world, FIXED_DT);
+        world
+            .get_mut::<Transform>(entity)
+            .expect("entity must still carry Transform")
+            .translation = glam::Vec3::new(2.0, 3.0, 0.0);
+        tick_with(&mut world, FIXED_DT);
+
+        let at = translation_of(&world, entity);
+        assert!(
+            (at.x - 2.0).abs() < 1e-3 && (at.y - 3.0).abs() < 1e-3,
+            "the platform must track its script: {at:?}"
+        );
+    }
+
+    // Accumulator policy property: over arbitrary frame-time sequences
+    // every tick steps at most MAX_STEPS_PER_TICK and the banked
+    // remainder stays finite, non-negative, and below one quantum (up to
+    // float rounding) — the spiral guard as an invariant, not examples.
+    // Mirrors the `canary-ecs` op-sequence `proptest` style.
+    proptest::proptest! {
+        #[test]
+        fn accumulator_policy_holds_over_random_frame_sequences(
+            dts in proptest::collection::vec(proptest::num::f32::ANY, 1..40),
+        ) {
+            let mut accumulator = 0.0f32;
+            for dt in dts {
+                let steps = consume_accumulator(&mut accumulator, dt);
+                proptest::prop_assert!(steps <= MAX_STEPS_PER_TICK);
+                proptest::prop_assert!(accumulator.is_finite());
+                proptest::prop_assert!(accumulator >= 0.0);
+                proptest::prop_assert!(accumulator < FIXED_DT * 1.001);
+            }
+        }
+    }
+
+    // Sync preservation property: over arbitrary finite poses, syncing
+    // writes exactly x/y plus the z-twist while preserving plane depth,
+    // off-axis swing, and scale — the preservation rule as an invariant,
+    // not one example. The input pose is the model oracle (mirroring the
+    // `canary-ecs` op-sequence `proptest` style): everything the solver
+    // must not see comes back bit-identical, everything it owns lands
+    // exactly.
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config {
+            cases: 256,
+            ..proptest::test_runner::Config::default()
+        })]
+        #[test]
+        fn sync_preserves_non_simulated_parts_over_random_poses(
+            x in -1000.0f32..1000.0f32,
+            y in -1000.0f32..1000.0f32,
+            z in -1000.0f32..1000.0f32,
+            qx in -1.0f32..1.0f32,
+            qy in -1.0f32..1.0f32,
+            qz in -1.0f32..1.0f32,
+            qw in -1.0f32..1.0f32,
+            sx in 0.01f32..100.0f32,
+            sy in 0.01f32..100.0f32,
+            sz in 0.01f32..100.0f32,
+            angle in -std::f32::consts::PI..std::f32::consts::PI,
+        ) {
+            let rotation = glam::Quat::from_xyzw(qx, qy, qz, qw);
+            proptest::prop_assume!(rotation.length_squared() > 1e-6);
+            let mut transform = Transform {
+                translation: glam::Vec3::new(x, y, z),
+                rotation,
+                scale: glam::Vec3::new(sx, sy, sz),
+            };
+            let before_swing = {
+                let normalized = rotation.normalize();
+                let components = normalized.to_array();
+                let twist =
+                    glam::Quat::from_xyzw(0.0, 0.0, components[2], components[3]).normalize();
+                twist.inverse() * normalized
+            };
+
+            apply_synced_pose(&mut transform, glam::Vec2::new(x, y), angle);
+
+            proptest::prop_assert_eq!(transform.translation.x.to_bits(), x.to_bits());
+            proptest::prop_assert_eq!(transform.translation.y.to_bits(), y.to_bits());
+            proptest::prop_assert_eq!(transform.translation.z.to_bits(), z.to_bits());
+            proptest::prop_assert_eq!(transform.scale, glam::Vec3::new(sx, sy, sz));
+            let twisted = z_twist_angle(transform.rotation) - angle;
+            proptest::prop_assert!(
+                twisted.abs() < 1e-4,
+                "z-twist must land on the synced angle: got {twisted} for angle {angle}"
+            );
+            let after = transform.rotation.normalize().to_array();
+            let twist =
+                glam::Quat::from_xyzw(0.0, 0.0, after[2], after[3]).normalize();
+            let after_swing = twist.inverse() * transform.rotation.normalize();
+            for (a, b) in before_swing
+                .to_array()
+                .iter()
+                .zip(after_swing.to_array())
+            {
+                proptest::prop_assert!(
+                    (a - b).abs() < 1e-4,
+                    "off-axis swing must survive: {before_swing:?} vs {after_swing:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn despawn_churn_mid_run_keeps_survivors_simulating() {
+        // System-level soak with teardown churn: a dozen bodies fall,
+        // half are despawned mid-run, the rest must keep falling with
+        // exact counts and finite poses — reap-under-load, not just
+        // reap-once.
+        let mut world = World::new();
+        let mut bodies = Vec::with_capacity(12);
+        for i in 0..12 {
+            bodies.push(spawn_falling(&mut world, 5.0 + i as f32));
+        }
+        for _ in 0..30 {
+            tick_with(&mut world, FIXED_DT);
+        }
+
+        for (index, entity) in bodies.iter().enumerate() {
+            if index % 2 == 0 {
+                world.despawn(*entity).unwrap();
+            }
+        }
+        for _ in 0..30 {
+            tick_with(&mut world, FIXED_DT);
+        }
+
+        assert_eq!(
+            world.resource::<RapierBackend>().unwrap().body_count(),
+            6,
+            "exactly the six survivors must own solver bodies"
+        );
+        for (index, entity) in bodies.iter().enumerate() {
+            if index % 2 == 0 {
+                continue;
+            }
+            let at = translation_of(&world, *entity);
+            assert!(
+                at.x.is_finite() && at.y.is_finite(),
+                "survivor {index} must stay finite: {at:?}"
+            );
+            assert!(
+                at.y < 5.0 + index as f32,
+                "survivor {index} must have fallen: {at:?}"
+            );
+        }
+        let time = world.resource::<SimulationTime>().unwrap().seconds;
+        assert!(
+            (time - 60.0 * FIXED_DT).abs() < 1e-4,
+            "sixty stepped ticks must read sixty quanta: {time}"
+        );
+    }
+
+    #[test]
+    fn nonfinite_gravity_scale_is_skipped_while_the_body_still_falls() {
+        // A NaN gravity scale is caller error the backend refuses; the
+        // system answers by keeping the previous (default full) scale
+        // and simulating on — never by failing the tick or poisoning
+        // the body.
+        let mut world = World::new();
+        let entity = spawn_falling(&mut world, 5.0);
+        world.insert(entity, GravityScale(f32::NAN)).unwrap();
+
+        for _ in 0..30 {
+            tick_with(&mut world, FIXED_DT);
+        }
+
+        let at = translation_of(&world, entity);
+        assert!(
+            at.y.is_finite() && at.y < 5.0,
+            "the body must still fall on the retained scale: {at:?}"
+        );
+        assert_eq!(world.resource::<RapierBackend>().unwrap().body_count(), 1);
+    }
 }

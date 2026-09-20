@@ -581,6 +581,99 @@ mod tests {
     }
 
     #[test]
+    fn capsule_with_nan_half_height_or_infinite_radius_returns_typed_error() {
+        assert!(matches!(
+            Collider::capsule(f32::NAN, 0.5).validate(),
+            Err(PhysicsError::InvalidHalfHeight { .. })
+        ));
+        assert_eq!(
+            Collider::capsule(0.0, 0.5)
+                .validate()
+                .expect_err("zero half-height must fail"),
+            PhysicsError::InvalidHalfHeight { half_height: 0.0 }
+        );
+        assert_eq!(
+            Collider::capsule(1.0, f32::INFINITY)
+                .validate()
+                .expect_err("infinite radius must fail"),
+            PhysicsError::InvalidRadius {
+                radius: f32::INFINITY,
+            }
+        );
+    }
+
+    #[test]
+    fn cuboid_with_infinite_half_extent_returns_typed_error() {
+        let half_extents = [f32::INFINITY, 1.0];
+
+        let error = Collider::cuboid(half_extents)
+            .validate()
+            .expect_err("must fail");
+
+        assert_eq!(error, PhysicsError::InvalidHalfExtents { half_extents });
+    }
+
+    #[test]
+    fn material_boundaries_zero_friction_and_full_restitution_are_valid() {
+        assert!(ColliderMaterial::new(0.0, 0.0).validate().is_ok());
+        assert!(ColliderMaterial::new(0.0, 1.0).validate().is_ok());
+        assert!(ColliderMaterial::new(10.0, 1.0).validate().is_ok());
+    }
+
+    #[test]
+    fn material_with_nonfinite_friction_or_negative_restitution_fails_typed() {
+        assert!(matches!(
+            ColliderMaterial::new(f32::NAN, 0.0).validate(),
+            Err(PhysicsError::InvalidFriction { .. })
+        ));
+        assert_eq!(
+            ColliderMaterial::new(f32::INFINITY, 0.0)
+                .validate()
+                .expect_err("infinite friction must fail"),
+            PhysicsError::InvalidFriction {
+                friction: f32::INFINITY,
+            }
+        );
+        assert_eq!(
+            ColliderMaterial::new(0.5, -0.25)
+                .validate()
+                .expect_err("negative restitution must fail"),
+            PhysicsError::InvalidRestitution { restitution: -0.25 }
+        );
+        assert_eq!(
+            ColliderMaterial::new(0.5, f32::INFINITY)
+                .validate()
+                .expect_err("infinite restitution must fail"),
+            PhysicsError::InvalidRestitution {
+                restitution: f32::INFINITY,
+            }
+        );
+    }
+
+    // Validation property: any finite positive scalar describes a valid
+    // shape, so no sequence of in-range authoring inputs can be rejected.
+    // Mirrors the `canary-ecs` op-sequence `proptest` style (model-first
+    // oracle, arbitrary inputs, exact agreement).
+    proptest::proptest! {
+        #[test]
+        fn finite_positive_scalars_always_validate(
+            radius in 1e-6f32..1e6f32,
+            hx in 1e-6f32..1e6f32,
+            hy in 1e-6f32..1e6f32,
+            half_height in 1e-6f32..1e6f32,
+        ) {
+            proptest::prop_assert!(radius.is_finite() && radius > 0.0);
+            proptest::prop_assert!(Collider::ball(radius).validate().is_ok());
+            proptest::prop_assert!(Collider::cuboid([hx, hy]).validate().is_ok());
+            proptest::prop_assert!(Collider::capsule(half_height, radius).validate().is_ok());
+            proptest::prop_assert!(
+                ColliderMaterial::new(radius, 1.0).validate().is_ok(),
+                "any finite non-negative friction with restitution 1.0 is valid"
+            );
+        }
+    }
+
+    #[test]
     fn default_config_is_earth_like_2d_rapier() {
         let config = PhysicsConfig::default();
 
