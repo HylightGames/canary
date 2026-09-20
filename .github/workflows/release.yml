@@ -19,6 +19,13 @@ on:
     tags:
       - "v*"
 
+# Least privilege default: the `build` job below only checks out code
+# and runs local cargo commands. The `publish` job declares its own
+# `contents: write` (needed to create the GitHub Release), which
+# overrides this default for that job only.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Verify release build (${{ matrix.os }})

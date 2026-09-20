@@ -10,6 +10,13 @@ on:
   pull_request:
     branches: [stable, dev]
 
+# Least privilege: every job here only checks out code and runs local
+# build/test commands, so read-only contents suffices for all of them.
+# (A job needing more must declare its own `permissions:` block, which
+# overrides this default.)
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   # Deliberately NOT setting a blanket RUSTFLAGS="-D warnings" here.
