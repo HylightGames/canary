@@ -36,8 +36,8 @@ mod systems;
 mod textured_renderable;
 
 pub use extract::{
-    bake_scene_to_vertices, bake_scene_to_vertices_with_aspect, extract_scene, BakedFrame,
-    RenderItem,
+    bake_scene_to_vertices, bake_scene_to_vertices_with_aspect, extract_scene, extract_scene_into,
+    BakedFrame, ExtractScratch, RenderItem,
 };
 pub use mesh_renderable::{expand_mesh_to_soup, extract_mesh_scene, MeshRenderable};
 pub use pipeline::{

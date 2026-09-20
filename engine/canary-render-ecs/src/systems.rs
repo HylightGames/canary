@@ -26,13 +26,17 @@ use canary_scheduler::{Schedule, SystemAccess};
 use canary_transform::GlobalTransform;
 
 use crate::{
-    bake_scene_to_vertices, bake_textured_scene_to_vertices, extract_mesh_scene, extract_scene,
-    extract_textured_scene, BakedFrame, BakedTexturedFrame, MeshRenderable, Renderable,
-    TexturedRenderable,
+    bake_scene_to_vertices, bake_textured_scene_to_vertices, extract_mesh_scene,
+    extract_scene_into, extract_textured_scene, BakedFrame, BakedTexturedFrame, ExtractScratch,
+    MeshRenderable, Renderable, TexturedRenderable,
 };
 
 /// Declares the bake system's data access: reads the `GlobalTransform` +
-/// `Renderable` components, writes the `BakedFrame` resource.
+/// `Renderable` components, writes the `BakedFrame` and `ExtractScratch`
+/// resources (the scratch write is the take/put-back in
+/// [`bake_scene_system`]; it keeps the declaration honest for the
+/// scheduler's conflict rules, and changes no staging — a writer is
+/// already solo).
 ///
 /// The `writes_resource::<BakedFrame>()` clause is load-bearing, not
 /// incidental, and exists for exactly one reason: the ordering mechanism this
@@ -73,11 +77,25 @@ pub fn bake_access() -> SystemAccess {
         .reads::<GlobalTransform>()
         .reads::<Renderable>()
         .writes_resource::<BakedFrame>()
+        .writes_resource::<ExtractScratch>()
 }
 
 /// Bakes the current scene snapshot into the [`BakedFrame`](crate::BakedFrame)
-/// resource: [`extract_scene`] → [`bake_scene_to_vertices`] → overwrite the
-/// resource.
+/// resource: take the [`ExtractScratch`](crate::ExtractScratch) resource (or
+/// a fresh buffer on the first tick) → [`extract_scene_into`] refreshes it
+/// in place, reusing last tick's vertex buffers → [`bake_scene_to_vertices`]
+/// → overwrite both resources.
+///
+/// The scratch take/put-back is what makes the per-tick extract allocation
+/// free in steady state: the system itself is stateless (`FnMut(&mut World)`
+/// with no captured buffers — the scheduler's doctrine, pinned by the
+/// sequential-reuse test below), so cross-tick buffers live in the world as
+/// a resource, exactly like the [`BakedFrame`](crate::BakedFrame) they feed.
+/// [`World::remove_resource`](canary_ecs::World::remove_resource) hands over
+/// ownership (no borrow is held across the query), and re-inserting puts the
+/// refreshed buffers back for the next tick. Output is value-identical to a
+/// fresh extract every tick — any entity add/remove/resize only reallocates
+/// the affected slots (see [`extract_scene_into`](crate::extract_scene_into)).
 ///
 /// Runs as a scheduled write system (see [`register_render_bake`]); takes
 /// `&mut World` and nothing else. That signature is a doctrine point, not an
@@ -107,10 +125,18 @@ pub fn bake_access() -> SystemAccess {
 /// (there is at most one resource per type per world), so calling this system
 /// every tick unconditionally overwrites last frame's bake — no
 /// first-insert-vs-update branching is needed here, and a stale frame can
-/// never survive a tick.
+/// never survive a tick. The same overwrite holds for the scratch: the
+/// refreshed buffers replace last tick's, so a shrunken entity list can
+/// never leave stale slots behind (the truncate in
+/// [`extract_scene_into`](crate::extract_scene_into) already dropped them).
 pub fn bake_scene_system(world: &mut World) {
-    let items = extract_scene(world);
-    let vertices = bake_scene_to_vertices(&items);
+    let mut scratch = world
+        .remove_resource::<ExtractScratch>()
+        .map(|scratch| scratch.0)
+        .unwrap_or_default();
+    extract_scene_into(world, &mut scratch);
+    let vertices = bake_scene_to_vertices(&scratch);
+    world.insert_resource(ExtractScratch(scratch));
     world.insert_resource(BakedFrame { vertices });
 }
 
@@ -185,12 +211,11 @@ pub fn bake_mesh_scene_system(world: &mut World) {
     if items.is_empty() {
         return;
     }
-    let mut vertices = world
-        .resource::<BakedFrame>()
-        .map(|frame| frame.vertices.clone())
-        .unwrap_or_default();
-    vertices.extend(bake_scene_to_vertices(&items));
-    world.insert_resource(BakedFrame { vertices });
+    let baked = bake_scene_to_vertices(&items);
+    match world.resource_mut::<BakedFrame>() {
+        Some(frame) => frame.vertices.extend(baked),
+        None => world.insert_resource(BakedFrame { vertices: baked }),
+    }
 }
 
 /// Registers [`bake_mesh_scene_system`] on `schedule` as a write system with
@@ -340,6 +365,76 @@ mod tests {
                 "baked vertex {actual} differs from fresh-global bake {want}"
             );
         }
+    }
+
+    #[test]
+    fn scratch_reuse_bakes_fresh_values_after_entity_churn() {
+        // Given: one triangle baked for a tick, so the scratch resource
+        // holds live buffers.
+        let mut world = World::new();
+        let first = world.spawn();
+        world
+            .insert(
+                first,
+                Transform::from_translation(glam::Vec3::new(-1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world.insert(first, red_triangle()).unwrap();
+        world
+            .insert(first, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        schedule.run(&mut world);
+        assert!(
+            world.resource::<ExtractScratch>().is_some(),
+            "the first tick must leave the scratch resource behind"
+        );
+
+        // When: the entity despawns and two new ones spawn (one with a
+        // bigger mesh), then the schedule runs again — the scratch
+        // refreshes over stale slots with a shorter entity list.
+        world.despawn(first).unwrap();
+        for x in [2.0, 4.0] {
+            let entity = world.spawn();
+            world
+                .insert(
+                    entity,
+                    Transform::from_translation(glam::Vec3::new(x, 0.0, 0.0)),
+                )
+                .unwrap();
+            let mut verts = red_triangle().vertices.clone();
+            if x > 3.0 {
+                verts.extend_from_slice(&red_triangle().vertices);
+            }
+            world
+                .insert(entity, Renderable::new(verts, [0.0, 1.0, 0.0]))
+                .unwrap();
+            world
+                .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+                .unwrap();
+        }
+        schedule.run(&mut world);
+
+        // Then: the frame equals a fresh extract+bake of the new world —
+        // 3 + 6 vertices through fresh globals, with no ghost of the
+        // despawned triangle.
+        let frame = world
+            .resource::<BakedFrame>()
+            .expect("second tick must bake");
+        assert_eq!(
+            frame.vertices.len(),
+            (3 + 6) * 5,
+            "two triangles plus a doubled triangle, nothing stale"
+        );
+        let fresh_items = crate::extract_scene(&world);
+        assert_eq!(fresh_items.len(), 2);
+        assert_eq!(
+            frame.vertices,
+            bake_scene_to_vertices(&fresh_items),
+            "the reused-scratch frame must equal a fresh extract+bake"
+        );
     }
 
     #[test]
