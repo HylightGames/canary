@@ -121,7 +121,30 @@ described in [core-runtime.md](core-runtime.md) exists to build it against.
 
 ## Status in this foundation
 
-Entirely architectural. No `canary-physics` crate exists yet; the
-`PhysicsBackend` trait itself isn't implemented in v0.0.1's code. This
-is intentional scope discipline — see
-[`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md).
+2D slice implemented (`v0.0.11`, on `dev`, not yet tagged); 3D still
+direction. The `canary-physics` crate exists: minimal components
+(`RigidBody` with dynamic/fixed/position-kinematic roles; `Collider`
+with ball/cuboid/capsule; `Velocity`, `GravityScale`, `LockedAxes`,
+one `ColliderMaterial`), the object-safe leak-free `PhysicsBackend`
+trait (no third-party types in public signatures), a private Rapier2D
+backend (`rapier2d = "0.35"`, locked at 0.35.3), and a fixed-step
+system (`PhysicsClock` accumulator plus `SimulationTime`, at most four
+`1/60` s steps per tick with the leftover dropped) registered first
+in `canary-runtime`'s subsystem schedule, ahead of transform
+propagation and every render bake. A ground plus falling-box plus
+scripted-platform scene proves simulation through to pixels
+(headless tests in the normal suite, three pixel tests
+`#[ignore]`-gated for real Vulkan ICDs), with zero RHI churn.
+Determinism is scoped to single-machine repeatability (same steps,
+bit-identical trajectory), not cross-platform.
+
+Backend selection lives in the `PhysicsConfig` resource as real data
+(`dimension = "2d"`, `backend = "rapier"`, both enums
+`#[non_exhaustive]` so 3D arrives additively) — but only Rapier2D
+exists behind it today. Jolt stays the canonical 3D backend and
+Rapier3D the alternative, both landing with the 3D release
+(post-`v0.1.0`); a Box2D backend was measured against (3.2.0,
+throwaway harness, rapier faster at 1.13–1.19x on the N-box pile)
+and not shipped. Joints, scene queries, and the remaining collider
+shapes are named deferred items with owning futures, not gaps. Full
+record: [`docs/roadmap/v0.0.11-roadmap.md`](../roadmap/v0.0.11-roadmap.md).

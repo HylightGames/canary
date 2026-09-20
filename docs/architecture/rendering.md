@@ -387,8 +387,11 @@ selection, sampler choice, mipmaps, sRGB transfer-function handling,
 blending, a shader-variant system); swapchain and window-surface
 presentation (everything here is still offscreen color targets); a
 real camera component (view matrix, projection choice); and the
-App-level scheduler that would order rendering against physics,
-audio, and UI once those exist. Absences stated plainly: no
+broader App-level scheduler that would order rendering against audio
+and UI once those exist (physics ordering already landed: the physics
+step registers first in the subsystem schedule, ahead of propagation
+and every bake — see
+[`docs/architecture/physics.md`](physics.md#status-in-this-foundation)). Absences stated plainly: no
 swapchain, no depth, no materials — single-texture sampling only, no
 async loading, no cooking, no cache, no hot reload, no importers, and
 no second mesh or texture format.

@@ -438,6 +438,78 @@ mesh/texture formats, mipmaps, and sRGB handling past
 normalize-to-RGBA8 — see the roadmap doc for the reasoning behind
 each.
 
+## `v0.0.11` — Implemented, not yet tagged
+
+Full detail: [`v0.0.11-roadmap.md`](v0.0.11-roadmap.md) and
+[ADR 0019](../decisions/architecture-decision-records/0019-physics-backend-lineup.md).
+Single focus: 2D physics — real simulated bodies move real ECS
+`Transform`s, drawn through the renderer `v0.0.9`/`v0.0.10` built.
+
+- [x] New crate `canary-physics`, depending on `canary-ecs`,
+      `canary-scheduler`, and `canary-transform` plus `glam`/
+      `thiserror` and `rapier2d` (composition upward through
+      `canary-runtime`'s `EcsSubsystem`; nothing render-side knows
+      about it)
+- [x] Object-safe, leak-free `PhysicsBackend` trait (`create_body` /
+      `attach_collider` / fixed-only `step` / `sync_transform` /
+      `remove_body` / `set_velocity` / `apply_impulse` /
+      `set_gravity` / `gravity` / `body_count`): no rapier or
+      `nalgebra` type in any public signature, checked via `cargo
+      doc` plus grep; stale handles report `None`/`false`, creation
+      and stepping fail with typed `PhysicsError`
+- [x] Minimal components: `RigidBody` (dynamic, fixed,
+      position-kinematic), `Collider` (ball, cuboid, capsule, every
+      scalar validated finite and positive), `Velocity`,
+      `GravityScale`, `LockedAxes`, one `ColliderMaterial`, and the
+      `PhysicsConfig` resource (gravity plus ADR 0019
+      dimension/backend selection, `dimension = "2d"` / `backend =
+      "rapier"`, both `#[non_exhaustive]`)
+- [x] Private `RapierBackend` over rapier2d (`"0.35"`, locked at
+      `0.35.3`): generational slot map, per-step gravity forwarding,
+      `reset_forces` hygiene, boundary finiteness checks, sync-side
+      NaN guard that skips instead of poisoning; default features
+      only (no `parallel`, no `serde-serialize`)
+- [x] Fixed-step system (`PhysicsClock` accumulator plus
+      `SimulationTime`, distinct from ECS `Tick`; `FrameDelta`
+      resource through the existing `tick(dt)` seam, no `App`
+      redesign): at most four `1/60` s steps per tick, leftover
+      dropped by the spiral guard; sync writes x/y plus z-rotation
+      only, preserving plane depth, off-axis swing, and scale
+- [x] First-position registration (`register_physics_step` before
+      propagation, soup, mesh, and textured bakes), pinned both
+      directions: fresh global when first, provably stale global
+      when reversed
+- [x] Box2D measured against (3.2.0 via `boxdd`, throwaway harness
+      that never became a dependency): 0.053 vs 0.060 ms at 100
+      boxes, 0.171 vs 0.205 ms at 300 (rapier faster 1.13–1.19x);
+      no re-decision, rapier stands per ADR 0019, no Box2D backend
+      shipped
+- [x] Game proof (`engine/canary-render-ecs/tests/
+      physics_game_proof.rs`): ground, falling box, scripted
+      kinematic platform as z-pinned quads through the unchanged
+      soup bake (zero RHI churn) — 4 headless tests in the normal
+      suite, 3 pixel tests `#[ignore]`-gated for real Vulkan ICDs
+      with an unstepped-pipeline negative control
+- [x] Determinism scoped to single-machine repeatability (same
+      steps, bit-identical trajectory), proven at the bit level —
+      explicitly not cross-platform
+- [x] 66 `canary-physics` tests green, `cargo build`/`fmt
+      --check`/`test`/`doc` clean; `clippy` clean (`-D warnings`,
+      matching CI exactly) across the full workspace, with and
+      without `winit-backend`, plus the `wasm32-wasip2` check where
+      applicable; CI green including the rendering-integration job
+
+**Explicitly not in `v0.0.11`**: joints, scene queries,
+velocity-kinematic bodies, trimesh/heightfield/polyline colliders,
+sustained-force APIs (later physics milestones); 3D physics — Jolt
+(canonical) and Rapier3D (alternative) arrive with the 3D release,
+post-`v0.1.0`; a Box2D backend (measured, beaten, not shipped); a
+real 2D/orthographic camera (deferred with the renderer's camera
+work); `App`-level scheduler redesign and ECS rework (explicitly
+refused — the subsystem self-steps); input-driven control (the
+platform is pose-scripted, no input system yet) — see the roadmap
+doc for the reasoning behind each.
+
 ## Full architecture-to-implementation map
 
 Every documented subsystem, and where it actually stands. "Documented"
@@ -456,7 +528,7 @@ about working code in `engine/`.
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
 | Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6`. ECS-driven rendering via the `canary-render-ecs` bridge (CPU-bake, propagation-then-bake schedule, pixel-tested, spinning-cube rewritten on it); `v0.0.9`. File-loaded meshes through the unchanged RHI plus a single-texture sampling slice (additive trait methods, UVs on `Float32x2`), spinning-cube off `box.glb`; `v0.0.10` |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
-| Physics | ✅ | ❌ | Designed (2D+3D via Rapier); not yet scheduled |
+| Physics | ✅ | ✅ (2D slice) | `PhysicsBackend` trait + private rapier2d 0.35.3 backend, fixed-step system with spiral guard, first-position registration, game-plus-pixel proof; determinism is single-machine repeatability; `v0.0.11`. 3D (Jolt canonical, Rapier3D alternative) still direction, post-`v0.1.0` |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |
 | Scripting system | ✅ | ❌ | Depends on Tier A |
 | Asset system | ✅ | ✅ | Minimal loading primitive (`AssetId`/`AssetHandle<T>`/`AssetStore<T>`/`AssetError`, sync GLB + PNG loaders, checked-in fixtures); cooking, cache, hot reload, importers-as-plugins, materials, and further formats all deferred; `v0.0.10` |
