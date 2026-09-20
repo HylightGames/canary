@@ -13,5 +13,10 @@ workspace = true
 thiserror = "2.0.19"
 
 [dev-dependencies]
+divan = { version = "5", package = "codspeed-divan-compat" }
 proptest = "1"
 tempfile = "3"
+
+[[bench]]
+name = "ecs"
+harness = false

@@ -13,3 +13,10 @@ workspace = true
 canary-ecs = { path = "../canary-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
 glam = "0.33"
+
+[dev-dependencies]
+divan = { version = "5", package = "codspeed-divan-compat" }
+
+[[bench]]
+name = "transform"
+harness = false

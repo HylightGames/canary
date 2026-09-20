@@ -11,3 +11,10 @@ workspace = true
 
 [dependencies]
 canary-ecs = { path = "../canary-ecs" }
+
+[dev-dependencies]
+divan = { version = "5", package = "codspeed-divan-compat" }
+
+[[bench]]
+name = "scheduler"
+harness = false

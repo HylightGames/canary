@@ -17,6 +17,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href=".github/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=github-actions&logoColor=white"></a>
   <a href="rust-toolchain.toml"><img alt="Rust" src="https://img.shields.io/badge/language-Rust-orange.svg?logo=rust"></a>
+  <a href="https://app.codspeed.io/HylightGames/canary?utm_source=badge"><img src="https://img.shields.io/endpoint?url=https://codspeed.io/badge.json" alt="CodSpeed"/></a>
   <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.10-yellow.svg"></a>
 </p>
 
@@ -71,6 +72,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo run -p canary-runtime
 ```
+
+Performance is measured in-repo too: each benchmarked crate carries a
+`divan` suite under `benches/`, run on every pull request by CodSpeed —
+see [`docs/development/benchmarking.md`](docs/development/benchmarking.md).
 
 `canary-runtime` is a headless boot harness (no window yet) that exercises
 the engine vertical slice end to end; see

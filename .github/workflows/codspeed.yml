@@ -1,0 +1,63 @@
+name: CodSpeed
+
+# Continuous performance measurement, alongside the correctness gates in
+# ci.yml. The benchmarks themselves are `divan` suites under each crate's
+# `benches/` directory (see docs/development/benchmarking.md); this job
+# runs them under CodSpeed's CPU simulation instrument, which measures
+# simulated CPU work rather than wall-clock time, so results are
+# comparable across runs on shared CI hardware.
+
+on:
+  push:
+    branches: [stable, dev]
+  pull_request:
+    branches: [stable, dev]
+  # Lets CodSpeed trigger a backtest run to seed its baseline.
+  workflow_dispatch:
+
+# Least privilege, same principle as ci.yml: read the code, plus the
+# OIDC token CodSpeed authenticates with (no repository secret needed).
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmarks:
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        # Deliberately no `lfs: true` (unlike ci.yml): every benchmark
+        # fixture is synthesized in-process, precisely so a missing LFS
+        # object can't turn into a silently meaningless measurement.
+
+      - name: Setup Rust toolchain, cache, and cargo-codspeed
+        uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          cache-target: release
+          bins: cargo-codspeed
+
+      # Scoped to the crates that actually have `benches/`: building the
+      # whole workspace here would compile every crate's dev-dependencies
+      # (wasmtime, winit) for no measurement. Add new benchmarked crates
+      # to this list.
+      - name: Build the benchmark targets
+        run: >
+          cargo codspeed build
+          -p canary-ecs
+          -p canary-scheduler
+          -p canary-transform
+          -p canary-assets
+          -p canary-loc
+          -p canary-physics
+          -p canary-render-ecs
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          run: cargo codspeed run

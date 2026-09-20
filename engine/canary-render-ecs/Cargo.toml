@@ -32,3 +32,8 @@ canary-render-vulkan = { path = "../canary-render-vulkan" }
 canary-physics = { path = "../canary-physics" }
 naga = { version = "30", features = ["wgsl-in", "spv-out"] }
 indexmap = "2"
+divan = { version = "5", package = "codspeed-divan-compat" }
+
+[[bench]]
+name = "render_bridge"
+harness = false
