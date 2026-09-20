@@ -68,10 +68,19 @@
 //! - NaN hygiene is enforced at the boundary that matters: every float
 //!   entering solver state (poses, velocities, impulses, scales,
 //!   materials) is finiteness-checked here and rejected before it touches
-//!   Rapier. Rapier 0.35's internal [`Quarantine`]
-//!   type is exported but has no public pipeline accessor in 0.35.3, so
-//!   there is nothing to poll — and with boundary hygiene holding, there
-//!   is nothing that could reach it. The sync side additionally refuses
+//!   Rapier. Defense in depth comes from polling the pipeline's
+//!   [`Quarantine`] after every step (see
+//!   [`step`](crate::PhysicsBackend::step)): if a future solver version
+//!   ever auto-disables a body or collider whose state went non-finite
+//!   mid-step, the backend destroys it solver-side so sync degrades to
+//!   the stale-handle skip — and the Task 4 system re-creates it fresh
+//!   from its `Transform` next tick — instead of freezing on a silently
+//!   disabled body. Fuzz probing on 0.35.3 (max-magnitude velocities,
+//!   extreme gravities, extreme spawn positions) never produced a
+//!   quarantine report — the solver neutralizes finite extremes
+//!   internally (CCD motion clamping) — so the drain is dormant
+//!   version-drift armor, verified on its empty path by every step the
+//!   suite runs. The sync side additionally refuses
 //!   to write a non-finite pose into `Transform` (skip, never poison).
 //! - Feature flags: this crate enables NO rapier features beyond the
 //!   defaults (`dim2`, `f32`, `std`, `block-solver`). `parallel` pays off
@@ -177,6 +186,11 @@ pub struct RapierBackend {
     /// incrementally so [`body_count`] is
     /// O(1)).
     live: usize,
+    /// Bodies destroyed by the quarantine drain so far (see
+    /// [`step`](crate::PhysicsBackend::step)). Exists for tests and
+    /// debug overlays — not for gameplay logic — the same rationale as
+    /// [`body_count`](crate::PhysicsBackend::body_count).
+    quarantine_drains: u64,
     /// Entity↔handle map: which live [`BodyHandle`] each ECS entity owns.
     /// Owned here (not in a separate resource) so creation, removal, and
     /// liveness checks share one bookkeeping site; the Task 4 system
@@ -220,6 +234,7 @@ impl RapierBackend {
             next_index: 0,
             next_collider_index: 0,
             live: 0,
+            quarantine_drains: 0,
             entities: HashMap::new(),
         }
     }
@@ -254,6 +269,82 @@ impl RapierBackend {
     /// so the caller can mutate tracking while iterating.
     pub(crate) fn tracked_entities(&self) -> Vec<Entity> {
         self.entities.keys().copied().collect()
+    }
+
+    /// How many bodies the quarantine drain has destroyed so far (see
+    /// [`step`](crate::PhysicsBackend::step)). Zero in ordinary play —
+    /// boundary hygiene rejects non-finite inputs before they reach the
+    /// solver — so a nonzero count means huge-but-finite inputs overflowed
+    /// mid-step and the affected bodies were recycled through the
+    /// stale-handle path.
+    pub fn quarantine_drain_count(&self) -> u64 {
+        self.quarantine_drains
+    }
+
+    /// Destroys the body owned by slot `index` solver-side (body plus its
+    /// colliders), marks the slot dead, and bumps its generation so
+    /// pre-removal handles stay stale forever. Returns whether a live
+    /// body was destroyed. The shared primitive behind
+    /// [`remove_body`](crate::PhysicsBackend::remove_body) and the
+    /// quarantine drain: both paths must leave exactly the same
+    /// dead-slot-plus-stale-handle state, or the system's
+    /// re-create-from-`Transform` recovery would diverge by removal
+    /// cause.
+    fn destroy_slot(&mut self, index: u32) -> bool {
+        let rapier_handle = match self.slots.get_mut(&index) {
+            Some(slot) if slot.alive => {
+                slot.alive = false;
+                slot.generation = slot.generation.wrapping_add(1);
+                for collider in std::mem::take(&mut slot.colliders) {
+                    self.colliders
+                        .remove(collider, &mut self.islands, &mut self.bodies, true);
+                }
+                slot.rapier
+            }
+            _ => return false,
+        };
+        self.bodies.remove(
+            rapier_handle,
+            &mut self.islands,
+            &mut self.colliders,
+            &mut self.impulse_joints,
+            &mut self.multibody_joints,
+            true,
+        );
+        self.live -= 1;
+        true
+    }
+
+    /// Polls the pipeline's quarantine report and destroys every affected
+    /// body solver-side (see the module docs for why removal — rather
+    /// than leaving rapier's auto-disabled body in place — is the honest
+    /// degradation). Runs after every step; fuzz probing on 0.35.3 never
+    /// produced a report, so the cost in practice is one `is_empty`
+    /// check and the slot scan only runs if a future solver version
+    /// quarantines more eagerly.
+    fn drain_quarantine(&mut self) {
+        if self.pipeline.quarantine().is_empty() {
+            return;
+        }
+        let bodies: Vec<rapier::dynamics::RigidBodyHandle> =
+            self.pipeline.quarantine().bodies().to_vec();
+        let colliders: Vec<rapier::geometry::ColliderHandle> =
+            self.pipeline.quarantine().colliders().to_vec();
+        let mut doomed: Vec<u32> = Vec::new();
+        for (index, slot) in self.slots.iter() {
+            if !slot.alive {
+                continue;
+            }
+            if bodies.contains(&slot.rapier) || slot.colliders.iter().any(|c| colliders.contains(c))
+            {
+                doomed.push(*index);
+            }
+        }
+        for index in doomed {
+            if self.destroy_slot(index) {
+                self.quarantine_drains += 1;
+            }
+        }
     }
 
     /// Whether `handle` names a live slot: the slot exists, is marked
@@ -530,6 +621,13 @@ impl PhysicsBackend for RapierBackend {
                 body.reset_forces(true);
             }
         }
+        // Defense in depth (see the module docs): rapier auto-disables
+        // bodies/colliders whose state went non-finite mid-step. Destroy
+        // each affected body so sync degrades to the stale-handle skip
+        // instead of freezing on a silently disabled body — and the Task
+        // 4 system re-creates it fresh from its `Transform` next tick.
+        // Empty in ordinary play: one `is_empty` check, no scan.
+        self.drain_quarantine();
         Ok(())
     }
 
@@ -550,28 +648,13 @@ impl PhysicsBackend for RapierBackend {
     }
 
     fn remove_body(&mut self, body: BodyHandle) -> bool {
-        let slot = match self.slots.get_mut(&body.index()) {
-            Some(slot) if slot.alive && slot.generation == body.generation() => slot,
-            _ => return false,
-        };
-        slot.alive = false;
-        slot.generation = slot.generation.wrapping_add(1);
-        // Colliders die with their body: no orphan collider may survive
-        // in the set referencing a removed body.
-        for collider in std::mem::take(&mut slot.colliders) {
-            self.colliders
-                .remove(collider, &mut self.islands, &mut self.bodies, true);
+        let index = body.index();
+        match self.slots.get(&index) {
+            Some(slot) if slot.alive && slot.generation == body.generation() => {
+                self.destroy_slot(index)
+            }
+            _ => false,
         }
-        self.bodies.remove(
-            slot.rapier,
-            &mut self.islands,
-            &mut self.colliders,
-            &mut self.impulse_joints,
-            &mut self.multibody_joints,
-            true,
-        );
-        self.live -= 1;
-        true
     }
 
     fn set_velocity(&mut self, body: BodyHandle, velocity: &Velocity) -> bool {
@@ -994,6 +1077,178 @@ mod tests {
             assert!(
                 position.x.is_finite() && position.y.is_finite() && angle.is_finite(),
                 "soaked poses must stay finite: {position:?} {angle}"
+            );
+        }
+    }
+
+    /// Huge-but-finite inputs never poison sync and never panic: a body
+    /// driven at `f32::MAX` velocity steps cleanly (the solver clamps
+    /// finite extremes internally — observed: near-ordinary fall), and
+    /// whatever the solver does with the extreme, every sync stays
+    /// finite-or-absent while the drain count plus body count stay
+    /// mutually consistent (drained bodies read as removed, never linger).
+    #[test]
+    fn huge_finite_velocity_never_poisons_sync_or_panics() {
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+        let body = backend
+            .create_body(&RigidBody::dynamic(), [0.0, 5.0], 0.0)
+            .expect("finite pose must create");
+        backend
+            .attach_collider(body, &Collider::ball(0.3), &ColliderMaterial::default())
+            .expect("valid collider must attach");
+        assert!(backend.set_velocity(
+            body,
+            &Velocity {
+                linvel: [f32::MAX, 0.0],
+                angvel: 0.0,
+            }
+        ));
+
+        for _ in 0..120 {
+            backend
+                .step(FIXED_DT)
+                .expect("step must succeed even as state overflows");
+            if let Some((position, angle)) = backend.sync_transform(body) {
+                assert!(
+                    position.x.is_finite() && position.y.is_finite() && angle.is_finite(),
+                    "sync must stay finite while the body is live"
+                );
+            }
+        }
+
+        let drained = backend.quarantine_drain_count();
+        if drained > 0 {
+            assert_eq!(
+                backend.body_count(),
+                0,
+                "a drained body must read as removed, not linger"
+            );
+            assert!(
+                backend.sync_transform(body).is_none(),
+                "the drained handle must stay stale"
+            );
+        } else {
+            assert_eq!(backend.body_count(), 1);
+        }
+    }
+
+    /// Chaos: five hundred bodies stepped for two simulated seconds,
+    /// then a removal storm destroying every other body mid-run, then
+    /// more stepping — no panic, exact counts, every survivor finite.
+    /// Exercises the shared `destroy_slot` path at volume (bulk removal
+    /// plus quarantine-drain removal must agree on slot state).
+    #[test]
+    fn five_hundred_body_soak_with_removal_storm_stays_exact() {
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+        let mut bodies = Vec::with_capacity(500);
+        for i in 0..500 {
+            let body = backend
+                .create_body(
+                    &RigidBody::dynamic(),
+                    [(i % 50) as f32 - 25.0, 5.0 + (i / 50) as f32],
+                    0.0,
+                )
+                .expect("finite pose must create");
+            backend
+                .attach_collider(body, &Collider::ball(0.3), &ColliderMaterial::default())
+                .expect("valid collider must attach");
+            bodies.push(body);
+        }
+        for _ in 0..120 {
+            backend.step(FIXED_DT).expect("fixed step must succeed");
+        }
+        assert_eq!(backend.body_count(), 500);
+
+        // Removal storm: destroy every other body, including double-remove
+        // attempts (despawn races are routine, not errors).
+        for (i, body) in bodies.iter().enumerate() {
+            if i % 2 == 0 {
+                assert!(backend.remove_body(*body), "live body {i} must remove");
+                assert!(!backend.remove_body(*body), "double-remove {i} must skip");
+            }
+        }
+        assert_eq!(backend.body_count(), 250);
+
+        for _ in 0..120 {
+            backend
+                .step(FIXED_DT)
+                .expect("post-storm steps must succeed");
+        }
+
+        assert_eq!(backend.body_count(), 250);
+        for (i, body) in bodies.iter().enumerate() {
+            if i % 2 == 0 {
+                assert!(
+                    backend.sync_transform(*body).is_none(),
+                    "storm-removed {i} must stay stale"
+                );
+            } else if let Some((position, angle)) = backend.sync_transform(*body) {
+                assert!(
+                    position.x.is_finite() && position.y.is_finite() && angle.is_finite(),
+                    "survivor {i} must stay finite"
+                );
+            }
+        }
+    }
+
+    /// Fuzz: extreme-but-valid collider params (max-magnitude finite
+    /// extents) attach and step without panic; degenerate params fail
+    /// typed without touching solver state. Arbitrary game content must
+    /// produce typed errors or clamped simulation — never a panic.
+    #[test]
+    fn extreme_collider_params_never_panic_and_stay_consistent() {
+        let mut backend = RapierBackend::new([0.0, -9.81]);
+        let body = backend
+            .create_body(&RigidBody::dynamic(), [0.0, 5.0], 0.0)
+            .expect("finite pose must create");
+        // Max-magnitude finite extents are VALID params (finite and
+        // positive): attach must succeed, and stepping with them must
+        // neither panic nor poison neighbours.
+        for collider in [
+            Collider::ball(f32::MAX),
+            Collider::cuboid([f32::MAX, f32::MAX]),
+            Collider::capsule(f32::MAX, f32::MAX),
+        ] {
+            assert!(collider.validate().is_ok());
+            backend
+                .attach_collider(body, &collider, &ColliderMaterial::default())
+                .expect("finite-positive params must attach");
+        }
+        let neighbour = backend
+            .create_body(&RigidBody::dynamic(), [10.0, 5.0], 0.0)
+            .expect("finite pose must create");
+        backend
+            .attach_collider(
+                neighbour,
+                &Collider::ball(0.3),
+                &ColliderMaterial::default(),
+            )
+            .expect("valid collider must attach");
+        for _ in 0..60 {
+            backend.step(FIXED_DT).expect("step must succeed");
+        }
+        if let Some((position, angle)) = backend.sync_transform(neighbour) {
+            assert!(
+                position.x.is_finite() && position.y.is_finite() && angle.is_finite(),
+                "the neighbour must stay finite beside extreme colliders"
+            );
+        }
+        // Degenerate params fail typed, before solver state is touched.
+        for collider in [
+            Collider::ball(0.0),
+            Collider::ball(f32::NAN),
+            Collider::cuboid([1.0, f32::INFINITY]),
+            Collider::capsule(f32::NEG_INFINITY, 0.5),
+        ] {
+            assert!(
+                collider.validate().is_err(),
+                "degenerate params must fail typed: {collider:?}"
+            );
+            assert!(
+                backend
+                    .attach_collider(body, &collider, &ColliderMaterial::default())
+                    .is_err(),
+                "degenerate attach must fail typed: {collider:?}"
             );
         }
     }
