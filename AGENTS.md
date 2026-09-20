@@ -62,9 +62,9 @@ cargo fmt --all -- --check
 - A behavior change updates `docs/architecture/*.md` in the same change; a
   stale architecture doc is a bug, not drift (`CONTRIBUTING.md`).
 - `docs/roadmap/status.md` is a living document — update it when status
-  changes. Check `docs/decisions/2026-09-review-triage.md`,
-  `docs/decisions/2026-09-review-3-triage.md`,
-  `docs/decisions/2026-09-review-4-triage.md`, and
+  changes. Check `docs/reviews/triage/2026-09-review-triage.md`,
+  `docs/reviews/triage/2026-09-review-3-triage.md`,
+  `docs/reviews/triage/2026-09-review-4-triage.md`, and
   `docs/reviews/risk-register.md` before re-deciding something they cover.
 - New architectural decisions get an ADR (next number, append-only, never
   rewrite history). New trusted-core dependencies need discussion + usually

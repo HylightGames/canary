@@ -8,13 +8,12 @@ crate's own `src/` (standard Rust `#[cfg(test)]` modules) or its own
 `tests/` directory, per normal Cargo convention — see
 [`docs/development/coding-standards.md`](../docs/development/coding-standards.md#testing-expectations).
 
-Currently empty because there isn't yet a second crate-boundary interaction
-worth testing beyond what each crate's own unit tests already cover — the
-`canary-runtime` binary crate exercises `canary-core` + `canary-ecs` +
-`canary-plugin-api` together today, which currently serves as the
-"integration test" in spirit, even though it isn't wired up as a
-`#[test]`. As more subsystems land (a real plugin loaded from a `.wasm` or
-native library, a physics backend synchronizing into the ECS), add
-integration tests here that specifically exercise the seams between
-crates, rather than re-testing what a single crate's own unit tests
-already cover.
+Cross-crate seams that already exist (scheduler ordering across
+systems, physics → transform → render pixel chains) are currently
+proven by `#[ignore]`-gated integration tests living in the owning
+crates (`canary-render-ecs/tests/`, `canary-render-vulkan/tests/`),
+run in dedicated CI jobs. Add tests *here* when a seam needs proving
+independently of any single crate's harness — e.g. a plugin loaded
+from a real `.wasm`/native library driving a scheduled `World`, or a
+full-pipeline startup/shutdown sequence — rather than re-testing what
+those in-crate suites already cover.

@@ -11,7 +11,7 @@ system" section had already implied but never made load-bearing — the
 ECS has archetype storage but not yet the data-access architecture a
 scheduler needs, and building the next layer of systems around it before
 fixing that risks a redesign later instead of a decision now. See the
-full triage: [`docs/decisions/2026-09-review-triage.md`](../decisions/2026-09-review-triage.md).
+full triage: [`docs/reviews/triage/2026-09-review-triage.md`](../reviews/triage/2026-09-review-triage.md).
 
 This is v0.0.7 and v0.0.8's shared document — it grows with each release
 that adds to this contract rather than starting a new one per release.

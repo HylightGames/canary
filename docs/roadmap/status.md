@@ -251,7 +251,7 @@ Full detail: [`v0.0.7-roadmap.md`](v0.0.7-roadmap.md) and
 Single focus: the ECS data-access architecture a scheduler needs,
 decided (rather than picked from the previously-open render-graph/
 physics/UI/state options) by the September 2026 external review triage
-([`docs/decisions/2026-09-review-triage.md`](../decisions/2026-09-review-triage.md)) —
+([`docs/reviews/triage/2026-09-review-triage.md`](../reviews/triage/2026-09-review-triage.md)) —
 two independent reviews converged on the same gap `core-runtime.md`'s
 own "Threading & the job system" section had already implied but never
 made load-bearing.

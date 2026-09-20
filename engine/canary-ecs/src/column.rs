@@ -36,7 +36,7 @@ use std::any::Any;
 /// compare *greater* than a genuinely more recent tick, silently hiding
 /// real changes from [`crate::World::query_changed_since`] rather than
 /// erroring. Found during the September 2026 external architecture
-/// review triage (`docs/decisions/2026-09-review-triage.md`, review #1
+/// review triage (`docs/reviews/triage/2026-09-review-triage.md`, review #1
 /// item 3); `u64` doesn't eliminate the theoretical possibility, but --
 /// like `Entity::generation` -- moves it from "plausible over a real
 /// long-lived server's uptime" to "not reachable by any realistic

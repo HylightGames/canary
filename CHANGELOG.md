@@ -35,7 +35,7 @@ detail; this section summarizes rather than duplicates them.
 
 ### Changed
 
-* Two external architecture reviews (September 2026) were triaged against the actual codebase — see [`docs/decisions/2026-09-review-triage.md`](docs/decisions/2026-09-review-triage.md) — resolving `v0.0.7`'s and `v0.0.8`'s scope rather than picking from `future-roadmap.md`'s previously-open options.
+* Two external architecture reviews (September 2026) were triaged against the actual codebase — see [`docs/reviews/triage/2026-09-review-triage.md`](docs/reviews/triage/2026-09-review-triage.md) — resolving `v0.0.7`'s and `v0.0.8`'s scope rather than picking from `future-roadmap.md`'s previously-open options.
 * [ADR 0016](docs/decisions/architecture-decision-records/0016-native-rendering-backends.md) superseded [ADR 0004](docs/decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)'s original `wgpu`-backed RHI plan with native, per-graphics-API backend crates instead.
 
 ### Fixed

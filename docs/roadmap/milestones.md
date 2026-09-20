@@ -217,7 +217,7 @@ duplicated here:
   external architecture reviews rather than picked from this document's
   own previously-open options. See
   [`v0.0.7-roadmap.md`](v0.0.7-roadmap.md) and
-  [`docs/decisions/2026-09-review-triage.md`](../decisions/2026-09-review-triage.md).
+  [`docs/reviews/triage/2026-09-review-triage.md`](../reviews/triage/2026-09-review-triage.md).
 - **`v0.0.8`** — the ECS scheduler (`canary-scheduler`): access
   declarations and stage-based concurrent execution, `v0.0.7`'s direct
   payoff. See [`v0.0.8-roadmap.md`](v0.0.8-roadmap.md).
