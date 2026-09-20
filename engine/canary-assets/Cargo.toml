@@ -26,7 +26,7 @@ thiserror = "2.0.19"
 # not the edition field. 2026-09: stayed on 0.10.x -- same SHA-256
 # algorithm either way, so no hash-stability reason to move, and the
 # smaller audited tree wins until a 0.11-only need appears.)
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Mesh source parsing (Phase 2, ADR 0018: GLB for meshes). `default-features
 # = false` plus only `utils` is deliberate, verified by a real spike build +
