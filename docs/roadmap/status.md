@@ -72,6 +72,8 @@ Tier A (sandboxed WASM Component Model) plugin loading.
 - [x] Wasmtime `21.0.2` confirmed and pinned as compatible with this
       sandbox's `rustc` 1.75 floor, empirically — see
       [`docs/development/build-system.md#the-rustc-175-sandbox-validation-floor`](../development/build-system.md#the-rustc-175-sandbox-validation-floor)
+      (floor retired 2026-09; wasmtime now tracks latest-stable caret,
+      48.x as of this writing — see build-system.md History)
 - [x] Component loading (fresh and AOT-precompiled), the `Plugin`
       lifecycle through a component
 - [x] Structural capability enforcement, proven independently for

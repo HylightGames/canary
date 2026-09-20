@@ -99,14 +99,66 @@ Per [ADR 0005](../decisions/architecture-decision-records/0005-build-system-and-
 reproducible builds across contributors and CI matter more here than the
 flexibility an uncommitted lockfile would give a pure library.
 
-## The `rustc` 1.75 sandbox-validation floor
+## Toolchain policy (current)
+
+- `rust-toolchain.toml` pins `channel = "stable"`, picked up automatically
+  via `rustup` (see that file's own comment). CI and contributors build on
+  current stable; there is no validation floor below it.
+- Dependencies use normal caret requirements (`"1"`, `"0.9"`, `"48"`).
+  They float to latest-compatible on every `cargo update`; the committed
+  `Cargo.lock` (see above, per ADR 0005) records the exact resolution.
+  Dependabot tracks both ecosystems weekly (`.github/dependabot.yml`).
+- Pin a dependency to an exact (`=`) version **only** with all three
+  present at the pin site:
+  1. an inline rationale comment naming the blocking reason,
+  2. a pointer to the issue/ADR whose resolution retires the pin,
+  3. an expiry note — the re-check condition ("revisit once X lands").
+  A pin without all three is tech debt without an owner: convert it or
+  remove it. The 2026-09 modernization retired every floor-era pin that
+  had no remaining reason (see History below); the two holds left
+  standing (`fluent 0.16`, `sha2 0.10`) each carry their reason
+  in-manifest.
+- Hard-won lessons from the floor era that still apply to any future pin:
+  - **Pin one dep, not the world.** Scope the pin to the newest release
+    still compatible, not to an old floor — each pin carries an inline
+    comment explaining why, pointing back here.
+  - **Re-verify at landing, don't trust scoping.** The ecosystem moves
+    between scoping and implementation (windowing's second pin pass;
+    localization's `macros`-feature pins found only at implementation
+    time). Re-run the verification; never assume a pin still holds.
+  - **Lockstep rule.** Paired releases move together or not at all:
+    `wasmtime`/`wasmtime-wasi`, `unic-langid`/`unic-langid-impl`,
+    `unic-langid-macros`/`unic-langid-macros-impl`. A past automated
+    bump moved only one of a pair and Cargo silently resolved a second
+    copy (see `.github/dependabot.yml`).
+  - **A crate's declared `rust-version` isn't the whole story.**
+    Transitive dependencies drift past floors independently — confirm a
+    pin (or its removal) with a real `cargo build`, not one
+    `rust-version` field.
+
+## History: the rustc 1.75 / 1.91 sandbox-validation floor (retired 2026-09)
+
+<a id="the-rustc-175-sandbox-validation-floor"></a>
+
+> Retired September 2026, when validation moved to rustc 1.98.1 via
+> `rustup` and every floor-only pin was relaxed to caret requirements
+> (`deps:` commits landing wasmtime 48, naga 30, libloading 0.9,
+> glam 0.33, x11rb 0.14, proptest 1.11, tempfile 3.27, unic-langid
+> 0.9.6, indexmap 2.14). Two deliberate holds survived with
+> in-manifest reasons: `fluent 0.16` (0.17's langneg moved to
+> icu_locid — a public-locale-type migration needing its own ADR) and
+> `sha2 0.10` (same SHA-256 either way; no reason to churn the
+> `AssetId` backend). What follows is the floor-era text, kept as the
+> record of *why* each pin existed (two closing bullets lightly
+> reframed to point at the standing policy they became; the rest
+> untouched).
 
 `rust-toolchain.toml` pins `channel = "stable"`, deliberately left
 unpinned to an exact version — see that file's own comment for why. Some
-implementation sessions, though, have only had network access to this
-project's specific sandboxed environment, which installs Rust via `apt`
+implementation sessions, though, had only network access to this
+project's specific sandboxed environment, which installed Rust via `apt`
 from Ubuntu's archive rather than `rustup`, landing on whatever `rustc`
-that archive currently carries (`1.75.0` as of this writing). That's
+that archive currently carried (`1.75.0` as of that writing). That's
 older than most of the ecosystem now assumes, and the gap only grows —
 Wasmtime, for one, tracks only the latest three stable Rust releases and
 moves its own MSRV forward continuously (see
@@ -291,7 +343,9 @@ first pass:
   resolver keeps the lockstep requirement satisfied without a human
   pinning each patch release by hand.
 
-Two things worth knowing before adding another one:
+Two things worth knowing before adding another one (both now promoted
+to standing policy in "Toolchain policy (current)" above — kept here
+as the incidents that taught them):
 
 - **A crate's own declared `rust-version` isn't the whole story.**
   Wasmtime `21.0.2` (the original `v0.0.3` pin, since replaced — see
@@ -308,11 +362,14 @@ Two things worth knowing before adding another one:
   the old `21.0.2` pin that needed them (the current
   `wasmtime = "=36.0.15"` pin needs no transitive floor pins) — but the
   lesson applies to whatever pin gets added next.
-- **Bump these pins opportunistically, not on a schedule.** Any session
-  with access to a current `stable` toolchain (via `rustup`, or a
-  less-constrained sandbox) should feel free to re-verify whether a pin
-  is still needed and relax it if the underlying gap has closed — the
-  same encouragement the `libloading` pin below already gives.
+- **These pins were bumped opportunistically, not on a schedule — and
+  the 2026-09 modernization finished the job.** Any session with access
+  to a current `stable` toolchain (via `rustup`, or a less-constrained
+  sandbox) was always free to re-verify whether a pin was still needed
+  and relax it if the underlying gap had closed — the same
+  encouragement the `libloading` pin below already gives. That
+  encouragement is now the standing policy above; this bullet stays as
+  its history.
 
 ## Known limitations (added by the August 2026 architecture review)
 

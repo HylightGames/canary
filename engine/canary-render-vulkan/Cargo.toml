@@ -13,10 +13,9 @@ workspace = true
 canary-render = { path = "../canary-render" }
 thiserror = "2.0.19"
 
-# Vulkan bindings. Compiles clean against this sandbox's rustc-1.75
-# floor with zero pins -- the cleanest dependency check of any subsystem
-# in this project so far (see
-# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor).
+# Vulkan bindings. No floor pins needed here in any era -- the cleanest
+# dependency check of any subsystem in this project so far (see
+# docs/development/build-system.md History section).
 ash = "0.38"
 
 [dev-dependencies]
