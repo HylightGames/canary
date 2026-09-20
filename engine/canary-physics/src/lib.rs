@@ -35,10 +35,12 @@
 //!   schedule (physics → propagation → soup → mesh → textured; see
 //!   [`systems`]' module docs for the full ordering law).
 //!
-//! # What is explicitly stub (later tasks own it)
+//! # What is explicitly deferred (later releases own it)
 //!
-//! - **Wiring + game proof** (Task 5): `EcsSubsystem` registration and the
-//!   z-pinned-quad scene.
+//! - Joints, scene queries, and trimesh/heightfield colliders (named
+//!   deferred items in the v0.0.11 work plan), 3D backends (Jolt
+//!   canonical, Rapier3D alternative — post-`v0.1.0` per ADR 0019), and
+//!   a second 2D backend through the unchanged [`PhysicsBackend`] seam.
 //!
 //! # A note on dependencies
 //!
