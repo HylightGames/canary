@@ -321,7 +321,8 @@ pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f3
         color: [f32; 3],
     }
 
-    let mut triangles: Vec<PendingTriangle> = Vec::new();
+    let total_triangles: usize = items.iter().map(|item| item.vertices.len() / 3).sum();
+    let mut triangles: Vec<PendingTriangle> = Vec::with_capacity(total_triangles);
     for item in items {
         let matrix = item.global.matrix();
         for chunk in item.vertices.chunks_exact(3) {
