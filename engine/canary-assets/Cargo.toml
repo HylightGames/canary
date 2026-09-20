@@ -20,10 +20,12 @@ thiserror = "2.0.19"
 # typenum, crypto-common, cpufeatures, cfg-if — confirmed via `cargo tree`,
 # no build scripts, no C compiler needed), while `blake3` drags in `cc`
 # compilation plus platform SIMD paths this release's kilobyte fixtures do
-# not need. NOT `sha2 0.11`: that major declares `edition = "2024"`, the
-# hard parse-time wall documented in
-# docs/development/build-system.md#the-rustc-175-sandbox-validation-floor
-# (same wall that forced the `block-buffer`/`ignore`/`globset` pins there).
+# not need. (`sha2 0.11` was previously declined for its `edition2024`
+# declaration -- a hard wall under the old pre-1.91 sandbox cargo, now
+# irrelevant on this toolchain; re-evaluate the major on its API merits,
+# not the edition field. 2026-09: stayed on 0.10.x -- same SHA-256
+# algorithm either way, so no hash-stability reason to move, and the
+# smaller audited tree wins until a 0.11-only need appears.)
 sha2 = "0.10"
 
 # Mesh source parsing (Phase 2, ADR 0018: GLB for meshes). `default-features

@@ -13,7 +13,7 @@ workspace = true
 canary-ecs = { path = "../canary-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
 canary-transform = { path = "../canary-transform" }
-glam = "0.30"
+glam = "0.33"
 thiserror = "2.0.19"
 
 # 2D rigid-body backend (ADR 0019: rapier2d is the canonical 2D backend;

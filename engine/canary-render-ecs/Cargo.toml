@@ -15,7 +15,7 @@ canary-ecs = { path = "../canary-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
 canary-transform = { path = "../canary-transform" }
 canary-render = { path = "../canary-render" }
-glam = "0.30"
+glam = "0.33"
 
 [dev-dependencies]
 # Real backend + WGSL->SPIR-V for this crate's own `#[ignore]`-gated

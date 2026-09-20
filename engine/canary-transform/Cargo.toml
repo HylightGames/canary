@@ -12,4 +12,4 @@ workspace = true
 [dependencies]
 canary-ecs = { path = "../canary-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
-glam = "0.30"
+glam = "0.33"

@@ -19,6 +19,10 @@ tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 # FluentValue), so fluent-bundle isn't listed separately here -- adding
 # it as its own direct dependency would just resolve a second, redundant
 # copy without giving access to anything `fluent` doesn't already expose.
+# Stays on the 0.16 line (tried 0.17, 2026-09): fluent-langneg 0.14 moved
+# its locale identifier from unic-langid to icu_locid, so taking 0.17
+# would migrate this crate's public locale type -- an ADR-level API
+# decision, not a version bump. Revisit with that ADR, not before.
 fluent = "0.16"
 
 # `fluent` does *not* re-export this one -- needed directly for
