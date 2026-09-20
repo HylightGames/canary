@@ -31,4 +31,11 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: cargo audit
+        # Accepted-warning baseline (zero errors required; warnings need a
+        # written reason to stay): RUSTSEC-2026-0192 (`ttf-parser`
+        # unmaintained) via owned_ttf_parser <- parry2d <- rapier2d, the
+        # canonical 2D backend (ADR 0019). Not manifest-actionable -- only
+        # a rapier replacement would move it -- and not a vulnerability,
+        # so it stays visible rather than ignored. Revisit if a real
+        # advisory lands on this chain or rapier moves off it.
         run: cargo audit
