@@ -30,5 +30,5 @@ canary-render-vulkan = { path = "../canary-render-vulkan" }
 # z-pinned soup quads through the unchanged bake. Dev-only: the bridge
 # itself never depends on physics (one-way seam, composition upward).
 canary-physics = { path = "../canary-physics" }
-naga = { version = "22", features = ["wgsl-in", "spv-out"] }
+naga = { version = "30", features = ["wgsl-in", "spv-out"] }
 indexmap = "2"

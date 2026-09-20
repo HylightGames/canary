@@ -72,7 +72,10 @@ fn compile_stage(stage: naga::ShaderStage) -> Vec<u32> {
     let entry_point = match stage {
         naga::ShaderStage::Vertex => "vs_main",
         naga::ShaderStage::Fragment => "fs_main",
-        naga::ShaderStage::Compute => unreachable!("no compute stage in this test's shader"),
+        // Wildcard, not an exhaustive variant list: naga grows `ShaderStage`
+        // over majors (mesh/task, ray-tracing stages); this harness only
+        // ever compiles vertex + fragment entry points.
+        _ => unreachable!("only vertex/fragment stages in this test's shader"),
     };
     let options = naga::back::spv::Options {
         lang_version: (1, 0),

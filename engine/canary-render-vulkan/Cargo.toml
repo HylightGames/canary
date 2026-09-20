@@ -27,5 +27,5 @@ ash = "0.38"
 # future work, out of this backend's own scope. See ADR 0016's "Verified,
 # not assumed" for the verification history (the rustc-1.75 floor pins
 # are retired; see docs/development/build-system.md).
-naga = { version = "22", features = ["wgsl-in", "spv-out"] }
+naga = { version = "30", features = ["wgsl-in", "spv-out"] }
 indexmap = "2"

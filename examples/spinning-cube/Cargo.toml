@@ -26,7 +26,7 @@ glam = "0.30"
 # canary_render::PipelineDescriptor takes precompiled SPIR-V, not WGSL.
 # The WGSL source itself now lives in canary-render-ecs (RENDER_WGSL);
 # naga stays here only to compile that shared source.
-naga = { version = "22", features = ["wgsl-in", "spv-out"] }
+naga = { version = "30", features = ["wgsl-in", "spv-out"] }
 
 # GIF encoding for this example's output only -- not a rendering-engine
 # dependency, deliberately kept out of canary-render-vulkan itself.

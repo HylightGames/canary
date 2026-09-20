@@ -29,7 +29,7 @@ canary-ecs = { path = "../canary-ecs" }
 # rather than chasing that error directly, since letting them build for
 # wasm32-wasip2 was never correct to begin with.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-libloading = "0.8"
+libloading = "0.9"
 
 # Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. Pinned to
 # 36.0.15 -- not "latest" (48.x) and not the original 21.0.2 -- for two
