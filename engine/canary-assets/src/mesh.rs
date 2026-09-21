@@ -170,6 +170,30 @@ pub fn load_mesh(path: &Path) -> Result<Vec<Mesh>, AssetError> {
 /// while every error still names the originating file. Private: callers
 /// outside this crate load from paths, keeping "which file" unambiguous.
 fn load_mesh_from_bytes(path: &Path, bytes: &[u8]) -> Result<Vec<Mesh>, AssetError> {
+    // Totality boundary for the whole traversal, not just the container
+    // parse: the `gltf` crate indexes some of its tables by file-supplied
+    // indices without bounds-checking every path first, so hostile bytes
+    // can panic inside the dependency both at parse time (see
+    // `load_mesh_from_bytes_inner`) and later, while reader utilities
+    // walk accessors. Found the hard way: a macOS CI run panicked in
+    // `gltf`'s own accessor utilities on an input Linux never tripped
+    // on. Trapped panics report InvalidFormat — the file is broken.
+    // The closure only borrows the input bytes and builds owned values,
+    // so unwinding through it leaves no shared state behind. Honest
+    // limit, unchanged: this catches unwinding panics, not allocation
+    // failure or abort-class faults.
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        load_mesh_from_bytes_inner(path, bytes)
+    })) {
+        Ok(result) => result,
+        Err(_) => Err(AssetError::invalid_format(
+            path,
+            "glTF traversal trapped on hostile input",
+        )),
+    }
+}
+
+fn load_mesh_from_bytes_inner(path: &Path, bytes: &[u8]) -> Result<Vec<Mesh>, AssetError> {
     let invalid = |reason: &str| AssetError::invalid_format(path, reason);
     let unsupported = |feature: &str| AssetError::unsupported_feature(path, feature);
 
@@ -177,30 +201,12 @@ fn load_mesh_from_bytes(path: &Path, bytes: &[u8]) -> Result<Vec<Mesh>, AssetErr
     // file-supplied indices without bounds-checking every path first: a
     // hostile JSON chunk with dangling references (e.g. a primitive
     // pointing at a nonexistent accessor) panics inside the dependency
-    // instead of returning its error type. Found by bounded property
-    // fuzzing (Phase 10: a `PatchU32` mutation of the quad fixture's
-    // JSON chunk panicked in `gltf-json`'s primitive validator); the
-    // deterministic pin is `gltf_parser_panic_becomes_invalid_format`
-    // below. This loader's contract is total over its inputs (Err,
-    // never panic), so the parse call is guarded at exactly this
-    // boundary and a trapped parse reports InvalidFormat — the file is
-    // broken, not narrowly unsupported. The closure only borrows the
-    // input bytes and builds an owned value, so unwinding through it
-    // leaves no shared state behind. Honest limit: this catches
-    // unwinding panics, not allocation failure or abort-class faults.
-    let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        gltf::Gltf::from_slice(bytes)
-    }));
-    let gltf = match parsed {
-        Err(_) => {
-            return Err(invalid(
-                "glTF container validation trapped on hostile input",
-            ));
-        }
-        Ok(inner) => {
-            inner.map_err(|source| invalid(&format!("not a parseable glTF file: {source}")))?
-        }
-    };
+    // Container validation runs here; panics deeper inside the
+    // dependency (dangling table references, hostile accessor walks)
+    // are trapped by the `load_mesh_from_bytes` boundary above, so this
+    // site only maps the error type the crate actually returns.
+    let gltf = gltf::Gltf::from_slice(bytes)
+        .map_err(|source| invalid(&format!("not a parseable glTF file: {source}")))?;
 
     // A self-contained GLB carries exactly one buffer — its own BIN chunk,
     // exposed as `blob`. Anything else (a `.gltf` JSON sidecar, a data-URI
