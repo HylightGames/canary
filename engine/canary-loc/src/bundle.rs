@@ -221,10 +221,8 @@ mod tests {
         };
         let subscriber = Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, f);
-        Arc::try_unwrap(events)
-            .expect("no other references to the captured-events buffer should remain")
-            .into_inner()
-            .expect("test mutex should not be poisoned")
+        let guard = events.lock().expect("test mutex should not be poisoned");
+        guard.clone()
     }
 
     fn resource(ftl: &str) -> FluentResource {
