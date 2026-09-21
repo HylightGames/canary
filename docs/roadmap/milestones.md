@@ -227,6 +227,16 @@ duplicated here:
   new `canary-render-ecs` bridge (CPU-bake through the unchanged RHI,
   pixel-tested, `spinning-cube` rewritten on top). See
   [`v0.0.9-roadmap.md`](v0.0.9-roadmap.md).
+- **`v0.0.10`** — the loading primitive: `canary-assets`
+  (`AssetId`/`AssetHandle`/`AssetStore`, sync GLB + PNG loaders),
+  file-loaded meshes through the unchanged RHI plus a minimal
+  texture-creation slice, end of the sandbox floor-pin era. See
+  [`v0.0.10-roadmap.md`](v0.0.10-roadmap.md).
+- **`v0.0.11`** — first simulation: `canary-physics` (leak-free
+  `PhysicsBackend` trait, private Rapier2D backend, fixed-step
+  system ordered ahead of propagation), game-plus-pixel proof, Box2D
+  measured and not shipped. See
+  [`v0.0.11-roadmap.md`](v0.0.11-roadmap.md).
 
 [`docs/roadmap/status.md`](status.md) is the single source of truth for
 current implementation status; treat any version claim here as
