@@ -54,6 +54,14 @@ unic-langid-macros-impl = "0.9"
 tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
 tempfile = "3"
 divan = { version = "5", package = "codspeed-divan-compat" }
+# Test-only pseudo-locale generation (accented + elongated text standing in
+# for real translations -- see LocaleBundle::resolve's docs and
+# docs/development/localization-pipeline.md). Dev-dependency, never linked
+# into shipping builds. Caret requirement per docs/development/build-system.md
+# toolchain policy; the committed Cargo.lock records the exact resolution.
+# (Checked 2026-09-20: 0.3.3 is current on docs.rs; API used is
+# `fluent_pseudo::transform(&str, flipped: bool, elongate: bool) -> Cow<str>`.)
+fluent-pseudo = "0.3"
 
 [[bench]]
 name = "localization"

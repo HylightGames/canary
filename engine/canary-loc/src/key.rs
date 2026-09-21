@@ -175,9 +175,9 @@ mod tests {
     fn rejects_empty_string_at_compile_time_check_function() {
         // Exercises the underlying const fn directly, since a real empty
         // string literal can't be passed to `key!` in a test without
-        // failing this test file's own compilation -- see
-        // `tests/key_compile_fail.rs` for the actual compile-fail
-        // coverage of `key!` itself.
+        // failing this test file's own compilation -- see the
+        // `compile_fail` doctest on `key!` above for the actual
+        // compile-fail coverage of `key!` itself.
         assert!(!is_valid_fluent_identifier(""));
     }
 

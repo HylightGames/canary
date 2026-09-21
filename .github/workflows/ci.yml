@@ -190,3 +190,78 @@ jobs:
         run: rustup target add wasm32-wasip2
       - name: Check canary-plugin-api on wasm32-wasip2
         run: cargo check -p canary-plugin-api --target wasm32-wasip2
+
+  localization:
+    name: Localization lint and compare (moz.l10n)
+    runs-on: ubuntu-latest
+    # Phase 1 of the localization pipeline
+    # (docs/development/localization-pipeline.md): Mozilla's `moz.l10n`
+    # CLI checks every `.ftl` file under `locales/` parses (`lint`) and
+    # that each non-default locale covers the default locale's keys
+    # (`compare` against `locales/en-US`). No UI strings exist yet, so no
+    # `.ftl` files exist yet either -- until the first locale content
+    # lands, this job installs the pinned tool, proves it executes
+    # (`moz-l10n --version`), and reports the gate as vacuous-active
+    # rather than failing on an empty input set. That is deliberate, not
+    # theater: environment, pin, and invocation are all exercised on
+    # every run, so the first real `.ftl` commit gets a working gate
+    # with zero further CI changes.
+    # No new permissions needed: pip-installing a PyPI package and
+    # reading the checkout requires nothing beyond the top-level
+    # `contents: read` this job inherits.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
+          # without this every file-load test fails on pointer bytes.
+          lfs: true
+      - name: Install pinned moz.l10n (system python3)
+        run: |
+          # ubuntu-latest runners ship CPython 3 as `python3` -- no
+          # setup-python action needed and no third-party actions added.
+          # Pinned to ==0.14.2 (checked 2026-09-20: latest on PyPI; the
+          # downloaded wheel was verified to provide the `moz-l10n`
+          # console script with `lint` and `compare` subcommands).
+          python3 -m pip install "moz.l10n==0.14.2"
+      - name: Lint and compare locales (or report vacuous-active)
+        run: |
+          if [ -n "$(find locales -name '*.ftl' -print -quit 2>/dev/null)" ]; then
+            # Quoted glob, expanded by `moz-l10n` itself (which supports
+            # `**`): a bare `locales/` directory argument only visits
+            # files mirroring the reference locale's layout -- verified
+            # against moz.l10n 0.14.2, where an extra broken file in a
+            # non-reference locale was silently skipped -- so the glob is
+            # what makes this a real parse gate. Exits nonzero on any
+            # file that fails to parse.
+            moz-l10n lint 'locales/**/*.ftl'
+            # `compare` only reports (it exits 0 even with keys missing --
+            # verified), so the gate is enforced here: any key present in
+            # the default locale but absent from another locale, or any
+            # per-file error, fails the job with a file-annotated
+            # `::error ::` line. en-US is the source of truth (the locale
+            # development happens in -- see
+            # docs/architecture/localization.md).
+            for locale_dir in locales/*/; do
+              [ -d "$locale_dir" ] || continue
+              [ "$locale_dir" = "locales/en-US/" ] && continue
+              moz-l10n compare --json "$locale_dir" --source locales/en-US | python3 -c "
+          import json, sys
+          report = json.load(sys.stdin)
+          failed = False
+          for locale, result in report.items():
+              for path, msgs in (result.get('missing') or {}).items():
+                  failed = True
+                  print(f'::error ::{locale}/{path} missing {len(msgs)} key(s) vs locales/en-US')
+              for path, err in (result.get('errors') or {}).items():
+                  failed = True
+                  print(f'::error ::{locale}/{path}: {err}')
+          sys.exit(1 if failed else 0)
+          "
+            done
+          else
+            # No `.ftl` content yet: prove the installed tool itself runs,
+            # then say so explicitly. The gate engages on the first locale
+            # content commit with no CI changes required.
+            moz-l10n --version
+            echo "localization gate vacuous-active: no .ftl files under locales/ yet; lint+compare engage on first locale content."
+          fi

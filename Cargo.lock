@@ -325,6 +325,7 @@ dependencies = [
  "codspeed-divan-compat",
  "fluent",
  "fluent-langneg",
+ "fluent-pseudo",
  "fluent-syntax",
  "rustc-hash 2.1.3",
  "tempfile",
@@ -1082,6 +1083,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7eebbe59450baee8282d71676f3bfed5689aeab00b27545e83e5f14b1195e8b0"
 dependencies = [
  "unic-langid",
+]
+
+[[package]]
+name = "fluent-pseudo"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86f1b5259b7f28e4f6a03e826c8305e15309cd90fc3a786447407c001786bf2e"
+dependencies = [
+ "once_cell",
+ "regex",
 ]
 
 [[package]]

@@ -13,7 +13,8 @@
 //! primary locale is missing a key (or is entirely unavailable) rather
 //! than showing a blank string or panicking.
 
-use fluent::{FluentArgs, FluentBundle, FluentResource};
+use fluent::resolver::{errors::ReferenceKind, ResolverError};
+use fluent::{FluentArgs, FluentBundle, FluentError, FluentResource};
 use fluent_langneg::{negotiate_languages, NegotiationStrategy};
 use unic_langid::LanguageIdentifier;
 
@@ -97,6 +98,39 @@ impl LocaleBundle {
         Self { bundles }
     }
 
+    /// Names every `$variable` the formatter reported as an unknown
+    /// variable reference **and** the caller genuinely did not supply —
+    /// i.e. `args` is `None`, or the `args` map has no entry under that
+    /// name. Only
+    /// [`FluentError::ResolverError(ResolverError::Reference(ReferenceKind::Variable))`]
+    /// qualifies: every other [`FluentError`] variant describes bad
+    /// *content* (unknown message/term/function, cycles, missing select
+    /// defaults), which is the lint/compare pipeline's job to catch, not
+    /// a caller bug to assert on. The extra `args`-membership check (on
+    /// top of the error variant itself, which `fluent-bundle` only emits
+    /// when its own argument lookup already failed) keeps the
+    /// debug-assert honestly narrow: it fires exactly when the call site
+    /// under-supplied the pattern, never on fluent-internal error
+    /// attribution the caller could not have avoided.
+    fn missing_arg_names<'err>(
+        errors: &'err [FluentError],
+        args: Option<&FluentArgs>,
+    ) -> Vec<&'err str> {
+        errors
+            .iter()
+            .filter_map(|error| match error {
+                FluentError::ResolverError(ResolverError::Reference(ReferenceKind::Variable {
+                    id,
+                })) => Some(id.as_str()),
+                _ => None,
+            })
+            .filter(|id| {
+                args.as_ref()
+                    .is_none_or(|supplied| supplied.iter().all(|(name, _)| name != *id))
+            })
+            .collect()
+    }
+
     /// Resolves `key` against this bundle's negotiated locale chain,
     /// trying the highest-priority locale first and falling back through
     /// the rest in order. A key that resolves via any locale other than
@@ -110,6 +144,46 @@ impl LocaleBundle {
     /// like `main-menu-start-game` is immediately recognizable as "this
     /// key is missing," where a blank label looks like nothing is wrong
     /// at all.
+    ///
+    /// # Debug-strict missing arguments (debug builds only)
+    ///
+    /// When the resolved pattern references a `$variable` the caller did
+    /// not supply (no `args`, or an `args` map missing that name), the
+    /// formatter reports
+    /// [`FluentError::ResolverError(ResolverError::Reference(ReferenceKind::Variable))`]
+    /// and renders a best-effort placeholder (`{$name}`) instead of the
+    /// value. In **debug builds** (including `cargo test`, which is what
+    /// CI runs) that specific case is a loud [`debug_assert!`] failure:
+    /// a missing argument is always a bug at the *call site* — the Rust
+    /// code asked for a parameterized string without providing the
+    /// parameter — and a programmer error of that shape must surface
+    /// where the programmer runs the code, not as a subtly wrong string
+    /// a player screenshots weeks later. In **release builds** the assert
+    /// compiles out entirely and today's resilient behavior is untouched:
+    /// warn via `tracing`, return the best-effort string.
+    ///
+    /// This is the same split Firefox's own Fluent integration landed on:
+    /// Mozilla's Bug 1685180 ("Debug assert Fluent strings where replaced
+    /// variables are not provided", fixed in Firefox 109) asserts in
+    /// debug/automation so missing-variable call sites break tests
+    /// immediately, while Bug 1453765's design ("throw in automation,
+    /// salvage as much as possible on release") keeps shipped builds
+    /// degrading gracefully. Canary follows that precedent at the
+    /// `LocaleBundle` boundary rather than inside `fluent` upstream —
+    /// the same placement Firefox chose (its own `localization-ffi`
+    /// layer, not `fluent-rs` itself).
+    ///
+    /// The scope is deliberately **narrow: missing arguments only**. Any
+    /// *other* formatting error — an unknown message/term/function
+    /// reference, a cyclic reference, a missing select default —
+    /// indicates bad *content* (an authoring or translator mistake in a
+    /// `.ftl` file), not a wrong call site, and stays on the
+    /// warn-and-return-best-effort path in every build profile. Content
+    /// bugs are caught by the pipeline around this function instead: the
+    /// `localization` CI job's `moz-l10n lint` + `compare` gates and the
+    /// pseudo-locale tests (see
+    /// `docs/development/localization-pipeline.md`), which exercise the
+    /// content without needing the resolver itself to panic for it.
     pub fn resolve(&self, key: &LocKey, args: Option<&FluentArgs>) -> String {
         for (index, (locale, bundle)) in self.bundles.iter().enumerate() {
             let Some(message) = bundle.get_message(key.as_str()) else {
@@ -129,6 +203,18 @@ impl LocaleBundle {
                     "formatting errors while resolving a localization key"
                 );
             }
+            let missing = Self::missing_arg_names(&errors, args);
+            // See the "Debug-strict missing arguments" section above: a
+            // missing argument is a caller bug, so fail loudly in debug
+            // (CI's `cargo test` runs debug) while release keeps the
+            // resilient warn-and-best-effort path untouched.
+            debug_assert!(
+                missing.is_empty(),
+                "LocaleBundle::resolve: missing formatting args for key `{key}` \
+                 in locale `{locale}`: the pattern requires `${}` but the caller \
+                 did not supply them; pass them via `FluentArgs`",
+                missing.join("`, `$"),
+            );
             if index > 0 {
                 tracing::debug!(
                     key = %key,
@@ -410,6 +496,162 @@ mod tests {
             events.is_empty(),
             "expected no tracing events when the primary locale resolves the key directly; \
              captured events: {events:?}"
+        );
+    }
+
+    // --- Debug-strict missing arguments ----------------------------------
+    //
+    // No pre-existing test in this module feeds a pattern that requires
+    // arguments without supplying them (verified by reading each one:
+    // every parameterized fixture — the plural and interpolation tests —
+    // passes complete args, and every other fixture uses plain messages
+    // with `None`), so none of them trip the new `debug_assert!` and none
+    // needed updating. What follows covers the new behavior directly,
+    // split by build profile because `debug_assert!` only fires in debug
+    // builds — each test is compiled out where it cannot hold, with the
+    // reason stated on the test itself.
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "missing formatting args")]
+    fn resolving_without_any_args_for_a_parameterized_pattern_panics_in_debug() {
+        // `welcome-player` requires `$name`; resolving with `None` is a
+        // caller bug, so debug builds fail loudly (CI's `cargo test`
+        // runs debug and catches it) instead of shipping `Welcome,
+        // {$name}!` to a player.
+        let en = langid("en-US");
+        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+            vec![resource("welcome-player = Welcome, { $name }!")]
+        });
+
+        let _ = bundle.resolve(&crate::key!("welcome-player"), None);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "missing formatting args")]
+    fn resolving_with_incomplete_args_for_a_parameterized_pattern_panics_in_debug() {
+        // Supplying *an* args map is not enough: `$name` is still absent
+        // (only an unrelated `$title` is present), so this is the same
+        // caller bug through the "incomplete" rather than the "none" door
+        // and must fail just as loudly.
+        let en = langid("en-US");
+        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+            vec![resource("welcome-player = Welcome, { $name }!")]
+        });
+
+        let mut args = FluentArgs::new();
+        args.set("title", "Captain");
+        let _ = bundle.resolve(&crate::key!("welcome-player"), Some(&args));
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn resolving_without_args_still_returns_a_best_effort_string_in_release() {
+        // Release builds compile the `debug_assert!` out entirely: the
+        // same caller bug that panics in debug must keep today's
+        // resilient behavior here — a `tracing::warn!` plus the
+        // formatter's best-effort string (`{$name}` placeholder intact),
+        // never a panic and never a blank string. This test only exists
+        // in release builds, which is exactly the profile whose behavior
+        // it pins; run it locally with
+        // `cargo test --release -p canary-loc`.
+        let en = langid("en-US");
+        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+            vec![resource("welcome-player = Welcome, { $name }!")]
+        });
+
+        let resolved = bundle.resolve(&crate::key!("welcome-player"), None);
+        assert!(
+            resolved.contains("Welcome,") && resolved.contains("$name"),
+            "expected release fallback to keep the best-effort placeholder, got: {resolved:?}"
+        );
+    }
+
+    #[test]
+    fn non_argument_format_errors_warn_but_never_panic_in_any_profile() {
+        // Narrow-scope proof: a pattern referencing an *unknown message*
+        // (bad content, not a caller bug — the `.ftl` author named
+        // something that does not exist) must stay on the
+        // warn-and-return-best-effort path even in debug builds, where the
+        // test suite itself would fail if the assert over-reached.
+        let en = langid("en-US");
+        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+            vec![resource("dangling = { missing-message }")]
+        });
+
+        let events = capture_events(|| {
+            let resolved = bundle.resolve(&crate::key!("dangling"), None);
+            assert!(
+                resolved.contains("missing-message"),
+                "expected the best-effort placeholder for the unknown reference, \
+                 got: {resolved:?}"
+            );
+        });
+
+        assert!(
+            events
+                .iter()
+                .any(|(level, fields)| *level == tracing::Level::WARN
+                    && fields.contains("formatting errors")),
+            "expected a WARN event about the formatting error; captured events: {events:?}"
+        );
+    }
+
+    // --- Pseudo-locale end-to-end ----------------------------------------
+
+    #[test]
+    fn pseudo_locale_generation_flows_end_to_end_through_resolve() {
+        // Stands in for the production flow documented in
+        // `docs/development/localization-pipeline.md`: take a real en-US
+        // resource, pseudo-generate a stand-in "translation" with
+        // `fluent-pseudo` (accented glyphs + ~30% elongation, the same
+        // transform Firefox's own `qps-ploc`-style pseudo-locales apply),
+        // load it as a locale beside en-US, and resolve through
+        // `LocaleBundle` — proving the bundle serves generated locales
+        // exactly like real ones, so layout/overflow testing can run
+        // before any human translator is involved.
+        let en = langid("en-US");
+        // `qps-ploc` is the conventional BCP-47 tag for a generated
+        // pseudo-locale in Mozilla's ecosystem (private-use `qps`
+        // language + `ploc` variant-style region); `unic-langid` accepts
+        // it as a well-formed identifier without registry validation.
+        let pseudo_locale = langid("qps-ploc");
+
+        let source = "Hello World";
+        // `flipped = false` (accented lookalikes, still readable),
+        // `elongate = true` (doubles a/e/o/u to emulate the ~30% growth
+        // real translations typically add — the property UI-overflow
+        // tests actually need).
+        let pseudo_text = fluent_pseudo::transform(source, false, true).into_owned();
+        assert_ne!(pseudo_text, source);
+        assert!(
+            pseudo_text.len() > source.len(),
+            "expected elongation, got: {pseudo_text:?}"
+        );
+        assert!(
+            !pseudo_text.is_ascii(),
+            "expected accented marker glyphs, got: {pseudo_text:?}"
+        );
+
+        let pseudo_ftl = format!("greeting = {pseudo_text}");
+        let bundle = LocaleBundle::new(
+            &[pseudo_locale.clone()],
+            &[en.clone(), pseudo_locale.clone()],
+            en,
+            |locale| {
+                if *locale == pseudo_locale {
+                    vec![resource(&pseudo_ftl)]
+                } else {
+                    vec![resource("greeting = Hello World")]
+                }
+            },
+        );
+
+        let resolved = bundle.resolve(&crate::key!("greeting"), None);
+        assert_eq!(
+            resolved, pseudo_text,
+            "the pseudo-locale should resolve exactly like a real translation"
         );
     }
 }
