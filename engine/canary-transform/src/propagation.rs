@@ -111,10 +111,28 @@ pub fn propagate_transforms(world: &mut World) {
     // global is already in `composed` when its child is visited — unless
     // the parent has no `Transform` (or is gone), in which case the child
     // falls back to its local matrix.
-    let mut composed: HashMap<Entity, glam::Mat4> = HashMap::with_capacity(ordered.len());
+    let mut composed: HashMap<Entity, glam::Mat4> =
+        HashMap::with_capacity(if parent_of.is_empty() {
+            0
+        } else {
+            ordered.len()
+        });
     if parent_of.is_empty() {
         for (entity, global) in ordered.iter().map(|(e, local, _)| (*e, *local)) {
-            write_global_transform(world, entity, global);
+            let needs_write = world
+                .get::<GlobalTransform>(entity)
+                .is_none_or(|slot| *slot != GlobalTransform(global));
+            if !needs_write {
+                continue;
+            }
+            match world.get_mut::<GlobalTransform>(entity) {
+                Some(slot) => {
+                    *slot = GlobalTransform(global);
+                }
+                None => {
+                    let _ = world.insert(entity, GlobalTransform(global));
+                }
+            }
         }
         return;
     }
@@ -127,37 +145,33 @@ pub fn propagate_transforms(world: &mut World) {
     }
 
     for (entity, global) in composed {
-        write_global_transform(world, entity, global);
-    }
-}
-
-/// Writes one computed `GlobalTransform`, read-then-maybe-write rather
-/// than blind `get_mut`: `get_mut` stamps the current tick
-/// unconditionally (a caller holding `&mut T` is conservatively assumed
-/// to write through it), so an unconditional write would mark every
-/// `GlobalTransform` changed on every run — even with zero edits — and
-/// any downstream `query_changed_since::<GlobalTransform>` consumer
-/// would re-run every tick. The recomposition above is deterministic in
-/// its inputs, so exact inequality here means "something actually
-/// changed," not a float-comparison shortcut. Shared by the flat-scene
-/// fast path and the general path so the two can never drift apart.
-fn write_global_transform(world: &mut World, entity: Entity, global: glam::Mat4) {
-    let needs_write = world
-        .get::<GlobalTransform>(entity)
-        .is_none_or(|slot| *slot != GlobalTransform(global));
-    if !needs_write {
-        return;
-    }
-    match world.get_mut::<GlobalTransform>(entity) {
-        Some(slot) => {
-            *slot = GlobalTransform(global);
+        // Read-then-maybe-write, not blind `get_mut`: `get_mut` stamps
+        // the current tick unconditionally (a caller holding `&mut T`
+        // is conservatively assumed to write through it), so an
+        // unconditional write would mark every `GlobalTransform`
+        // changed on every run -- even with zero edits -- and any
+        // downstream `query_changed_since::<GlobalTransform>`
+        // consumer would re-run every tick. The recomposition above is
+        // deterministic in its inputs, so exact inequality here means
+        // "something actually changed," not a float-comparison
+        // shortcut.
+        let needs_write = world
+            .get::<GlobalTransform>(entity)
+            .is_none_or(|slot| *slot != GlobalTransform(global));
+        if !needs_write {
+            continue;
         }
-        None => {
-            // `entity` was alive at snapshot time and nothing despawns
-            // mid-pass, so this cannot fail in practice; a stale
-            // handle here would mean a concurrent modification this
-            // single-threaded pass cannot observe.
-            let _ = world.insert(entity, GlobalTransform(global));
+        match world.get_mut::<GlobalTransform>(entity) {
+            Some(slot) => {
+                *slot = GlobalTransform(global);
+            }
+            None => {
+                // `entity` was alive at snapshot time and nothing despawns
+                // mid-pass, so this cannot fail in practice; a stale
+                // handle here would mean a concurrent modification this
+                // single-threaded pass cannot observe.
+                let _ = world.insert(entity, GlobalTransform(global));
+            }
         }
     }
 }

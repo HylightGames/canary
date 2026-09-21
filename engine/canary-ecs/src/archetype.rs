@@ -195,6 +195,11 @@ impl Archetype {
     /// Extra entries (e.g. the type a [`crate::World::remove`] call
     /// just pulled out) must already be removed by the caller before
     /// this is called.
+    pub(crate) fn push_entity(&mut self, entity: Entity) {
+        debug_assert!(self.signature.is_empty());
+        self.entities.push(entity);
+    }
+
     pub(crate) fn insert_row(
         &mut self,
         entity: Entity,

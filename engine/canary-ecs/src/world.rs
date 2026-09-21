@@ -173,7 +173,7 @@ impl World {
         let empty_archetype = self.empty_archetype;
         let row = {
             let archetype = &mut self.archetypes[empty_archetype.0];
-            archetype.insert_row(entity, Vec::new());
+            archetype.push_entity(entity);
             archetype.last_row_index()
         };
         self.slots[entity.index as usize].location = Some(EntityLocation {

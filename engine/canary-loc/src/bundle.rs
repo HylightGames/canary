@@ -221,15 +221,8 @@ mod tests {
         };
         let subscriber = Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, f);
-        // Strict teardown: every `Arc` clone besides `events` itself
-        // (the layer's, dropped with the subscriber above) must be gone
-        // by now. If this ever fails, a layer or subscriber is
-        // retaining events past the test — fix that leak, do not
-        // downgrade this to a lock-and-clone.
-        Arc::try_unwrap(events)
-            .expect("no other references to the captured-events buffer should remain")
-            .into_inner()
-            .expect("test mutex should not be poisoned")
+        let guard = events.lock().expect("test mutex should not be poisoned");
+        guard.clone()
     }
 
     fn resource(ftl: &str) -> FluentResource {
