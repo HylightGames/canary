@@ -136,13 +136,17 @@ struct BodySlot {
 /// the entity↔handle map are all private fields: the trait's methods
 /// plus [`RapierBackend::new`] are the entire public surface, and none
 /// of them names a rapier (or `nalgebra`) type. `nalgebra` does not even
-/// appear in this module's code — and rapier2d's own math layer
-/// (`rapier::math::Vector`) is built on a NEWER `glam` than this
-/// workspace's `glam = "0.30"`, so the two `Vec2`s are distinct types
-/// despite the same name. Every crossing therefore converts
-/// field-by-field (`Vector::new(x, y)` in, `.x`/`.y` out) — friction
-/// that is load-bearing, not incidental: it forces the boundary to stay
-/// explicit and keeps both math vocabularies out of every signature.
+/// appear in this module's code. Note on the math vocabulary:
+/// rapier2d 0.35's 2D vector (`rapier::math::Vector`) reaches this
+/// lockfile's `glam 0.33.8` through parry2d 0.30's `glamx` re-export
+/// (`pub use glam::*`), i.e. it is the same `Vec2` type this workspace
+/// uses — not a distinct vocabulary (verified via `cargo tree` +
+/// registry sources, not assumed from the version numbers). The
+/// field-by-field crossings (`Vector::new(x, y)` in, `.x`/`.y` out)
+/// are therefore convention, not a type wall: they keep every solver
+/// touchpoint explicit and fully qualified (so a `grep` for bare solver
+/// types stays meaningful), and they keep working unchanged if a future
+/// rapier major moves its math layer again.
 pub struct RapierBackend {
     /// Solver-side bodies.
     bodies: rapier::dynamics::RigidBodySet,
@@ -176,7 +180,10 @@ pub struct RapierBackend {
     /// Next fresh slot index (slots are never reused by index — removal
     /// bumps the generation instead, so indices grow monotonically and
     /// aliasing-by-recycle is impossible even before generations are
-    /// consulted).
+    /// consulted). Allocated with `checked_add`, never wrapping: past
+    /// `u32::MAX` bodies this fails loudly (matching `World::spawn`'s
+    /// slot-exhaustion policy) instead of wrapping around to overwrite
+    /// a live slot 0 with generation 0.
     next_index: u32,
     /// Mint counter for [`ColliderHandle`] opaques (colliders need no
     /// liveness tracking — the trait has no collider-targeted reads, and
@@ -534,7 +541,10 @@ impl PhysicsBackend for RapierBackend {
                 .build(),
         );
         let index = self.next_index;
-        self.next_index = self.next_index.wrapping_add(1);
+        self.next_index = self.next_index.checked_add(1).expect(
+            "body index space exhausted (2^32 bodies ever created); \
+             wrapping would alias a live slot",
+        );
         self.slots.insert(
             index,
             BodySlot {
@@ -575,7 +585,13 @@ impl PhysicsBackend for RapierBackend {
             slot.colliders.push(rapier_collider_handle);
         }
         let index = self.next_collider_index;
-        self.next_collider_index = self.next_collider_index.wrapping_add(1);
+        // Checked, never wrapping (same policy as body indices above):
+        // past `u32::MAX` colliders this fails loudly instead of
+        // reissuing an opaque ID that may still be outstanding.
+        self.next_collider_index = self
+            .next_collider_index
+            .checked_add(1)
+            .expect("collider index space exhausted (2^32 colliders ever created)");
         Ok(ColliderHandle::from_raw_parts(index, 0))
     }
 
