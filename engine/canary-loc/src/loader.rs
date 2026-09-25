@@ -77,7 +77,49 @@ pub enum LoaderError {
         /// The parse errors `fluent-syntax` reported.
         errors: Vec<fluent_syntax::parser::ParserError>,
     },
+    /// A `.ftl` file (or locale directory) exceeded the decode budget.
+    /// Untrusted locale packs must not be able to OOM the loader with
+    /// a lying file size — the budget is checked from filesystem
+    /// metadata *before* reading, so the bytes are never allocated,
+    /// and enforced again *during* the read itself (a capped reader),
+    /// so a path whose metadata understates its contents (a symlink to
+    /// a device or a file grown between the check and the read) still
+    /// cannot blow past the budget.
+    #[error("{path} exceeds the {limit_desc} budget ({actual_bytes} bytes)")]
+    OverBudget {
+        /// The file or directory that exceeded the budget.
+        path: std::path::PathBuf,
+        /// Which budget fired, in human terms (e.g. "1 MiB per file").
+        limit_desc: &'static str,
+        /// The size that tripped it.
+        actual_bytes: u64,
+    },
 }
+
+impl LoaderError {
+    /// The filesystem path this error is about, if it names one. Every
+    /// variant does today; the accessor exists so callers (and future
+    /// variants) don't match-spam to recover it.
+    pub fn path(&self) -> Option<&std::path::Path> {
+        match self {
+            LoaderError::ReadDir { path, .. }
+            | LoaderError::ReadFile { path, .. }
+            | LoaderError::InvalidSyntax { path, .. }
+            | LoaderError::OverBudget { path, .. } => Some(path),
+        }
+    }
+}
+
+/// Maximum bytes read from any single `.ftl` file: 1 MiB is orders of
+/// magnitude past any realistic locale file (the whole CLDR-derived
+/// message set for a language fits in kilobytes) while bounding a
+/// hostile pack's allocation before a byte is read.
+pub const DEFAULT_MAX_LOCALE_FILE_BYTES: u64 = 1024 * 1024;
+
+/// Maximum `.ftl` files read from one locale directory. Caps a hostile
+/// pack's file-count amplification (thousands of tiny files each under
+/// the per-file budget) independent of total bytes.
+pub const DEFAULT_MAX_LOCALE_FILES: usize = 256;
 
 /// Scans `base_dir` for subdirectories whose names parse as a
 /// [`LanguageIdentifier`], returning those as the set of "available"
@@ -114,9 +156,34 @@ pub fn discover_available_locales(base_dir: &Path) -> Vec<LanguageIdentifier> {
 
 /// Loads every `.ftl` file directly inside `base_dir/<locale>/` as a
 /// [`FluentResource`]. See this module's docs for the expected layout.
+///
+/// Enforces [`DEFAULT_MAX_LOCALE_FILE_BYTES`] per file (checked from
+/// metadata before reading) and [`DEFAULT_MAX_LOCALE_FILES`] per
+/// directory; use [`load_locale_resources_with_budget`] for explicit
+/// limits.
 pub fn load_locale_resources(
     base_dir: &Path,
     locale: &LanguageIdentifier,
+) -> Result<Vec<FluentResource>, LoaderError> {
+    load_locale_resources_with_budget(
+        base_dir,
+        locale,
+        DEFAULT_MAX_LOCALE_FILE_BYTES,
+        DEFAULT_MAX_LOCALE_FILES,
+    )
+}
+
+/// [`load_locale_resources`] with explicit decode budgets, for callers
+/// (tests, tooling) that need limits other than the defaults. Budgets
+/// are enforced before allocation (from filesystem metadata, so an
+/// over-limit file errors without its bytes ever being read) and again
+/// during the read itself (a capped reader, so a path whose metadata
+/// understates its contents still cannot blow past the budget).
+pub fn load_locale_resources_with_budget(
+    base_dir: &Path,
+    locale: &LanguageIdentifier,
+    max_file_bytes: u64,
+    max_files: usize,
 ) -> Result<Vec<FluentResource>, LoaderError> {
     let locale_dir = base_dir.join(locale.to_string());
     let entries = std::fs::read_dir(&locale_dir).map_err(|source| LoaderError::ReadDir {
@@ -125,6 +192,7 @@ pub fn load_locale_resources(
     })?;
 
     let mut resources = Vec::new();
+    let mut file_count = 0usize;
     for entry in entries {
         let entry = entry.map_err(|source| LoaderError::ReadDir {
             path: locale_dir.clone(),
@@ -134,10 +202,26 @@ pub fn load_locale_resources(
         if path.extension().and_then(|e| e.to_str()) != Some("ftl") {
             continue;
         }
-        let content = std::fs::read_to_string(&path).map_err(|source| LoaderError::ReadFile {
-            path: path.clone(),
-            source,
-        })?;
+        file_count += 1;
+        if file_count > max_files {
+            return Err(LoaderError::OverBudget {
+                path: locale_dir.clone(),
+                limit_desc: "max files per locale",
+                actual_bytes: file_count as u64,
+            });
+        }
+        let size = entry
+            .metadata()
+            .map(|metadata| metadata.len())
+            .unwrap_or(u64::MAX);
+        if size > max_file_bytes {
+            return Err(LoaderError::OverBudget {
+                path: path.clone(),
+                limit_desc: "max bytes per file",
+                actual_bytes: size,
+            });
+        }
+        let content = read_file_with_budget(&path, max_file_bytes)?;
         let resource = FluentResource::try_new(content).map_err(|(_partial, errors)| {
             LoaderError::InvalidSyntax {
                 path: path.clone(),
@@ -147,6 +231,37 @@ pub fn load_locale_resources(
         resources.push(resource);
     }
     Ok(resources)
+}
+
+/// Reads `path` to a string with `max_file_bytes` enforced during the
+/// read itself, not just from metadata beforehand: the reader takes at
+/// most one byte past the budget, so a path whose metadata understates
+/// its contents (a symlink to a device, a file grown between the check
+/// and the read) errors with [`LoaderError::OverBudget`] instead of
+/// allocating without bound. The metadata pre-check in the caller stays
+/// as the fast path (exact size, no bytes read); this is the backstop.
+fn read_file_with_budget(path: &Path, max_file_bytes: u64) -> Result<String, LoaderError> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).map_err(|source| LoaderError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut capped = file.take(max_file_bytes.saturating_add(1));
+    let mut content = String::new();
+    capped
+        .read_to_string(&mut content)
+        .map_err(|source| LoaderError::ReadFile {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    if content.len() as u64 > max_file_bytes {
+        return Err(LoaderError::OverBudget {
+            path: path.to_path_buf(),
+            limit_desc: "max bytes per file",
+            actual_bytes: content.len() as u64,
+        });
+    }
+    Ok(content)
 }
 
 #[cfg(test)]
@@ -222,5 +337,66 @@ mod tests {
             matches!(result, Err(LoaderError::ReadDir { .. })),
             "expected a ReadDir error for a locale directory that was never created, got: {result:?}"
         );
+    }
+
+    #[test]
+    fn oversized_and_excess_files_fail_with_overbudget_before_reading() {
+        // Over-size: metadata reports past the per-file budget, so the
+        // loader must refuse without allocating the content. A sparse
+        // file keeps this cheap on disk while reporting a large size.
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let locale_dir = dir.path().join("en-US");
+        std::fs::create_dir(&locale_dir).unwrap();
+        let big = std::fs::File::create(locale_dir.join("big.ftl")).unwrap();
+        big.set_len(DEFAULT_MAX_LOCALE_FILE_BYTES + 1).unwrap();
+        drop(big);
+
+        let locale: LanguageIdentifier = "en-US".parse().unwrap();
+        let result = load_locale_resources(dir.path(), &locale);
+        assert!(
+            matches!(result, Err(LoaderError::OverBudget { .. })),
+            "expected OverBudget for the oversized file, got: {result:?}"
+        );
+        assert_eq!(
+            result.unwrap_err().path(),
+            Some(locale_dir.join("big.ftl").as_path()),
+            "the error must name the offending file"
+        );
+
+        // Over-count: more files than the per-directory budget, each
+        // tiny (so the per-file budget never fires first).
+        let dir2 = tempfile::tempdir().expect("failed to create temp dir");
+        let locale_dir2 = dir2.path().join("en-US");
+        std::fs::create_dir(&locale_dir2).unwrap();
+        for index in 0..=DEFAULT_MAX_LOCALE_FILES {
+            std::fs::write(locale_dir2.join(format!("f{index}.ftl")), "k = V").unwrap();
+        }
+        let result = load_locale_resources(dir2.path(), &locale);
+        assert!(
+            matches!(result, Err(LoaderError::OverBudget { .. })),
+            "expected OverBudget past the file-count budget, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn the_read_itself_is_capped_even_when_metadata_passes() {
+        // The metadata pre-check sees a small file here (an explicit
+        // 8-byte budget against a 5-byte file passes it), so only the
+        // capped reader can refuse: proves enforcement lives in the
+        // read, not just in the `stat`.
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let file = dir.path().join("small.ftl");
+        std::fs::write(&file, "k = V\n").unwrap();
+
+        let result = read_file_with_budget(&file, 2);
+        assert!(
+            matches!(result, Err(LoaderError::OverBudget { .. })),
+            "a read past the byte budget must fail capped, got: {result:?}"
+        );
+        assert_eq!(result.unwrap_err().path(), Some(file.as_path()));
+
+        // At-or-under budget still reads through untouched.
+        let content = read_file_with_budget(&file, 6).expect("exact-budget read must succeed");
+        assert_eq!(content, "k = V\n");
     }
 }

@@ -42,6 +42,15 @@ impl LocKey {
     /// stays readable at the call site.
     #[doc(hidden)]
     pub const fn __new_unchecked(key: &'static str) -> Self {
+        // Debug-only backstop, not the real check (that's the `key!`
+        // macro + `__validate_key_syntax_or_panic` at compile time):
+        // `__new_unchecked` is macro machinery, so any caller holding
+        // an invalid key here has bypassed the one sanctioned path.
+        // A `const`-compatible assert — no branching the macro needs.
+        assert!(
+            is_valid_fluent_identifier(key),
+            "LocKey constructed with an invalid Fluent identifier outside key!"
+        );
         Self(key)
     }
 

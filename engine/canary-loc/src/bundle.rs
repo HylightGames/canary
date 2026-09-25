@@ -150,7 +150,7 @@ impl LocaleBundle {
     /// When the resolved pattern references a `$variable` the caller did
     /// not supply (no `args`, or an `args` map missing that name), the
     /// formatter reports
-    /// [`FluentError::ResolverError(ResolverError::Reference(ReferenceKind::Variable))`]
+    /// `FluentError::ResolverError(ResolverError::Reference(ReferenceKind::Variable))`
     /// and renders a best-effort placeholder (`{$name}`) instead of the
     /// value. In **debug builds** (including `cargo test`, which is what
     /// CI runs) that specific case is a loud [`debug_assert!`] failure:
