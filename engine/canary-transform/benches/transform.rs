@@ -127,32 +127,52 @@ fn propagate_flat_scene_first_run(bencher: Bencher, count: usize) {
 }
 
 /// Steady-state propagation over a flat scene: `GlobalTransform`s already
-/// exist and nothing moved, so this measures the recompute-and-compare
-/// path that runs on every quiet tick.
+/// exist and nothing moves between ticks, so each measured iteration is one
+/// quiet tick (`advance_tick` + propagate) exercising the skip probe rather
+/// than the recompute-and-compare path. Setup runs two passes to settle the
+/// baseline (recompute + follow-up), matching what a live frame loop reaches
+/// after its first quiet ticks.
 #[divan::bench(args = ENTITY_COUNTS)]
 fn propagate_flat_scene_steady_state(bencher: Bencher, count: usize) {
     let mut world = flat_scene(count);
     propagate_transforms(&mut world);
-    bencher.bench_local(|| propagate_transforms(&mut world));
+    world.advance_tick();
+    propagate_transforms(&mut world);
+    bencher.bench_local(|| {
+        world.advance_tick();
+        propagate_transforms(&mut world);
+    });
 }
 
 /// Steady-state propagation over one root with many children: the same
 /// entity count as the flat case, but every entity now composes against a
-/// parent global.
+/// parent global. One quiet tick per iteration, settled setup — same shape
+/// as [`propagate_flat_scene_steady_state`].
 #[divan::bench(args = ENTITY_COUNTS)]
 fn propagate_wide_hierarchy_steady_state(bencher: Bencher, count: usize) {
     let mut world = wide_scene(count);
     propagate_transforms(&mut world);
-    bencher.bench_local(|| propagate_transforms(&mut world));
+    world.advance_tick();
+    propagate_transforms(&mut world);
+    bencher.bench_local(|| {
+        world.advance_tick();
+        propagate_transforms(&mut world);
+    });
 }
 
 /// Steady-state propagation over a deep chain: depth ordering, not
-/// breadth, is what dominates here.
+/// breadth, is what dominates a recompute here — but quiet ticks skip
+/// before reaching it. One quiet tick per iteration, settled setup.
 #[divan::bench(args = CHAIN_DEPTHS)]
 fn propagate_deep_chain_steady_state(bencher: Bencher, depth: usize) {
     let mut world = deep_scene(depth);
     propagate_transforms(&mut world);
-    bencher.bench_local(|| propagate_transforms(&mut world));
+    world.advance_tick();
+    propagate_transforms(&mut world);
+    bencher.bench_local(|| {
+        world.advance_tick();
+        propagate_transforms(&mut world);
+    });
 }
 
 /// A moving root in a deep chain: one local edit that every descendant's

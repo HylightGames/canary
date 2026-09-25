@@ -13,10 +13,10 @@
 
 use std::collections::HashMap;
 
-use canary_ecs::{Entity, World};
+use canary_ecs::{Entity, Tick, World};
 use canary_scheduler::{Schedule, SystemAccess};
 
-use crate::{GlobalTransform, Parent, Transform};
+use crate::{Children, GlobalTransform, Parent, Transform};
 
 /// Declares the data access of [`propagate_transforms`]: reads `Transform`,
 /// `Parent`, and `GlobalTransform` (read-before-write), writes
@@ -28,8 +28,97 @@ pub fn transform_propagation_access() -> SystemAccess {
         .writes::<GlobalTransform>()
 }
 
+/// Last propagation run that recomputed: the tick it ran at, the
+/// membership counts its output was composed from, and whether that view
+/// is settled. Stored as an ECS resource so the baseline lives and dies
+/// with the `World` it describes. Private: the skip is an internal fast
+/// path, not a second API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PropagationBaseline {
+    /// [`World::change_tick`] when the baseline was stored.
+    last_tick: Tick,
+    /// [`World::entity_count`] at that tick.
+    entity_count: usize,
+    /// Live `Transform` components at that tick.
+    transform_count: usize,
+    /// Live `Parent` components at that tick.
+    parent_count: usize,
+    /// Live `GlobalTransform` components at that tick.
+    global_count: usize,
+    /// Whether the next run may skip. False after a recompute: a write
+    /// stamped at the recompute's own tick but landing *after* the probe
+    /// (a system writing `Transform` later in the same tick than this one
+    /// ran) compares equal to — not greater than — this tick, so the next
+    /// tick always recomputes once more (the follow-up pass) before
+    /// quiescing. True once that pass has run.
+    settled: bool,
+}
+
+/// Whether the next [`propagate_transforms`] run must recompute.
+///
+/// True when no baseline exists yet (first run always recomputes), when
+/// this run shares its tick with the baseline (same-tick writes are
+/// invisible to the `>` probe below, so a same-tick rerun never skips),
+/// when the previous run recomputed and its follow-up pass is still due,
+/// when membership changed (entity or relevant component counts differ —
+/// the only signal a raw [`World::despawn`] or a component `remove`
+/// leaves behind), or when any input component was written after the
+/// baseline tick. False only when a full recompute is provably a no-op —
+/// and a skipped run stores nothing, so the baseline keeps pointing at
+/// the last recompute: a write landing after a skip still compares
+/// greater than that older tick and is caught on the next run.
+fn propagation_is_dirty(world: &World) -> bool {
+    let Some(baseline) = world.resource::<PropagationBaseline>().copied() else {
+        return true;
+    };
+    if world.change_tick() <= baseline.last_tick {
+        return true;
+    }
+    if !baseline.settled {
+        return true;
+    }
+    if world.entity_count() != baseline.entity_count
+        || world.query::<Transform>().count() != baseline.transform_count
+        || world.query::<Parent>().count() != baseline.parent_count
+        || world.query::<GlobalTransform>().count() != baseline.global_count
+    {
+        return true;
+    }
+    let since = baseline.last_tick;
+    world
+        .query_changed_since::<Transform>(since)
+        .next()
+        .is_some()
+        || world.query_changed_since::<Parent>(since).next().is_some()
+        || world
+            .query_changed_since::<Children>(since)
+            .next()
+            .is_some()
+        || world
+            .query_changed_since::<GlobalTransform>(since)
+            .next()
+            .is_some()
+}
+
+/// Records the current tick and membership counts as the baseline for the
+/// next run's dirty check. `settled` is true only for a follow-up pass
+/// (see [`PropagationBaseline::settled`]); every other recompute leaves
+/// another pass due.
+fn store_propagation_baseline(world: &mut World, settled: bool) {
+    world.insert_resource(PropagationBaseline {
+        last_tick: world.change_tick(),
+        entity_count: world.entity_count(),
+        transform_count: world.query::<Transform>().count(),
+        parent_count: world.query::<Parent>().count(),
+        global_count: world.query::<GlobalTransform>().count(),
+        settled,
+    });
+}
+
 /// Recomputes every [`GlobalTransform`](crate::GlobalTransform) from local
-/// [`Transform`](crate::Transform)s and the [`Parent`](crate::Parent) links.
+/// [`Transform`](crate::Transform)s and the [`Parent`](crate::Parent) links,
+/// skipping the whole pass on quiet ticks where nothing affecting the output
+/// changed.
 ///
 /// Roots (entities with no `Parent`, or whose `Parent` names a despawned,
 /// unknown, or `Transform`-less entity) copy their local matrix; children
@@ -43,7 +132,69 @@ pub fn transform_propagation_access() -> SystemAccess {
 /// first and `GlobalTransform` is written afterwards via
 /// `get_mut`/`insert`, since `World::query2_mut` only covers
 /// one-mutable-one-shared shapes and cannot express this pass.
+///
+/// # Quiet-tick skip (what counts as "changed")
+///
+/// The composed output is a pure function of three things: every live
+/// entity's `Transform` value, every live entity's `Parent` link, and
+/// which entities are alive at all. A tick where none of those moved
+/// recomposes bit-identical globals, so the pass returns early after a
+/// cheap change-detection probe instead of rebuilding the snapshot,
+/// depth map, and composed matrices. The probe watches:
+///
+/// - `Transform` values, via `query_changed_since` (covers `insert`
+///   overwrites and `get_mut` touches, including the physics sync writes
+///   that run earlier in the same tick);
+/// - `Parent` links, via `query_changed_since` (covers attaches and
+///   reparents; a forged raw `Parent` insert stamps a tick the same way);
+/// - `Children` values, via `query_changed_since` (covers detaches and
+///   subtree removals: [`set_parent`](crate::set_parent) and
+///   [`despawn_subtree`](crate::despawn_subtree) touch `Children` through
+///   `get_mut`, and a `Parent` *removal* leaves no tick behind on the
+///   entity it left — the surviving parent's `Children` stamp is the
+///   only tick that removal produces);
+/// - `GlobalTransform` values, via `query_changed_since` (an external
+///   manual edit would otherwise survive a skipped tick instead of being
+///   repaired back to the composed value);
+/// - structural membership, via entity/component counts (a raw
+///   [`World::despawn`] of a `Transform`-carrying parent stamps no tick
+///   on its surviving children, yet flips them from composed to local
+///   fallback — the count change is what catches it, conservatively
+///   recomputing even when the despawned entity turns out to be a leaf
+///   whose loss changed nothing).
+///
+/// Two guard rails keep the tick probe exact. A rerun within the same
+/// tick as the baseline never skips (writes stamped at the current tick
+/// compare equal to, not greater than, a same-tick baseline). And every
+/// recompute leaves a follow-up pass due on the next tick, catching a
+/// write that lands after the probe within the recompute's own tick —
+/// so every change propagates no later than the tick after it lands,
+/// matching the unskipped behavior for arbitrary system orderings. No
+/// depth state is cached across runs, so hierarchy edits need no
+/// invalidation: the first tick after any structural change recomputes
+/// fully.
+///
+/// # Downstream change-tick contract
+///
+/// A skipped tick writes nothing, so it stamps no `GlobalTransform`
+/// change ticks: a `query_changed_since::<GlobalTransform>` consumer
+/// observing a quiet tick sees exactly what the pre-skip code produced
+/// on a quiet tick (the read-before-write below already avoided dirtying
+/// ticks on no-op recomputes). No in-tree consumer relies on per-tick
+/// tick advancement: render extraction (`canary-render-ecs`) reads
+/// `GlobalTransform` through full `query2` intersections every tick,
+/// never through change detection, so a skipped tick starves nothing —
+/// it simply re-reads the same correct matrices. Scheduler staging is
+/// untouched: this system keeps [`transform_propagation_access`]'s
+/// declaration and still runs as a solo-write stage in registration
+/// order; only its body returns early.
 pub fn propagate_transforms(world: &mut World) {
+    let baseline = world.resource::<PropagationBaseline>().copied();
+    let followup =
+        baseline.is_some_and(|seen| !seen.settled && world.change_tick() > seen.last_tick);
+    if !followup && !propagation_is_dirty(world) {
+        return;
+    }
     // Snapshot: every local matrix plus its parent link, if any.
     let snapshot: Vec<(Entity, glam::Mat4, Option<Entity>)> = world
         .query::<Transform>()
@@ -163,6 +314,7 @@ pub fn propagate_transforms(world: &mut World) {
             }
         }
     }
+    store_propagation_baseline(world, followup);
 }
 
 /// Registers [`propagate_transforms`] on `schedule` as a write system with
@@ -541,6 +693,496 @@ mod tests {
                 .next()
                 .is_none(),
             "a no-op re-propagation must not dirty change detection"
+        );
+    }
+
+    /// Runs propagation to a settled baseline: propagate, advance, and
+    /// propagate again (the follow-up pass), so a subsequent quiet tick
+    /// probes clean.
+    fn propagate_to_settled(world: &mut World) {
+        propagate_transforms(world);
+        world.advance_tick();
+        propagate_transforms(world);
+    }
+
+    #[test]
+    fn quiet_tick_skips_and_leaves_output_identical() {
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(3.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        propagate_to_settled(&mut world);
+        assert!(
+            world
+                .resource::<PropagationBaseline>()
+                .is_some_and(|baseline| baseline.settled),
+            "two runs must settle the baseline"
+        );
+        let before_root = world.get::<GlobalTransform>(root).copied();
+        let before_child = world.get::<GlobalTransform>(child).copied();
+        let settled_tick = world
+            .resource::<PropagationBaseline>()
+            .map(|baseline| baseline.last_tick);
+
+        world.advance_tick();
+        assert!(
+            !propagation_is_dirty(&world),
+            "a tick with no writes must probe clean"
+        );
+        propagate_transforms(&mut world);
+
+        assert_eq!(world.get::<GlobalTransform>(root).copied(), before_root);
+        assert_eq!(world.get::<GlobalTransform>(child).copied(), before_child);
+        assert_eq!(
+            world
+                .resource::<PropagationBaseline>()
+                .map(|baseline| baseline.last_tick),
+            settled_tick,
+            "a skipped run stores nothing, keeping the baseline on the last recompute"
+        );
+        // A second consecutive quiet tick probes clean too.
+        world.advance_tick();
+        assert!(
+            !propagation_is_dirty(&world),
+            "consecutive quiet ticks must stay clean"
+        );
+    }
+
+    #[test]
+    fn same_tick_rerun_after_a_write_recomputes() {
+        // The pre-skip code recomputed unconditionally, so a write and a
+        // rerun sharing one tick (no `advance_tick` between them) must
+        // still propagate: same-tick writes are invisible to the `>`
+        // probe, which is why same-tick reruns never skip.
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(root, Transform::from_translation(glam::Vec3::ZERO))
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(5.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        propagate_transforms(&mut world);
+
+        world.get_mut::<Transform>(root).unwrap().translation = glam::Vec3::new(10.0, 0.0, 0.0);
+        assert!(
+            propagation_is_dirty(&world),
+            "a same-tick write must probe dirty"
+        );
+        propagate_transforms(&mut world);
+
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(15.0, 0.0, 0.0)).length() < 1e-5,
+            "child must follow the moved parent"
+        );
+    }
+
+    #[test]
+    fn follow_up_pass_runs_once_after_a_change_then_quiesces() {
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(root, Transform::from_translation(glam::Vec3::ZERO))
+            .unwrap();
+        propagate_to_settled(&mut world);
+
+        world.advance_tick();
+        world.get_mut::<Transform>(root).unwrap().translation = glam::Vec3::X;
+        propagate_transforms(&mut world);
+        assert!(
+            world
+                .resource::<PropagationBaseline>()
+                .is_some_and(|baseline| !baseline.settled),
+            "a change-driven recompute leaves a follow-up pass due"
+        );
+
+        world.advance_tick();
+        assert!(
+            propagation_is_dirty(&world),
+            "the follow-up pass runs even with no new writes"
+        );
+        propagate_transforms(&mut world);
+        assert!(
+            world
+                .resource::<PropagationBaseline>()
+                .is_some_and(|baseline| baseline.settled),
+            "the follow-up pass settles the baseline"
+        );
+        assert!(
+            (global_translation(&world, root) - glam::Vec3::X).length() < 1e-5,
+            "output stays correct through the follow-up"
+        );
+
+        world.advance_tick();
+        assert!(
+            !propagation_is_dirty(&world),
+            "quiet ticks skip once the follow-up has run"
+        );
+    }
+
+    #[test]
+    fn write_after_a_skip_is_caught_on_the_next_tick() {
+        // A skip stores no baseline, so a write landing after the skip —
+        // stamped at a tick newer than the frozen baseline — probes dirty
+        // on the next tick instead of being swallowed.
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(root, Transform::from_translation(glam::Vec3::ZERO))
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(5.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        propagate_to_settled(&mut world);
+
+        world.advance_tick();
+        propagate_transforms(&mut world);
+        world.get_mut::<Transform>(root).unwrap().translation = glam::Vec3::new(10.0, 0.0, 0.0);
+
+        world.advance_tick();
+        assert!(
+            propagation_is_dirty(&world),
+            "a write after a skip must probe dirty"
+        );
+        propagate_transforms(&mut world);
+
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(15.0, 0.0, 0.0)).length() < 1e-5,
+            "child must follow the moved parent"
+        );
+    }
+
+    #[test]
+    fn attach_marks_dirty_and_propagates() {
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(8.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        propagate_to_settled(&mut world);
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(1.0, 0.0, 0.0)).length() < 1e-5
+        );
+
+        world.advance_tick();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        assert!(propagation_is_dirty(&world), "an attach must probe dirty");
+        propagate_transforms(&mut world);
+
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(9.0, 0.0, 0.0)).length() < 1e-5,
+            "newly attached child must compose onto its parent"
+        );
+    }
+
+    #[test]
+    fn detach_marks_dirty_and_restores_local() {
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(8.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        propagate_to_settled(&mut world);
+
+        world.advance_tick();
+        remove_parent(&mut world, child).unwrap();
+        // A detach removes `Parent` (leaving no tick on the child itself);
+        // the surviving parent's `Children` stamp plus the membership
+        // counts are what make this probe dirty.
+        assert!(propagation_is_dirty(&world), "a detach must probe dirty");
+        propagate_transforms(&mut world);
+
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(1.0, 0.0, 0.0)).length() < 1e-5,
+            "detached child is a root again"
+        );
+    }
+
+    #[test]
+    fn raw_despawn_of_parent_marks_dirty_and_falls_back_to_local() {
+        let mut world = World::new();
+        let parent = world.spawn();
+        world
+            .insert(
+                parent,
+                Transform::from_translation(glam::Vec3::new(100.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(parent)).unwrap();
+        propagate_transforms(&mut world);
+        world.advance_tick();
+        propagate_transforms(&mut world);
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(101.0, 0.0, 0.0)).length() < 1e-5
+        );
+
+        world.advance_tick();
+        // Raw despawn: no helper touches the child's ticks, so only the
+        // membership fingerprint catches this.
+        world.despawn(parent).unwrap();
+        assert!(
+            propagation_is_dirty(&world),
+            "despawning a parent must probe dirty even though no child tick moved"
+        );
+        propagate_transforms(&mut world);
+
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(1.0, 0.0, 0.0)).length() < 1e-5,
+            "child of a raw-despawned parent falls back to local"
+        );
+    }
+
+    #[test]
+    fn despawn_subtree_marks_dirty_and_survivors_stay_correct() {
+        use crate::despawn_subtree;
+
+        let mut world = World::new();
+        let grandparent = world.spawn();
+        world
+            .insert(grandparent, Transform::from_translation(glam::Vec3::X))
+            .unwrap();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(0.0, 1.0, 0.0)),
+            )
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(0.0, 0.0, 1.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, root, Some(grandparent)).unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        propagate_to_settled(&mut world);
+
+        world.advance_tick();
+        despawn_subtree(&mut world, root).unwrap();
+        assert!(
+            propagation_is_dirty(&world),
+            "a subtree removal must probe dirty"
+        );
+        propagate_transforms(&mut world);
+
+        assert!(world.is_alive(grandparent));
+        assert!(
+            (global_translation(&world, grandparent) - glam::Vec3::X).length() < 1e-5,
+            "the surviving grandparent keeps its global"
+        );
+    }
+
+    #[test]
+    fn spawned_entity_marks_dirty_and_propagates() {
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(4.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        propagate_to_settled(&mut world);
+
+        world.advance_tick();
+        let late = world.spawn();
+        world
+            .insert(
+                late,
+                Transform::from_translation(glam::Vec3::new(1.0, 1.0, 1.0)),
+            )
+            .unwrap();
+        assert!(
+            propagation_is_dirty(&world),
+            "spawning a Transform entity must probe dirty"
+        );
+        propagate_transforms(&mut world);
+
+        assert!(
+            (global_translation(&world, late) - glam::Vec3::new(1.0, 1.0, 1.0)).length() < 1e-5,
+            "a late-spawned root copies its local transform"
+        );
+        assert!(
+            (global_translation(&world, root) - glam::Vec3::new(4.0, 0.0, 0.0)).length() < 1e-5,
+            "pre-existing globals survive a membership change"
+        );
+    }
+
+    #[test]
+    fn direct_parent_removal_marks_dirty_and_restores_local() {
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(8.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        propagate_to_settled(&mut world);
+
+        world.advance_tick();
+        // Bypassing `remove_parent`: no `Children` maintenance, no tick on
+        // the child — only the `Parent` membership count moves.
+        world.remove::<Parent>(child);
+        assert!(
+            propagation_is_dirty(&world),
+            "a direct Parent removal must probe dirty"
+        );
+        propagate_transforms(&mut world);
+
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(1.0, 0.0, 0.0)).length() < 1e-5,
+            "child without a Parent link is a root again"
+        );
+    }
+
+    #[test]
+    fn manual_global_edit_is_repaired_on_the_next_run() {
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        propagate_to_settled(&mut world);
+
+        world.advance_tick();
+        world
+            .insert(root, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        assert!(
+            propagation_is_dirty(&world),
+            "an external GlobalTransform edit must probe dirty"
+        );
+        propagate_transforms(&mut world);
+
+        assert_mat4_approx_eq(
+            world.get::<GlobalTransform>(root).unwrap().matrix(),
+            glam::Mat4::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)),
+        );
+    }
+
+    #[test]
+    fn downstream_change_tick_contract_quiet_empty_then_dirty_on_move() {
+        // The consumer-visible promise: quiet ticks (skipped or not) stamp
+        // no `GlobalTransform` ticks, while a real move still surfaces
+        // through `query_changed_since` — and full reads (what render
+        // extraction does) see fresh values either way.
+        let mut world = World::new();
+        let root = world.spawn();
+        world
+            .insert(
+                root,
+                Transform::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        let child = world.spawn();
+        world
+            .insert(
+                child,
+                Transform::from_translation(glam::Vec3::new(3.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        propagate_to_settled(&mut world);
+
+        world.advance_tick();
+        let baseline = world.change_tick();
+        world.advance_tick();
+        assert!(
+            !propagation_is_dirty(&world),
+            "the watched tick must be quiet"
+        );
+        propagate_transforms(&mut world);
+
+        assert!(
+            world
+                .query_changed_since::<GlobalTransform>(baseline)
+                .next()
+                .is_none(),
+            "a quiet (skipped) tick must not dirty downstream change detection"
+        );
+        // Full reads still see the composed values — nothing starved.
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(5.0, 0.0, 0.0)).length() < 1e-5
+        );
+
+        world.advance_tick();
+        world.get_mut::<Transform>(root).unwrap().translation = glam::Vec3::new(10.0, 0.0, 0.0);
+        propagate_transforms(&mut world);
+
+        assert!(
+            world
+                .query_changed_since::<GlobalTransform>(baseline)
+                .next()
+                .is_some(),
+            "a real move must surface through downstream change detection"
+        );
+        assert!(
+            (global_translation(&world, child) - glam::Vec3::new(13.0, 0.0, 0.0)).length() < 1e-5,
+            "full reads see the fresh composed value after the move"
         );
     }
 

@@ -19,11 +19,14 @@
 //! every [`GlobalTransform`] parent-before-child through `canary-scheduler`.
 //! See `docs/architecture/transform.md` and ADR 0017 for the design.
 //!
-//! **Not yet here**: change-detection-gated propagation (only re-propagating
-//! subtrees whose `Transform` or ancestry changed) — a `v0.2.0`+ performance
-//! concern. The current implementation depth-orders the hierarchy walk each
-//! run, which is correct but does redundant work; see `transform.md` for why
-//! that tradeoff is deliberate for now.
+//! **Quiet-tick skip**: [`propagate_transforms`] returns early when no
+//! `Transform`, `Parent`, `Children`, or `GlobalTransform` was written
+//! since its last recompute and membership counts are unchanged (change
+//! detection plus a structural fingerprint, with a same-tick guard and a
+//! one-tick follow-up pass keeping the probe exact) — static ticks cost a
+//! few linear tick scans instead of the full snapshot/depth/compose pass,
+//! and any real change still recomputes exactly as before. No depth
+//! state is cached across runs, so hierarchy edits need no invalidation.
 
 mod hierarchy;
 mod propagation;
