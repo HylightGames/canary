@@ -48,7 +48,7 @@ same reason ADR 0016's first draft had to be corrected during `v0.0.6`.
 Chosen approach: the bridge lives in its own crate,
 `engine/canary-render-ecs`, depending on `canary-ecs`,
 `canary-scheduler`, `canary-transform`, `canary-render`, and `glam`
-`0.30` (see `engine/canary-render-ecs/Cargo.toml`). Composition points
+`0.33` (see `engine/canary-render-ecs/Cargo.toml`). Composition points
 upward, per the usual direction: leaves know nothing about the bridge,
 the bridge knows about them.
 
@@ -143,7 +143,12 @@ v0.0.10+ as the plan always intended).
 Consequences: the schedule never sees the GPU, the draw never sees the
 `World`, and the bake step is a pure function testable without Vulkan.
 When the RHI grows push constants or uniform buffers, the bake is what
-gets replaced; the extract step stays.
+gets replaced; the extract step stays. `BakedFrame` upholds a stride
+alignment invariant (`vertices.len() % 5 == 0`, same `FLOATS_PER_VERTEX`
+the draw derives its count from; the textured frame's own 4-float
+stride likewise): the bakes guarantee it, the draws `debug_assert` it,
+and hand-constructed frames must uphold it too — a misaligned tail
+would make the draw under-read while the upload carries extra bytes.
 
 ### CPU-bake semantics: constants, Y-flip, painter sort, limits
 
@@ -174,6 +179,13 @@ color. Triangles at or behind the camera plane (depth at or below a
 astronomical-but-finite vertex past the guard) are skipped: their
 projection divides by `z`, which is infinite at zero and mirrored
 behind, so either outcome would poison the buffer with `inf`/`NaN`.
+Finite camera-space inputs can still overflow the perspective divide
+itself (e.g. huge x against a near-minimum z), so a post-projection
+finiteness check skips those triangles whole — decided per triangle,
+never per vertex, since a partial triangle would misalign the whole
+soup. Non-finite `Renderable` colors and UVs likewise fail loudly in
+dev (`debug_assert` at bake time; construction stays infallible by
+design) rather than uploading undefined pixels.
 
 Rejected alternatives: GPU-side transforms via uniforms or push
 constants (no such trait method exists; inventing one is v0.0.10 RHI
@@ -241,7 +253,7 @@ Chosen approach
 (`engine/canary-render-ecs/tests/render_ecs_readback.rs`,
 `#[ignore]`-gated like hello-triangle since every test needs a real
 Vulkan ICD; dev-deps mirror the Vulkan crate's own pins,
-`naga = "=22.1.0"`): a shared 128x128 target, per-frame fresh buffers,
+`naga = "30"`, `indexmap = "2"`): a shared 128x128 target, per-frame fresh buffers,
 `submit_and_wait`, `read_color_target_rgba8` asserts. Three tests.
 `two_entities_render_distinct_colors` spawns red-left and blue-right
 quads at non-overlapping NDC and asserts dominant-channel interiors
@@ -261,6 +273,16 @@ draw. Thresholds follow hello-triangle's dominant-channel style
 because llvmpipe proves rasterization correctness, not exact edge
 rounding or driver quirks.
 
+### Draw-before-read: a target must earn its pixels first
+
+`read_color_target_rgba8` carries a draw-before-read contract: the
+target must have gone through at least one submitted render pass first.
+A freshly created target holds undefined contents, and copying from it
+is invalid even when a lenient driver appears to tolerate it — the
+Vulkan backend tracks this per target and fails loudly in dev on
+violation, but the contract itself lives at the trait level so every
+future backend enforces the same ordering.
+
 ### The example is the animated proof
 
 `examples/spinning-cube` was rewritten on the bridge (the plan's
@@ -272,8 +294,10 @@ the root rotation as one quaternion (fixed −30° X tilt composed with
 the animated Y yaw, replacing the hand-rolled `rotate_y`/`rotate_x`),
 runs the propagation-then-bake schedule, draws the `BakedFrame`,
 reads back, and appends to the 480x360 GIF. The wide 4:3 target bakes
-through an aspect-aware system (`bake_frame_wide`, registered under
-the bridge's own `bake_access`) since baking square would stretch the
+through an aspect-aware system (`bake_frame_wide`, registered under the
+example's own `example_bake_access` — deliberately not the bridge's
+`bake_access`, since the example bakes from a fresh `extract_scene`
+and never touches `ExtractScratch`) since baking square would stretch the
 image; no projection or sort code remains in the example
 (`build_frame_vertices`/`project`/the hand sort are deleted). Device,
 target, pipeline setup, and GIF encoding stay example-side, which is
@@ -462,6 +486,27 @@ applied here to rendering. A backend crate's public surface must
 never leak its native API's types (`ash::vk::*`, etc.) past the RHI
 trait boundary, mirroring the existing rule against physics backends
 leaking third-party types.
+
+The Vulkan backend hardens the host side of that boundary rather than
+trusting the driver to catch misuse. Validation layers
+(`VK_LAYER_KHRONOS_validation`) are installed opportunistically in
+debug builds only — never in release, never a behavior gate, absent on
+drivers without them (mesa/llvmpipe CI included) — with validation
+*errors* failing loudly and anything below ignored; the host-side
+guards below remain the enforcement regardless. The command encoder
+refuses unbound draws loudly (no pipeline or no vertex buffer bound is
+driver-undefined, in the same class as the `set_texture` ordering
+violation it already refused) and frees abandoned encoders in `Drop`
+(panic mid-pass, early return), ending an open pass so the command
+buffer stays valid to free. Dropping the device while resources created
+from it still exist panics unconditionally in every profile — safe
+caller code must uphold the documented resources-first/device-last
+order, since the alternative is silent Vulkan use-after-destroy. And
+`VulkanInitError` itself honors the boundary rule: fallible variants
+erase the `ash` error into an owned code/message pair at construction,
+so downstream crates match and display without ever naming `ash`
+types (deliberately no blanket `From<vk::Result>`, which would re-admit
+third-party types into every `?` site's inferred bounds).
 
 ## Render graph responsibilities
 

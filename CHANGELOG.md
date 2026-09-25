@@ -42,6 +42,12 @@ detail; this section summarizes rather than duplicates them.
 
 ### Fixed
 
+* Fixed undefined behavior in the Vulkan backend: the validation-layer callback no longer panics across the FFI boundary (it logs and aborts instead), and `VulkanCommandEncoder`'s `Drop` no longer expects on the unwind-abandoned path.
+* Non-finite (`NaN`/infinite) `Transform`s are now skipped in release builds too, not just under `debug_assertions` — previously they poisoned `GlobalTransform` and churned change detection every frame.
+* The localization loader's decode budgets are now enforced during the read itself with a capped reader; the previous metadata-only check could be bypassed by a path whose metadata understated its contents. Oversized packs fail with typed `OverBudget` errors.
+* Removing a hierarchy is now safe: the new `canary-transform::despawn_subtree` detaches and despawns a whole subtree where raw `World::despawn` orphaned `Parent` links and left stale handles in survivors' `Children` lists.
+* `World::entity_count` is now O(1) instead of scanning every slot ever created; physics body/collider indices fail loudly on exhaustion instead of wrapping around to alias a live slot.
+* Several real CI/release gaps fixed: the release workflow's notes file pointed at a nonexistent path (every release silently fell back to auto-generated notes), the release checkout lacked `lfs: true` while testing LFS-tracked fixtures, and cargo invocations now use `--locked` with per-job timeouts throughout.
 * A real cargo-audit finding: `wasmtime`/`wasmtime-wasi` bumped to close 18 RustSec advisories (including two critical sandbox-escape bugs), and `wayland-scanner` bumped to close two more via a transitive `quick-xml` dependency.
 * Several real CI gaps found and fixed during the same pass: a Vulkan-dependent test that ran unguarded on every CI platform, a Windows-only compile failure from unscoped Wayland dependencies, and `canary-plugin-api`'s host-only loader code being incorrectly checked against the `wasm32-wasip2` target.
 * A macOS-only CI flake: replaced a wall-clock timing assertion in the scheduler's concurrency test with a deterministic overlap proof after loaded runners exceeded it twice through pure scheduling jitter. (`v0.0.9`)

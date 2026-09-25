@@ -129,12 +129,12 @@ definition actually required:
   `Proposed`). Neither is implemented; both are architecture only, per
   this release's own scope discipline.
 - **Prepared the release**: version bumped to `0.0.1` across the
-  workspace, [`CHANGELOG.md`](../../CHANGELOG.md) finalized,
-  [`RELEASE_NOTES_v0.0.1.md`](../../RELEASE_NOTES_v0.0.1.md) written, and
-  a [release checklist](RELEASE_CHECKLIST.md) completed and checked
+  workspace,   [`CHANGELOG.md`](../../CHANGELOG.md) finalized,
+  [`v0.0.1.md`](../release-notes/v0.0.1.md) written, and
+  a [release checklist](../reviews/RELEASE_CHECKLIST.md) completed and checked
   against reality rather than assumed.
 
-Full detail: [`RELEASE_NOTES_v0.0.1.md`](../../RELEASE_NOTES_v0.0.1.md).
+Full detail: [`v0.0.1.md`](../release-notes/v0.0.1.md).
 
 ## `v0.0.2` (unqualified) — **Released**
 
@@ -183,11 +183,11 @@ the archetype-based ECS migration, exactly as scoped in
 - **Prepared the release**: version bumped to `0.0.2` across the
   workspace (lockstep, per [ADR 0008](../decisions/architecture-decision-records/0008-workspace-crate-versioning-lockstep.md)),
   [`CHANGELOG.md`](../../CHANGELOG.md) updated,
-  [`RELEASE_NOTES_v0.0.2.md`](../../RELEASE_NOTES_v0.0.2.md) written, and
-  a [release checklist](v0.0.2-RELEASE_CHECKLIST.md) completed and
+  [`v0.0.2.md`](../release-notes/v0.0.2.md) written, and
+  a [release checklist](../reviews/v0.0.2-RELEASE_CHECKLIST.md) completed and
   checked against reality rather than assumed.
 
-Full detail: [`RELEASE_NOTES_v0.0.2.md`](../../RELEASE_NOTES_v0.0.2.md).
+Full detail: [`v0.0.2.md`](../release-notes/v0.0.2.md).
 
 ## Beyond `v0.0.2`
 

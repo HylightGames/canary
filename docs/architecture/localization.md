@@ -145,7 +145,15 @@ not just present in the source.
   as temporary and naming `canary-assets` as its intended replacement,
   deliberately decoupled from `LocaleBundle` itself (which takes any
   loader closure) so that replacement doesn't require touching
-  `LocaleBundle`'s own logic.
+  `LocaleBundle`'s own logic. Loading enforces a decode budget before a
+  byte is read (`DEFAULT_MAX_LOCALE_FILE_BYTES` per file, checked from
+  filesystem metadata, plus `DEFAULT_MAX_LOCALE_FILES` per directory;
+  `load_locale_resources_with_budget` for explicit limits) and again
+  during the read itself (a capped reader, so a path whose metadata
+  understates its contents still cannot blow past the budget), failing with
+  a typed `LoaderError::OverBudget` — untrusted locale packs must not be
+  able to OOM the loader. Every `LoaderError` variant names its path,
+  recoverable via `LoaderError::path()`.
 
 **Still deliberately deferred**, per the roadmap and ADR 0015: `CanaryUI`
 integration (no widget API exists yet), compile-time validation that a

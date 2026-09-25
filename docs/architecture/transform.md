@@ -117,14 +117,29 @@ pub struct GlobalTransform(glam::Mat4);
   through the same mechanisms as everything else, consistent with
   [`design-philosophy.md`](../vision/design-philosophy.md#subsystems-bind-through-interfaces-never-call-each-other--or-a-third-party--directly)'s
   "communicate through shared, observable state" discipline.
+  `Children` is external-consumer metadata, not propagation input: the
+  propagation system walks `Parent` links only and never reads
+  `Children`, so the list exists for gameplay/UI/networking queries, not
+  for the engine's own transform pass. Raw `World::despawn` knows nothing
+  about either component (a deliberate crate boundary — `canary-ecs`
+  must not name hierarchy types), so despawning hierarchy members
+  directly orphans children's `Parent` links and leaves dead handles in
+  survivors' `Children` lists; `despawn_subtree` is the correct removal
+  (post-order descendants-first, detaching the root from a surviving
+  parent first, forged cycles terminating on a visited set rather than
+  recursing forever).
 - **`GlobalTransform` propagation is a system registered through
   `canary-scheduler`**, not a special-cased engine-internal step — it
-  declares its data access (reads `Transform` and `Parent` across the
+  declares its data access (reads `Transform`, `Parent`, and
+  `GlobalTransform` read-before-write across the
   whole hierarchy, writes `GlobalTransform`) the same way any gameplay
   system would, which is precisely why this is also the scheduler's
   first proof against a real gameplay-shaped system rather than only its
   own test doubles (per
   [`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md)).
+  Composing a non-finite global fails loudly in dev (`debug_assert`),
+  rather than churning change detection forever (`NaN != NaN` would
+  rewrite and re-dirty the tick on every run).
 - **Propagation order**: roots (entities with no `Parent`) compute their
   `GlobalTransform` directly from their local `Transform`; children
   compose their local `Transform` onto their parent's already-computed
@@ -142,7 +157,8 @@ pub struct GlobalTransform(glam::Mat4);
 
 Implemented on `dev` (not yet tagged): `engine/canary-transform` holds
 `Transform`/`GlobalTransform`, the `Parent`/`Children` hierarchy
-components with sync-keeping helpers, and a hierarchy-propagation system
+components with sync-keeping helpers (`set_parent`/`remove_parent`) plus
+`despawn_subtree` as the correct hierarchy removal, and a hierarchy-propagation system
 registered through `canary-scheduler` — the scheduler's first proof
 against a real gameplay-shaped system rather than only its own test
 doubles. ECS-driven rendering off `GlobalTransform` has since landed

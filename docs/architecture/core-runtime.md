@@ -29,6 +29,14 @@ trait (`Subsystem::init`, `Subsystem::shutdown`, plus scheduling hooks), so
 adding "physics" or "networking" to a program is opt-in and explicit, never
 implied by which crates happen to be linked.
 
+Shutdown is panic-safe: a panicking `shutdown` does not skip the
+remaining subsystems (each is shut down under `catch_unwind` in reverse
+registration order, the first panic payload re-raised after every
+subsystem has shut down), and a panicking `tick` shuts everything down
+the same way before the panic resumes to the caller — one subsystem's
+broken teardown can neither leak the rest nor silently swallow the
+failure into an imagined healthy state.
+
 ## Logging & diagnostics
 
 Structured logging (via the `tracing` ecosystem's conventions — spans and
@@ -156,7 +164,15 @@ archetype migration changed the *implementation* behind these calls, not
 the call sites that use them. `v0.0.7`'s additions
 (`query2`/`query3`/`query2_mut`, resource storage) are genuinely new
 surface, not a reimplementation of existing calls — see
-`execution-model.md` for why each is scoped the way it is.
+`execution-model.md` for why each is scoped the way it is. Since then,
+two hardening refinements: `World::entity_count` is O(1) (a cached
+alive count maintained by `spawn`/`despawn`, not a scan over every slot
+ever created), and `World::remove` is documented idempotent — a
+stale/unknown entity and an alive entity lacking `T` both yield `None`,
+identically, since `remove` answers "give me the component if there is
+one to take," not "prove this handle is live" (liveness checks belong
+to `is_alive`, the way `insert`/`despawn` enforce them with
+`EcsError::StaleOrUnknownEntity`).
 
 ## Threading & the job system
 

@@ -33,7 +33,7 @@ a point-in-time record — the same convention as
       rejection test
 - [x] `cargo build`, `cargo fmt --check`, `cargo test`, `xtask check` all
       clean
-- [x] `CHANGELOG.md`, `RELEASE_NOTES_v0.0.1.md`, `RELEASE_CHECKLIST.md`
+- [x] `CHANGELOG.md`, `docs/release-notes/v0.0.1.md`, `RELEASE_CHECKLIST.md`
 - [x] Tagged `v0.0.1` (annotated git tag, local)
 
 **Not in `v0.0.1`, by design** (see
@@ -361,7 +361,7 @@ deferred past `v0.1.0`, unchanged from this document's prior framing.
 **`v0.0.9` is implemented on `dev`, not yet tagged** — all three
 parts landed: real delta-time + wall-clock `App::run`;
 `canary-transform` (`Transform`/`GlobalTransform`/`Parent`/
-`Children` + scheduler-registered hierarchy propagation, 23 tests);
+`Children` + scheduler-registered hierarchy propagation, 30 tests);
 and ECS-driven rendering, also on `dev`. The rendering half is a new
 `canary-render-ecs` bridge crate (`Renderable` + `extract_scene` +
 CPU-bake to a `BakedFrame` resource + `draw_baked_frame` through the
@@ -388,7 +388,7 @@ Single focus: minimal asset loading — real files from disk feed the
 renderer `v0.0.9` built.
 
 - [x] New crate `canary-assets`, depending only on `canary-ecs` plus
-      loading libraries (`sha2 0.10`, `gltf` without default features
+      loading libraries (`sha2 0.11`, `gltf` without default features
       plus `utils` only, `png`): `AssetId` (opaque SHA-256 over file
       bytes plus `LOADER_VERSION`, layout documented as provisional),
       `AssetHandle<T>` (generational index plus generation, mirroring

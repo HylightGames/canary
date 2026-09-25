@@ -128,7 +128,10 @@ differently underneath.
 (`engine/canary-plugin-api/src/tier_a.rs`): component loading (fresh or
 AOT-precompiled), the `Plugin` lifecycle through a component rather than a
 dylib, a resource budget (memory limit, fuel execution budget) applied to
-every instance by default, and the first-cut ECS data ABI
+every instance by default — re-armed before every guest entry point, since
+Wasmtime fuel never replenishes itself and without re-arming a long-lived
+plugin would trap forever once its first budget ran out (every later
+call, including `on_unload`, would fail) — and the first-cut ECS data ABI
 (`get`/`set`/`has-component`/`is-valid-entity` over a capped value-type
 set — see `docs/roadmap/v0.0.3-roadmap.md` for exactly what that does and
 doesn't cover). `Capability` enforcement is now genuinely **structural**

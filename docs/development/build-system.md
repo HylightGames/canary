@@ -17,11 +17,16 @@ This document is the day-to-day mechanics.
 ## Common commands
 
 ```sh
-# Build everything (CI adds --all-targets to cover benches/examples/tests)
+# Build everything (CI adds --locked --all-targets to cover
+# benches/examples/tests against the committed lockfile — see "Why
+# `Cargo.lock` is committed" below; every CI job also carries a
+# `timeout-minutes: 30` bound so a hung runner fails instead of burning
+# minutes silently)
 cargo build --workspace
 
-# Run all tests (CI runs the same command, plus dedicated jobs for the
-# #[ignore]-gated GPU/windowing suites — see .github/workflows/ci.yml)
+# Run all tests (CI runs the same command with --locked, plus dedicated
+# jobs for the #[ignore]-gated GPU/windowing suites — see
+# .github/workflows/ci.yml)
 cargo test --workspace
 
 # Format (CI enforces with --check)
@@ -33,7 +38,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 # Run the headless boot-harness binary
 cargo run -p canary-runtime
 
-# Check that plugin-facing crates still target wasm32-wasip2
+# Check that plugin-facing crates still target wasm32-wasip2 (CI passes
+# --locked here too)
 cargo check -p canary-plugin-api --target wasm32-wasip2
 ```
 
@@ -115,9 +121,10 @@ flexibility an uncommitted lockfile would give a pure library.
   3. an expiry note — the re-check condition ("revisit once X lands").
   A pin without all three is tech debt without an owner: convert it or
   remove it. The 2026-09 modernization retired every floor-era pin that
-  had no remaining reason (see History below); the two holds left
-  standing (`fluent 0.16`, `sha2 0.10`) each carry their reason
-  in-manifest.
+   had no remaining reason (see History below); the one hold left
+   standing (`fluent 0.16`) carries its reason in-manifest (`sha2`'s
+   former `0.10` hold was retired by the `0.11` bump, same SHA-256
+   either way — see History).
 - Hard-won lessons from the floor era that still apply to any future pin:
   - **Pin one dep, not the world.** Scope the pin to the newest release
     still compatible, not to an old floor — each pin carries an inline
@@ -147,8 +154,9 @@ flexibility an uncommitted lockfile would give a pure library.
 > 0.9.6, indexmap 2.14). Two deliberate holds survived with
 > in-manifest reasons: `fluent 0.16` (0.17's langneg moved to
 > icu_locid — a public-locale-type migration needing its own ADR) and
-> `sha2 0.10` (same SHA-256 either way; no reason to churn the
-> `AssetId` backend). What follows is the floor-era text, kept as the
+> `sha2 0.11` (bumped from `0.10.9` after the floor retired — same
+> SHA-256 either way, so no `AssetId` hash-stability impact).
+> What follows is the floor-era text, kept as the
 > record of *why* each pin existed (two closing bullets lightly
 > reframed to point at the standing policy they became; the rest
 > untouched).

@@ -18,10 +18,10 @@
   <a href=".github/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=github-actions&logoColor=white"></a>
   <a href="rust-toolchain.toml"><img alt="Rust" src="https://img.shields.io/badge/language-Rust-orange.svg?logo=rust"></a>
   <a href="https://app.codspeed.io/HylightGames/canary?utm_source=badge"><img src="https://img.shields.io/endpoint?url=https://codspeed.io/badge.json" alt="CodSpeed"/></a>
-  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.10-yellow.svg"></a>
+  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.11-yellow.svg"></a>
 </p>
 
-> **Early development:** Canary is currently at `v0.0.10` and is not yet
+> **Early development:** Canary is currently at `v0.0.11` and is not yet
 > production-ready. The engine foundation and extensibility systems are under
 > active development.
 

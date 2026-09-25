@@ -32,7 +32,8 @@ author → test → lint/compare → pseudo → Weblate → pull → resolve
 3. **Lint/compare (CI).** The `localization` job in
    `.github/workflows/ci.yml` installs Mozilla's
    [`moz.l10n`](https://github.com/mozilla/moz-l10n) CLI at the pinned
-   version (`moz.l10n==0.14.2`, checked 2026-09-20 as latest on PyPI)
+   version (pinned with wheel hashes in
+  `.github/moz-l10n-requirements.txt`, checked 2026-09-20 as latest on PyPI)
    with system `python3` — no third-party GitHub Actions involved — and
    runs two gates over `locales/` once `.ftl` files exist:
    - `moz-l10n lint 'locales/**/*.ftl'` fails the job if any file does

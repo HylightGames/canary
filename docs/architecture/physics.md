@@ -131,7 +131,10 @@ backend (`rapier2d = "0.35"`, locked at 0.35.3), and a fixed-step
 system (`PhysicsClock` accumulator plus `SimulationTime`, at most four
 `1/60` s steps per tick with the leftover dropped) registered first
 in `canary-runtime`'s subsystem schedule, ahead of transform
-propagation and every render bake. A ground plus falling-box plus
+propagation and every render bake. Body and collider indices are
+allocated with `checked_add`, never wrapping: past `u32::MAX` ever
+created this fails loudly (matching `World::spawn`'s slot-exhaustion
+policy) instead of wrapping around to alias a live slot. A ground plus falling-box plus
 scripted-platform scene proves simulation through to pixels
 (headless tests in the normal suite, three pixel tests
 `#[ignore]`-gated for real Vulkan ICDs), with zero RHI churn.
