@@ -307,6 +307,16 @@ mod tests {
         };
         let subscriber = Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, f);
+        // The dispatcher may still hold a transient clone of the layer
+        // just after `f` returns (observed ~1/10 runs under parallel
+        // `cargo test`), so retry the unwrap briefly instead of
+        // failing the test on dispatcher teardown timing.
+        for _ in 0..100 {
+            match Arc::try_unwrap(Arc::clone(&events)) {
+                Ok(_) => break,
+                Err(_) => std::thread::yield_now(),
+            }
+        }
         Arc::try_unwrap(events)
             .expect("no other references to the captured-events buffer should remain")
             .into_inner()

@@ -94,6 +94,20 @@ pub enum LoaderError {
         /// The size that tripped it.
         actual_bytes: u64,
     },
+    /// The locale directory (`<base_dir>/<locale>/`) is a symlink, so
+    /// loading through it would read content from outside the pack.
+    ///
+    /// Joining `base_dir` with the locale name cannot traverse on its
+    /// own ([`unic_langid::LanguageIdentifier`] cannot spell `/` or
+    /// `..`), so the link is the only escape shape — and it is refused
+    /// rather than followed. Content-confusion only (the budgets hold
+    /// either way), but a pack that loads from somewhere it does not
+    /// appear to live is a lie worth refusing.
+    #[error("refusing to load locale from symlinked directory {path}")]
+    Symlink {
+        /// The locale directory that turned out to be a symlink.
+        path: std::path::PathBuf,
+    },
 }
 
 impl LoaderError {
@@ -105,7 +119,8 @@ impl LoaderError {
             LoaderError::ReadDir { path, .. }
             | LoaderError::ReadFile { path, .. }
             | LoaderError::InvalidSyntax { path, .. }
-            | LoaderError::OverBudget { path, .. } => Some(path),
+            | LoaderError::OverBudget { path, .. }
+            | LoaderError::Symlink { path, .. } => Some(path),
         }
     }
 }
@@ -186,6 +201,26 @@ pub fn load_locale_resources_with_budget(
     max_files: usize,
 ) -> Result<Vec<FluentResource>, LoaderError> {
     let locale_dir = base_dir.join(locale.to_string());
+    // No-follow confinement: the join above cannot traverse on its own
+    // (a `LanguageIdentifier` cannot spell `/` or `..`), but a
+    // symlinked locale dir would be silently followed, loading content
+    // from outside the pack. `symlink_metadata` never follows the
+    // final component, so a link is refused here instead. Missing dirs
+    // still report `ReadDir` below (same taxonomy as before), and a
+    // non-directory falls through to the `read_dir` error unchanged.
+    // This check is deliberately local to this crate rather than
+    // shared with `canary-assets`: the crates share no leaf
+    // dependency, and a one-dir no-follow is a different shape from a
+    // root-relative candidate resolution anyway.
+    let file_type = std::fs::symlink_metadata(&locale_dir)
+        .map_err(|source| LoaderError::ReadDir {
+            path: locale_dir.clone(),
+            source,
+        })?
+        .file_type();
+    if file_type.is_symlink() {
+        return Err(LoaderError::Symlink { path: locale_dir });
+    }
     let entries = std::fs::read_dir(&locale_dir).map_err(|source| LoaderError::ReadDir {
         path: locale_dir.clone(),
         source,
@@ -337,6 +372,58 @@ mod tests {
             matches!(result, Err(LoaderError::ReadDir { .. })),
             "expected a ReadDir error for a locale directory that was never created, got: {result:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_locale_dir_is_refused_not_followed() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let base = dir.path().join("locales");
+        std::fs::create_dir(&base).unwrap();
+
+        // A real locale with known content, for the inside-pointing case.
+        let real = base.join("en-US");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::write(real.join("main.ftl"), "greeting = Hello!").unwrap();
+
+        // Content living outside the pack: without the no-follow check
+        // the loader would serve this as the locale's strings.
+        let outside = dir.path().join("elsewhere");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("main.ftl"), "greeting = Evil!").unwrap();
+        symlink(&outside, base.join("fr-FR")).expect("symlink must be creatable");
+        // Even a link pointing back *inside* the pack is refused:
+        // no-follow means no-follow, not "follow when convenient".
+        symlink(&real, base.join("de-DE")).expect("symlink must be creatable");
+
+        for locale_name in ["fr-FR", "de-DE"] {
+            let locale: LanguageIdentifier = locale_name.parse().unwrap();
+            let result = load_locale_resources(base.as_path(), &locale);
+            match &result {
+                Err(LoaderError::Symlink { path }) => {
+                    assert_eq!(
+                        path.as_path(),
+                        base.join(locale_name).as_path(),
+                        "the error must name the symlinked locale dir"
+                    );
+                }
+                other => panic!("symlinked locale dir must be Symlink, got: {other:?}"),
+            }
+            assert_eq!(
+                result.unwrap_err().path(),
+                Some(base.join(locale_name).as_path()),
+                "path() must name the refused directory"
+            );
+        }
+
+        // The real directory behind the inside-pointing link still loads
+        // untouched: confinement refuses the link, never the target.
+        let locale: LanguageIdentifier = "en-US".parse().unwrap();
+        let resources = load_locale_resources(base.as_path(), &locale)
+            .expect("the real locale dir must still load");
+        assert_eq!(resources.len(), 1);
     }
 
     #[test]
