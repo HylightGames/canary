@@ -87,9 +87,47 @@ impl App {
 
     /// Shuts down the first `initialized` subsystems, in **reverse**
     /// registration order — see [`Subsystem::shutdown`]'s own docs for why.
+    ///
+    /// Panic-safe: a panicking `shutdown` does not skip the remaining
+    /// ones. The first panic payload is re-raised after every
+    /// subsystem has shut down, so one subsystem's broken teardown
+    /// can neither leak the rest nor silently swallow the failure.
     fn shutdown_all(&mut self, initialized: usize) {
+        let mut first_panic = None;
         for subsystem in self.subsystems[..initialized].iter_mut().rev() {
-            subsystem.shutdown();
+            // `AssertUnwindSafe`: on panic nothing hereafter relies on
+            // subsystem state — every remaining subsystem still gets
+            // shut down, then the panic resumes.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                subsystem.shutdown();
+            }));
+            if first_panic.is_none() {
+                first_panic = result.err();
+            }
+        }
+        if let Some(payload) = first_panic {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    /// Drives one tick across every subsystem, aborting the tick loop
+    /// on the first panic — but only *after* shutting everything down
+    /// (see [`App::shutdown_all`]), then resuming the panic. A
+    /// panicking subsystem never silently skips the shutdown of the
+    /// rest, and the panic itself still propagates to the caller
+    /// rather than being swallowed into an imagined healthy state.
+    fn tick_all(&mut self, initialized: usize, dt: std::time::Duration) {
+        for index in 0..self.subsystems.len().min(initialized) {
+            // `AssertUnwindSafe`: see `shutdown_all` — on panic the
+            // response is shut-everything-down-then-resume, which
+            // depends on no subsystem state.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.subsystems[index].tick(dt);
+            }));
+            if let Err(payload) = result {
+                self.shutdown_all(initialized);
+                std::panic::resume_unwind(payload);
+            }
         }
     }
 
@@ -107,15 +145,15 @@ impl App {
     /// Returns the first `init` error encountered, if any; in that case,
     /// no subsystem's `tick` runs, but `shutdown` is still called on every
     /// subsystem that was already initialized, in reverse order, so
-    /// resources they acquired during `init` aren't leaked.
+    /// resources they acquired during `init` aren't leaked. A panicking
+    /// `tick` shuts everything down the same way (see `tick_all` below)
+    /// before the panic resumes to the caller.
     pub fn run_for(&mut self, ticks: u32, dt: std::time::Duration) -> Result<(), CoreError> {
         let (initialized, init_result) = self.init_all();
 
         if init_result.is_ok() {
             for _ in 0..ticks {
-                for subsystem in &mut self.subsystems {
-                    subsystem.tick(dt);
-                }
+                self.tick_all(initialized, dt);
             }
         }
 
@@ -153,9 +191,7 @@ impl App {
                 let now = std::time::Instant::now();
                 let dt = now.duration_since(previous_tick);
                 previous_tick = now;
-                for subsystem in &mut self.subsystems {
-                    subsystem.tick(dt);
-                }
+                self.tick_all(initialized, dt);
             }
         }
 
@@ -268,6 +304,93 @@ mod tests {
             app.plugin_dirs(),
             &[PathBuf::from("plugins"), PathBuf::from("more-plugins")]
         );
+    }
+
+    struct PanickingSubsystem {
+        name: &'static str,
+        log: Arc<Mutex<Vec<String>>>,
+        panic_on_tick: bool,
+        panic_on_shutdown: bool,
+    }
+
+    impl Subsystem for PanickingSubsystem {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn tick(&mut self, _dt: std::time::Duration) {
+            self.log.lock().unwrap().push(format!("{}:tick", self.name));
+            if self.panic_on_tick {
+                panic!("{} panics on tick (test-induced)", self.name);
+            }
+        }
+
+        fn shutdown(&mut self) {
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("{}:shutdown", self.name));
+            if self.panic_on_shutdown {
+                panic!("{} panics on shutdown (test-induced)", self.name);
+            }
+        }
+    }
+
+    #[test]
+    fn a_panicking_tick_still_shuts_everything_down_before_propagating() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut app = App::new();
+        for (name, panics) in [("a", false), ("b", true), ("c", false)] {
+            app.add_subsystem(PanickingSubsystem {
+                name,
+                log: log.clone(),
+                panic_on_tick: panics,
+                panic_on_shutdown: false,
+            });
+        }
+
+        // `b` panics mid-tick: `c` never ticks, but every initialized
+        // subsystem — including `c`, which never ran — still shuts
+        // down in reverse order, and the panic reaches the caller
+        // rather than being swallowed.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            app.run_for(1, std::time::Duration::from_millis(16))
+        }));
+        assert!(
+            result.is_err(),
+            "the tick panic must propagate out of run_for"
+        );
+        let events = log.lock().unwrap().clone();
+        assert_eq!(
+            events,
+            vec!["a:tick", "b:tick", "c:shutdown", "b:shutdown", "a:shutdown",]
+        );
+    }
+
+    #[test]
+    fn a_panicking_shutdown_does_not_skip_remaining_shutdowns() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut app = App::new();
+        for (name, panics) in [("a", false), ("b", true)] {
+            app.add_subsystem(PanickingSubsystem {
+                name,
+                log: log.clone(),
+                panic_on_tick: false,
+                panic_on_shutdown: panics,
+            });
+        }
+
+        // Shutdown runs in reverse: `b` shuts down (and panics) first,
+        // `a` must still shut down after it, and the panic resumes.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            app.run_for(0, std::time::Duration::from_millis(16))
+        }));
+        assert!(
+            result.is_err(),
+            "the shutdown panic must propagate out of run_for"
+        );
+        let events = log.lock().unwrap().clone();
+        assert_eq!(events, vec!["b:shutdown", "a:shutdown"]);
     }
 
     #[derive(Default)]
