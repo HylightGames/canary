@@ -149,7 +149,7 @@ flexibility an uncommitted lockfile would give a pure library.
 
 > Retired September 2026, when validation moved to rustc 1.98.1 via
 > `rustup` and every floor-only pin was relaxed to caret requirements
-> (`deps:` commits landing wasmtime 48, naga 30, libloading 0.9,
+> (`deps:` commits landing wasmtime 49, naga 30, libloading 0.9,
 > glam 0.33, x11rb 0.14, proptest 1.11, tempfile 3.27, unic-langid
 > 0.9.6, indexmap 2.14). Two deliberate holds survived with
 > in-manifest reasons: `fluent 0.16` (0.17's langneg moved to
