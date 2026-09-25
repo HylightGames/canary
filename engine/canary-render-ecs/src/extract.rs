@@ -272,6 +272,34 @@ impl BakedFrame {
     }
 }
 
+/// One triangle in camera space, awaiting the painter-sort: its average
+/// depth (the sort key), its three corner positions (the project inputs),
+/// and the flat color all three vertices share.
+#[derive(Debug, Clone, PartialEq)]
+struct PendingTriangle {
+    avg_depth: f32,
+    corners: [Vec3; 3],
+    color: [f32; 3],
+}
+
+/// Scratch buffer holding last tick's bake intermediates so
+/// [`bake_scene_to_vertices_with_aspect_into`] can refresh them in place.
+///
+/// Per-tick `Vec<PendingTriangle>` construction costs a fresh allocation
+/// per frame even in steady state (same entities, same triangle count);
+/// clearing the previous tick's buffer and refilling it reuses the
+/// allocation instead. A plain [`Vec`], not a pool: slots are positional
+/// (one per surviving triangle, in extract order before the sort), and any
+/// count change only costs a `reserve`, never correctness (see
+/// [`bake_scene_to_vertices_with_aspect_into`]). The emitted vertex floats
+/// are *not* stored here: they live in the [`BakedFrame`] resource itself,
+/// whose buffer the scheduled bake system reuses the same way — one
+/// scratch resource per intermediate, one owner per buffer, no aliasing.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BakeScratch {
+    triangles: Vec<PendingTriangle>,
+}
+
 /// Bakes `items` into NDC-space vertex floats for a square target.
 ///
 /// Applies each item's world matrix ([`GlobalTransform::matrix`] +
@@ -287,9 +315,34 @@ impl BakedFrame {
 /// this function is exactly that function with the neutral square aspect, so
 /// pixel-test targets (conventionally square) need no extra argument.
 ///
+/// Per-frame callers should prefer [`bake_scene_to_vertices_into`], which
+/// reuses both the output and the [`BakeScratch`] allocation: this function
+/// is exactly that function with fresh buffers, so one-shot callers (tests,
+/// examples) pay no scratch-plumbing cost.
+///
 /// [`GlobalTransform::matrix`]: canary_transform::GlobalTransform::matrix
 pub fn bake_scene_to_vertices(items: &[RenderItem]) -> Vec<f32> {
     bake_scene_to_vertices_with_aspect(items, DEFAULT_ASPECT_RATIO)
+}
+
+/// Bakes `items` into `out`, reusing its buffer across frames.
+///
+/// Value-identical to [`bake_scene_to_vertices`] on every call: `out` is
+/// fully cleared and refilled, so whatever it held before — last tick's
+/// frame, a longer triangle list, spare capacity — cannot leak into the
+/// result. Clearing (rather than overwriting in place) keeps the
+/// painter-sort emission order byte-identical to the fresh path: triangles
+/// are still collected, sorted far-to-near, then emitted. `reserve` grows
+/// the buffer only on genuine shape change (more surviving triangles than
+/// the previous high-water mark); the steady state performs zero
+/// allocations. `scratch` carries the pending-triangle intermediates across
+/// calls under the same contract (see [`BakeScratch`]).
+pub fn bake_scene_to_vertices_into(
+    items: &[RenderItem],
+    out: &mut Vec<f32>,
+    scratch: &mut BakeScratch,
+) {
+    bake_scene_to_vertices_with_aspect_into(items, DEFAULT_ASPECT_RATIO, out, scratch);
 }
 
 /// Bakes `items` into NDC-space vertex floats for a target of the given
@@ -303,6 +356,26 @@ pub fn bake_scene_to_vertices(items: &[RenderItem]) -> Vec<f32> {
 /// argument right is a correctness obligation on the draw path (Task 6 wires
 /// it to the real target dimensions).
 pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f32) -> Vec<f32> {
+    let mut scratch = BakeScratch::default();
+    let mut out = Vec::new();
+    bake_scene_to_vertices_with_aspect_into(items, aspect_ratio, &mut out, &mut scratch);
+    out
+}
+
+/// Bakes `items` into `out` for a target of the given aspect ratio (width
+/// divided by height), reusing both buffers across frames.
+///
+/// Identical to [`bake_scene_to_vertices_into`] except for the horizontal
+/// scale; the aspect-fallback contract (silent square fallback in release,
+/// debug loudness) matches [`bake_scene_to_vertices_with_aspect`]
+/// entry-for-entry, because it is the same caller obligation with the same
+/// poisoning consequence.
+pub fn bake_scene_to_vertices_with_aspect_into(
+    items: &[RenderItem],
+    aspect_ratio: f32,
+    out: &mut Vec<f32>,
+    scratch: &mut BakeScratch,
+) {
     debug_assert!(
         aspect_ratio > 0.0 && aspect_ratio.is_finite(),
         "aspect_ratio must be a positive finite width/height; got {aspect_ratio}"
@@ -316,16 +389,11 @@ pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f3
     } else {
         DEFAULT_ASPECT_RATIO
     };
-    /// One triangle in camera space, awaiting the painter-sort: its average
-    /// depth (the sort key), its three corner positions (the project inputs),
-    /// and the flat color all three vertices share.
-    struct PendingTriangle {
-        avg_depth: f32,
-        corners: [Vec3; 3],
-        color: [f32; 3],
-    }
-
-    let mut triangles: Vec<PendingTriangle> = Vec::new();
+    // Refresh in place: the previous tick's pending triangles are dropped
+    // but their allocation is kept, so the steady state (same surviving
+    // triangle count) never reallocates here.
+    let triangles = &mut scratch.triangles;
+    triangles.clear();
     for item in items {
         // Colors ride through untouched, so a non-finite channel
         // reaches the upload verbatim (undefined UNORM output).
@@ -373,8 +441,13 @@ pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f3
     // (no NaN-panic path exists in `sort_by`'s contract to worry about).
     triangles.sort_by(|a, b| b.avg_depth.total_cmp(&a.avg_depth));
 
-    let mut vertices = Vec::with_capacity(triangles.len() * 3 * FLOATS_PER_VERTEX);
-    for triangle in &triangles {
+    // Refresh in place: last frame's vertex floats are dropped but their
+    // allocation is kept, so the steady state never reallocates here.
+    // Emission order is untouched — the `clear` cannot leak into the
+    // result, and nothing below reads `out` before writing it.
+    out.clear();
+    out.reserve(triangles.len() * 3 * FLOATS_PER_VERTEX);
+    for triangle in triangles.iter() {
         // Project first, emit after: a partial triangle (fewer than
         // three vertices) would misalign the whole soup, so validity is
         // decided per triangle, never per vertex.
@@ -401,11 +474,10 @@ pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f3
             continue;
         }
         for (ndc_x, ndc_y) in &projected {
-            vertices.extend_from_slice(&[*ndc_x, *ndc_y]);
-            vertices.extend_from_slice(&triangle.color);
+            out.extend_from_slice(&[*ndc_x, *ndc_y]);
+            out.extend_from_slice(&triangle.color);
         }
     }
-    vertices
 }
 
 #[cfg(test)]
@@ -795,6 +867,89 @@ mod tests {
             baked.iter().all(|v| v.is_finite()),
             "no bake output may carry inf/NaN, got {baked:?}"
         );
+    }
+
+    #[test]
+    fn bake_into_reused_buffers_matches_fresh_bake_after_shape_change() {
+        let red = unit_triangle([1.0, 0.0, 0.0]);
+        let blue = RenderItem {
+            global: GlobalTransform::from_matrix(Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0))),
+            vertices: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [2.0, 0.0, 0.0],
+                [3.0, 0.0, 0.0],
+                [2.0, 1.0, 0.0],
+            ],
+            color: [0.0, 0.0, 1.0],
+        };
+        let mut out = vec![f32::NAN; 1024];
+        let mut scratch = BakeScratch::default();
+
+        // Prime both buffers on the bigger scene, then shrink to one
+        // triangle: exercises the clear paths with stale longer contents.
+        bake_scene_to_vertices_into(&[red.clone(), blue], &mut out, &mut scratch);
+        let small = std::slice::from_ref(&red);
+        bake_scene_to_vertices_into(small, &mut out, &mut scratch);
+
+        // Value-identical to a fresh bake despite reused slots: no stale
+        // tail, no stale floats, no NaN sentinel leaking through.
+        assert_eq!(out, bake_scene_to_vertices(small));
+        assert_eq!(out.len(), 3 * FLOATS_PER_VERTEX);
+        assert!(out.iter().all(|v| v.is_finite()));
+        // The aspect-aware entry point holds the same contract.
+        let mut aspect_out = Vec::new();
+        let mut aspect_scratch = BakeScratch::default();
+        bake_scene_to_vertices_with_aspect_into(
+            small,
+            16.0 / 9.0,
+            &mut aspect_out,
+            &mut aspect_scratch,
+        );
+        assert_eq!(
+            aspect_out,
+            bake_scene_to_vertices_with_aspect(small, 16.0 / 9.0)
+        );
+    }
+
+    #[test]
+    fn second_bake_into_reused_buffers_reuses_allocations() {
+        let red = unit_triangle([1.0, 0.0, 0.0]);
+        let blue = RenderItem {
+            global: GlobalTransform::from_matrix(Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0))),
+            vertices: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            color: [0.0, 0.0, 1.0],
+        };
+        let items = [red, blue];
+        let mut out = Vec::new();
+        let mut scratch = BakeScratch::default();
+        bake_scene_to_vertices_into(&items, &mut out, &mut scratch);
+        let out_ptr = out.as_ptr();
+        let out_capacity = out.capacity();
+        let triangles_ptr = scratch.triangles.as_ptr();
+        let triangles_capacity = scratch.triangles.capacity();
+        let first = out.clone();
+
+        // When: the same scene bakes again into the same buffers (the
+        // steady state: same entities, same triangle count).
+        bake_scene_to_vertices_into(&items, &mut out, &mut scratch);
+
+        // Then: identical output with zero reallocations — both buffers
+        // kept their allocations.
+        assert_eq!(out, first);
+        assert_eq!(
+            out.as_ptr(),
+            out_ptr,
+            "the output buffer must be reused, not reallocated"
+        );
+        assert_eq!(out.capacity(), out_capacity);
+        assert_eq!(
+            scratch.triangles.as_ptr(),
+            triangles_ptr,
+            "the pending-triangle buffer must be reused, not reallocated"
+        );
+        assert_eq!(scratch.triangles.capacity(), triangles_capacity);
     }
 
     #[test]

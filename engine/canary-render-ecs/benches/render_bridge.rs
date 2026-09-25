@@ -23,8 +23,8 @@
 
 use canary_ecs::World;
 use canary_render_ecs::{
-    bake_scene_to_vertices, bake_scene_to_vertices_with_aspect, extract_scene, extract_scene_into,
-    RenderItem, Renderable,
+    bake_scene_to_vertices, bake_scene_to_vertices_into, bake_scene_to_vertices_with_aspect,
+    extract_scene, extract_scene_into, BakeScratch, RenderItem, Renderable,
 };
 use canary_transform::{propagate_transforms, GlobalTransform, Transform};
 use divan::{black_box, Bencher};
@@ -146,6 +146,21 @@ fn bake_frame(bencher: Bencher, count: usize) {
     bencher.bench_local(|| black_box(bake_scene_to_vertices(black_box(&items))));
 }
 
+/// The bake into last frame's scratch + output buffers: the steady-state
+/// path the scheduled bake system takes every tick, reusing both the
+/// pending-triangle intermediates and the frame's own vertex allocation.
+#[divan::bench(args = ENTITY_COUNTS)]
+fn bake_frame_into_reused_scratch(bencher: Bencher, count: usize) {
+    let items = extracted_items(count);
+    let mut scratch = BakeScratch::default();
+    let mut out = Vec::new();
+    bake_scene_to_vertices_into(&items, &mut out, &mut scratch);
+    bencher.bench_local(|| {
+        bake_scene_to_vertices_into(black_box(&items), &mut out, &mut scratch);
+        black_box(out.len())
+    });
+}
+
 /// The same bake against a non-square target, which is what a real
 /// window-sized draw uses.
 #[divan::bench(args = ENTITY_COUNTS)]
@@ -184,5 +199,40 @@ fn full_frame_propagate_extract_bake(bencher: Bencher, count: usize) {
         propagate_transforms(&mut world);
         extract_scene_into(&world, &mut scratch);
         black_box(bake_scene_to_vertices(&scratch))
+    });
+}
+
+/// One full CPU frame reusing both scratch buffers: propagate the
+/// hierarchy, extract into the reused extract scratch, then bake into the
+/// reused bake scratch + frame buffer. This is the end-to-end steady-state
+/// number the scheduled bake system actually pays per tick — compare
+/// against `full_frame_propagate_extract_bake` (fresh bake buffers) for
+/// the reuse delta.
+#[divan::bench(args = ENTITY_COUNTS)]
+fn full_frame_reused_bake_scratch(bencher: Bencher, count: usize) {
+    let mut world = renderable_scene(count);
+    let mut scratch = Vec::new();
+    extract_scene_into(&world, &mut scratch);
+    let mut bake_scratch = BakeScratch::default();
+    let mut frame = Vec::new();
+    bake_scene_to_vertices_into(&scratch, &mut frame, &mut bake_scratch);
+    // A tenth of the scene moves each frame, so propagation has real
+    // writes to do rather than confirming an unchanged world.
+    let movers: Vec<_> = world
+        .query::<Renderable>()
+        .map(|(entity, _)| entity)
+        .step_by(10)
+        .collect();
+    bencher.bench_local(|| {
+        world.advance_tick();
+        for entity in &movers {
+            if let Some(transform) = world.get_mut::<Transform>(*entity) {
+                transform.translation.x += 0.001;
+            }
+        }
+        propagate_transforms(&mut world);
+        extract_scene_into(&world, &mut scratch);
+        bake_scene_to_vertices_into(&scratch, &mut frame, &mut bake_scratch);
+        black_box(frame.len())
     });
 }
