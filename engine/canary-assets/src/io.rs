@@ -250,9 +250,15 @@ mod tests {
         let err = resolve_in_root(&root, Path::new("link.bin")).expect_err("symlink-out must fail");
         match &err {
             AssetError::OutsideRoot { path, .. } => {
+                // The implementation names the canonical target (symlinks
+                // resolved): compare against the canonicalized expectation
+                // so the test holds where the temp dir itself sits behind
+                // a symlink (macOS /tmp -> /private/tmp).
+                let expected =
+                    std::fs::canonicalize(&outside).expect("outside fixture must be resolvable");
                 assert_eq!(
                     path.as_path(),
-                    outside.as_path(),
+                    expected.as_path(),
                     "the error must name the real target, not the link"
                 );
             }
@@ -271,12 +277,16 @@ mod tests {
         // Plain relative, nested relative, and a `..` that stays inside
         // all resolve; the bytes read through the resolution equal the
         // bytes read directly — confinement changes *which* paths are
-        // accepted, never the content of accepted ones.
+        // accepted, never the content of accepted ones. The root is
+        // canonicalized for comparison because resolution returns
+        // canonical paths while temp dirs may sit behind symlinks
+        // (macOS /tmp) or verbatim prefixes (Windows \\?\).
+        let canonical_root = std::fs::canonicalize(&root).expect("root must be resolvable");
         for candidate in [Path::new("sub/file.bin"), Path::new("sub/../sub/file.bin")] {
             let resolved =
                 resolve_in_root(&root, candidate).expect("in-root candidate must resolve");
             assert!(
-                resolved.starts_with(root.as_path()),
+                resolved.starts_with(canonical_root.as_path()),
                 "resolution must stay under the root, got: {}",
                 resolved.display()
             );
