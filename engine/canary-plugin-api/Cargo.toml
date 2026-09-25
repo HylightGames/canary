@@ -33,7 +33,7 @@ libloading = "0.9"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 # Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. Tracks the
-# current wasmtime major as a caret requirement (48.x as of 2026-09,
+# current wasmtime major as a caret requirement (49.x as of 2026-09,
 # MSRV 1.95 — within this workspace's rustc 1.98.1; re-check MSRV on
 # each major bump). History: originally pinned to 21.0.2 for the old
 # rustc-1.75 sandbox floor, then to 36.0.15 as the earliest patch
@@ -65,5 +65,5 @@ wasmtime = { version = "49", default-features = false, features = ["component-mo
 # in transitively via wasmtime's own "wat" feature above -- needs an
 # explicit dependency entry. Left unpinned (unlike the old =1.207.0)
 # since nothing here requires rustc 1.75 anymore; cargo resolves
-# whatever's compatible with wasmtime 48.x's own wat requirement.
+# whatever's compatible with wasmtime 49.x's own wat requirement.
 wat = "1"
