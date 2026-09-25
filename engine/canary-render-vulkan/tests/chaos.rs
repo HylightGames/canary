@@ -62,8 +62,11 @@ fn device_drop_while_texture_alive_panics_in_debug() {
     });
 
     // When: the device is dropped while the texture is still alive.
-    // Then: the `debug_assert` on `Rc::strong_count` fires loudly. Release
-    // builds are silent by construction (recorded residual R2) — this test
-    // is debug-only on purpose and must never be "fixed" by silencing it.
+    // Then: the `Rc::strong_count` check fires loudly in every profile
+    // (unconditional panic, not `debug_assert` — a device dropped under
+    // live resources would otherwise destroy the `VkDevice` those
+    // resources' own `Drop` impls still call into). This test stays
+    // debug-gated only because no release job runs the `#[ignore]`
+    // suites yet, not because release is silent.
     drop(device);
 }

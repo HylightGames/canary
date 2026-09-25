@@ -145,3 +145,43 @@ fn set_texture_after_a_non_textured_pipeline_fails_loudly() {
         "set_texture after a non-textured pipeline must panic loudly instead of recording a misbound descriptor set"
     );
 }
+
+#[test]
+#[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
+fn draw_without_anything_bound_fails_loudly() {
+    let device = VulkanDevice::new().unwrap_or_else(|e| {
+        panic!(
+            "failed to create a real Vulkan device -- is a Vulkan ICD installed? \
+             (this sandbox needs mesa-vulkan-drivers; see \
+             docs/architecture/platform-abstraction.md): {e}"
+        )
+    });
+    let target = device.create_color_target(&ColorTargetDescriptor {
+        width: 8,
+        height: 8,
+    });
+
+    // Given: a render pass with no pipeline and no vertex buffer bound,
+    // when a draw is recorded, then the encoder must panic on the host
+    // — `vkCmdDraw` with nothing bound is driver-undefined (the same
+    // class the `set_texture` guard above was built for). The abandoned
+    // encoder is dropped inside `catch_unwind`, which also exercises
+    // the `Drop` impl that frees its command buffer.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut encoder = device.create_command_encoder();
+        encoder.begin_render_pass(
+            &target,
+            &RenderPassDescriptor {
+                clear_color: [0.0, 0.0, 0.0, 1.0],
+            },
+        );
+        encoder.draw(3);
+        encoder.end_render_pass();
+        device.submit_and_wait(encoder);
+    }));
+
+    assert!(
+        result.is_err(),
+        "draw with no pipeline bound must panic loudly instead of recording driver-undefined work"
+    );
+}

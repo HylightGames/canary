@@ -77,22 +77,39 @@ pub struct VulkanDevice {
     /// see [`canary_render::RenderDevice::create_textured_pipeline`]'s
     /// contract docs for why two bindings carry one texture.
     pub(crate) texture_set_layout: vk::DescriptorSetLayout,
+    /// Debug messenger torn down with the device. `None` in release
+    /// builds and whenever `VK_LAYER_KHRONOS_validation` is absent
+    /// (mesa/llvmpipe CI has no validation layers) — validation is
+    /// opportunistic diagnostics, never a behavior gate.
+    debug_messenger: Option<(ash::ext::debug_utils::Instance, vk::DebugUtilsMessengerEXT)>,
 }
 
 /// An error creating the Vulkan backend itself (instance, device,
 /// queue, ...). Resource creation *after* this succeeds is currently
 /// infallible at the trait level — see [`RenderDevice`]'s own docs for
 /// why that's a deliberate `v0.0.6` simplification, not an oversight.
+///
+/// Backend-facing boundary rule (see `crate` docs): no `ash`/`vk::*`
+/// types appear here. Both fallible variants below erase the
+/// third-party error into an owned code/message pair at construction,
+/// so downstream crates match on and display this error without ever
+/// naming `ash` types.
 #[derive(Debug, thiserror::Error)]
 pub enum VulkanInitError {
     /// The Vulkan loader itself couldn't be found/loaded (e.g. no
     /// `libvulkan.so`/`vulkan-1.dll` present).
     #[error("failed to load the Vulkan entry point: {0}")]
-    EntryLoad(#[source] ash::LoadingError),
-    /// A Vulkan API call failed. Wraps `ash`'s own result type rather
-    /// than re-describing every possible `vk::Result` variant.
-    #[error("a Vulkan API call failed: {0}")]
-    Vulkan(#[source] vk::Result),
+    EntryLoad(String),
+    /// A Vulkan API call failed, with its raw result code preserved
+    /// for diagnosis.
+    #[error("a Vulkan API call failed: {message} ({code})")]
+    Vulkan {
+        /// Raw `vk::Result` code (`as_raw`), kept so diagnostics can
+        /// name the exact failure without depending on `ash` types.
+        code: i32,
+        /// Human-readable rendering of the result at construction time.
+        message: String,
+    },
     /// No physical device was enumerable at all — e.g. no ICD installed
     /// (this project's own sandbox needs `mesa-vulkan-drivers` for
     /// exactly this reason; see `docs/architecture/platform-abstraction.md`).
@@ -104,9 +121,18 @@ pub enum VulkanInitError {
     NoGraphicsQueueFamily,
 }
 
-impl From<vk::Result> for VulkanInitError {
-    fn from(result: vk::Result) -> Self {
-        VulkanInitError::Vulkan(result)
+impl VulkanInitError {
+    /// Erases a `vk::Result` at the backend boundary: the only
+    /// constructor for the [`VulkanInitError::Vulkan`] variant, so no
+    /// call site names `ash` types in this error's construction either.
+    /// (`From<vk::Result>` is deliberately *not* implemented — a
+    /// blanket `From` would re-admit third-party types into every `?`
+    /// site's inferred bounds. Call `.map_err(...)` explicitly.)
+    fn from_vk(result: vk::Result) -> Self {
+        Self::Vulkan {
+            code: result.as_raw(),
+            message: result.to_string(),
+        }
     }
 }
 
@@ -155,7 +181,17 @@ pub(crate) fn allocate_memory(
     let alloc_info = vk::MemoryAllocateInfo::default()
         .allocation_size(requirements.size)
         .memory_type_index(memory_type);
+    // SAFETY: size/type validated by the caller-provided requirements;
+    // error-or-handle return, no null path.
     unsafe { device.allocate_memory(&alloc_info, None) }
+}
+
+/// Owned strings backing the debug-only validation request, if any.
+/// Module scope: Rust forbids item definitions inside `impl` blocks,
+/// and these must outlive the `instance_ci` built from them in `new()`.
+struct ValidationStrings {
+    layer_names: Vec<CString>,
+    extension_names: Vec<CString>,
 }
 
 impl VulkanDevice {
@@ -173,16 +209,66 @@ impl VulkanDevice {
     /// required features/extensions) is real future work once there's
     /// more than one kind of device to choose between in practice.
     pub fn new() -> Result<Self, VulkanInitError> {
-        let entry = unsafe { ash::Entry::load() }.map_err(VulkanInitError::EntryLoad)?;
+        // SAFETY for the initialization sequence below as a whole: every
+        // call operates on handles obtained lines above from the same
+        // loader/instance/device chain, with fully specified
+        // create-infos and no chained extension structs; each fallible
+        // call returns `Err` (propagated with `?` into `VulkanInitError`)
+        // rather than a null handle on failure. Per-call notes below
+        // cover only what differs per call.
+        let entry =
+            unsafe { ash::Entry::load() }.map_err(|e| VulkanInitError::EntryLoad(e.to_string()))?;
 
         let app_name = CString::new("canary").expect("static string has no interior NUL");
         let app_info = vk::ApplicationInfo::default()
             .application_name(&app_name)
             .api_version(vk::API_VERSION_1_1);
-        let instance_ci = vk::InstanceCreateInfo::default().application_info(&app_info);
-        let instance = unsafe { entry.create_instance(&instance_ci, None) }?;
+        // Debug-only validation layers (see `maybe_install_validation`
+        // for the contract): release builds never pay for them and never
+        // change behavior based on their presence. The owned `CString`s
+        // must outlive `instance_ci` below, hence the bindings.
+        let validation = Self::maybe_install_validation(&entry);
+        let validation_layer_ptrs: Vec<*const std::os::raw::c_char> = validation
+            .as_ref()
+            .map(|owned| owned.layer_names.iter().map(|name| name.as_ptr()).collect())
+            .unwrap_or_default();
+        let validation_extension_ptrs: Vec<*const std::os::raw::c_char> = validation
+            .as_ref()
+            .map(|owned| {
+                owned
+                    .extension_names
+                    .iter()
+                    .map(|name| name.as_ptr())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let instance_ci = vk::InstanceCreateInfo::default()
+            .application_info(&app_info)
+            .enabled_layer_names(&validation_layer_ptrs)
+            .enabled_extension_names(&validation_extension_ptrs);
+        let instance = unsafe { entry.create_instance(&instance_ci, None) }
+            .map_err(VulkanInitError::from_vk)?;
 
-        let physical_device = unsafe { instance.enumerate_physical_devices() }?
+        // Debug messenger for the validation layers above, if any were
+        // enabled (`None` in release and whenever the layers are
+        // absent — mesa/llvmpipe CI included). Torn down with the
+        // device in `Drop`, before the instance. Gated on the layers
+        // themselves, not just `cfg(debug)`: creating a messenger
+        // without its extension enabled calls a null function pointer.
+        #[cfg(debug_assertions)]
+        let debug_messenger = if validation.is_some() {
+            Self::create_debug_messenger(&entry, &instance)
+        } else {
+            None
+        };
+        #[cfg(not(debug_assertions))]
+        let debug_messenger: Option<(
+            ash::ext::debug_utils::Instance,
+            vk::DebugUtilsMessengerEXT,
+        )> = None;
+
+        let physical_device = unsafe { instance.enumerate_physical_devices() }
+            .map_err(VulkanInitError::from_vk)?
             .into_iter()
             .next()
             .ok_or(VulkanInitError::NoPhysicalDevice)?;
@@ -199,7 +285,13 @@ impl VulkanDevice {
             .queue_priorities(&queue_priorities);
         let queue_cis = [queue_ci];
         let device_ci = vk::DeviceCreateInfo::default().queue_create_infos(&queue_cis);
-        let device = Rc::new(unsafe { instance.create_device(physical_device, &device_ci, None) }?);
+        let device = Rc::new(
+            unsafe { instance.create_device(physical_device, &device_ci, None) }
+                .map_err(VulkanInitError::from_vk)?,
+        );
+        // SAFETY: `queue_family_index` was just proven to exist (the
+        // `position` above errored otherwise) and queue 0 of any family
+        // always exists; the device is live.
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
 
         let memory_properties =
@@ -208,11 +300,13 @@ impl VulkanDevice {
         let command_pool_ci = vk::CommandPoolCreateInfo::default()
             .queue_family_index(queue_family_index)
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
-        let command_pool = unsafe { device.create_command_pool(&command_pool_ci, None) }?;
+        let command_pool = unsafe { device.create_command_pool(&command_pool_ci, None) }
+            .map_err(VulkanInitError::from_vk)?;
 
-        let render_pass = create_render_pass(&device)?;
+        let render_pass = create_render_pass(&device).map_err(VulkanInitError::from_vk)?;
 
-        let texture_set_layout = create_texture_set_layout(&device)?;
+        let texture_set_layout =
+            create_texture_set_layout(&device).map_err(VulkanInitError::from_vk)?;
 
         Ok(Self {
             _entry: entry,
@@ -223,8 +317,117 @@ impl VulkanDevice {
             render_pass,
             memory_properties,
             texture_set_layout,
+            debug_messenger,
         })
     }
+
+    /// Attempts `VK_LAYER_KHRONOS_validation` in debug builds; always
+    /// `None` in release and whenever the layer is absent. Validation
+    /// is opportunistic diagnostics, never a behavior gate: absence
+    /// changes nothing except that misuses stay silent on drivers that
+    /// tolerate them (llvmpipe does — which is exactly why the
+    /// host-side guards elsewhere in this backend exist regardless).
+    #[cfg(debug_assertions)]
+    fn maybe_install_validation(entry: &ash::Entry) -> Option<ValidationStrings> {
+        // SAFETY: read-only enumeration against a live loader; no
+        // handles created, nothing to free.
+        let available = unsafe { entry.enumerate_instance_layer_properties() }.ok()?;
+        let wanted: &[u8] = b"VK_LAYER_KHRONOS_validation";
+        let present = available.iter().any(|properties| {
+            // `layer_name` is a fixed-size null-terminated C array.
+            let raw = &properties.layer_name as *const _ as *const std::os::raw::c_char;
+            // SAFETY: Vulkan guarantees NUL-termination within the
+            // array bounds for enumerated properties.
+            let name = unsafe { std::ffi::CStr::from_ptr(raw).to_bytes() };
+            name == wanted
+        });
+        if !present {
+            return None;
+        }
+        Some(ValidationStrings {
+            layer_names: vec![CString::new("VK_LAYER_KHRONOS_validation")
+                .expect("static string has no interior NUL")],
+            extension_names: vec![
+                CString::new("VK_EXT_debug_utils").expect("static string has no interior NUL")
+            ],
+        })
+    }
+
+    /// Release counterpart: validation layers are never installed in
+    /// release builds (no behavior gate, no diagnostics cost), so there
+    /// is nothing to own and no `CString`s to keep alive. Present so
+    /// `new()` compiles identically in both profiles.
+    #[cfg(not(debug_assertions))]
+    fn maybe_install_validation(_entry: &ash::Entry) -> Option<ValidationStrings> {
+        None
+    }
+
+    /// Creates the debug messenger reporting validation errors. Only
+    /// called when [`VulkanDevice::maybe_install_validation`] returned
+    /// `Some` (debug builds with layers present).
+    #[cfg(debug_assertions)]
+    fn create_debug_messenger(
+        entry: &ash::Entry,
+        instance: &ash::Instance,
+    ) -> Option<(ash::ext::debug_utils::Instance, vk::DebugUtilsMessengerEXT)> {
+        let debug_utils = ash::ext::debug_utils::Instance::new(entry, instance);
+        let create_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
+            .message_severity(
+                vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                    | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING,
+            )
+            .message_type(
+                vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                    | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+            )
+            .pfn_user_callback(Some(validation_callback));
+        // SAFETY: `create_info` is fully specified with a valid
+        // function-pointer callback; the loader/instance are live.
+        // A failure here degrades to no-messenger (the host-side
+        // guards remain the enforcement), never to a broken device.
+        let messenger = unsafe {
+            debug_utils
+                .create_debug_utils_messenger(&create_info, None)
+                .ok()?
+        };
+        Some((debug_utils, messenger))
+    }
+}
+
+/// Validation-layer callback: validation *errors* fail loudly (a test
+/// or run that triggers one has recorded invalid API use), warnings
+/// and below are ignored — the layers are noisier than this backend's
+/// scope warrants, and everything actionable arrives as an error.
+// SAFETY: `p_callback_data` is valid for the call duration by Vulkan
+// contract when non-null; the callback touches no shared state and
+// returns `FALSE` (never vetoes the call). Loudness is a hard abort,
+// never a panic: this callback runs on the driver's side of an FFI
+// boundary, and unwinding (what `panic!` does) across that boundary
+// into C code is undefined behavior. `abort` keeps the fail-loud
+// contract without an unwind crossing the boundary.
+#[cfg(debug_assertions)]
+unsafe extern "system" fn validation_callback(
+    severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    _types: vk::DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    _user_data: *mut std::ffi::c_void,
+) -> vk::Bool32 {
+    if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
+        let message = if p_callback_data.is_null() {
+            "<null callback data>".to_string()
+        } else {
+            // SAFETY: guarded by the null check directly above.
+            unsafe {
+                std::ffi::CStr::from_ptr((*p_callback_data).p_message)
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        };
+        eprintln!("Vulkan validation error: {message}");
+        std::process::abort();
+    }
+    vk::FALSE
 }
 
 fn create_render_pass(device: &ash::Device) -> Result<vk::RenderPass, vk::Result> {
@@ -267,6 +470,8 @@ fn create_render_pass(device: &ash::Device) -> Result<vk::RenderPass, vk::Result
         .attachments(&attachments)
         .subpasses(&subpasses)
         .dependencies(&dependencies);
+    // SAFETY: fully specified single-subpass description against a
+    // live device; error-or-handle return.
     unsafe { device.create_render_pass(&render_pass_ci, None) }
 }
 
@@ -340,13 +545,29 @@ impl Drop for VulkanDevice {
         // pipeline still exists and is about to be left pointing at a
         // destroyed `VkDevice`. Loud in debug; callers must uphold the
         // order in release.
-        debug_assert_eq!(
-            Rc::strong_count(&self.device),
-            1,
-            "VulkanDevice dropped while resources created from it still exist; \
-             drop all buffers, textures, color targets, and pipelines first"
-        );
+        //
+        // Unconditional (not `debug_assert`): dropping the device while
+        // resources created from it still exist destroys the `VkDevice`
+        // those resources' own `Drop` impls then call into — use after
+        // destroy from 100% safe caller code. A loud panic in every
+        // profile beats silent Vulkan UB that only some drivers punish.
+        if Rc::strong_count(&self.device) != 1 {
+            panic!(
+                "VulkanDevice dropped while resources created from it still exist; \
+                 drop all buffers, textures, color targets, and pipelines first"
+            );
+        }
+        // SAFETY: every handle below is owned here (created in `new`,
+        // destroyed exactly once here) in reverse-creation order, and
+        // the unconditional count check above verified no live resource
+        // still holds the device; callers uphold the documented
+        // resources-first/device-last order in every profile.
         unsafe {
+            // Debug messenger first: it reports on everything below
+            // while those objects still exist to be reported about.
+            if let Some((ref debug_utils, messenger)) = self.debug_messenger {
+                debug_utils.destroy_debug_utils_messenger(messenger, None);
+            }
             self.device
                 .destroy_descriptor_set_layout(self.texture_set_layout, None);
             self.device.destroy_render_pass(self.render_pass, None);

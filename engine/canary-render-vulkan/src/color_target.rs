@@ -8,6 +8,7 @@
 // See LICENSE in the project root for details.
 // ============================================================================
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use ash::vk;
@@ -28,10 +29,31 @@ pub struct VulkanColorTarget {
     pub(crate) framebuffer: vk::Framebuffer,
     pub(crate) width: u32,
     pub(crate) height: u32,
+    /// Whether this target has been through at least one submitted
+    /// render pass. A freshly created image sits in `UNDEFINED` layout;
+    /// only a pass (clearing + transitioning to `TRANSFER_SRC_OPTIMAL`)
+    /// makes a subsequent copy well-defined. Set from
+    /// `begin_render_pass` (which takes `&self`, hence `Cell`); read
+    /// as a `debug_assert` in `read_rgba8`, not a hard error, because
+    /// the trait-level contract documents draw-before-read and dev
+    /// loudness is the proportionate enforcement at this scope.
+    drawn: Cell<bool>,
 }
 
 impl VulkanColorTarget {
+    /// Records that a render pass has begun against this target (called
+    /// by the encoder, which only holds `&self`). See `drawn`'s docs.
+    pub(crate) fn mark_drawn(&self) {
+        self.drawn.set(true);
+    }
+
     pub(crate) fn new(vk_device: &VulkanDevice, desc: &ColorTargetDescriptor) -> Self {
+        // SAFETY for the creation sequence below as a whole: every call
+        // operates on handles obtained lines above from the same live
+        // device, with fully specified create-infos (asserted-nonzero
+        // dims above, matching COLOR_FORMAT, single mip/layer/sample);
+        // each fallible call panics loudly instead of yielding a null
+        // handle. Per-call notes below cover only what differs per call.
         assert!(
             desc.width > 0 && desc.height > 0,
             "color target dimensions must be nonzero"
@@ -99,6 +121,7 @@ impl VulkanColorTarget {
             framebuffer,
             width: desc.width,
             height: desc.height,
+            drawn: Cell::new(false),
         }
     }
 
@@ -109,15 +132,27 @@ impl VulkanColorTarget {
     /// steady-state render loop that would want to avoid the
     /// `queue_wait_idle` this implies on every call.
     pub(crate) fn read_rgba8(&self, vk_device: &VulkanDevice) -> Vec<u8> {
+        // See `drawn`'s docs: reading a never-drawn target copies from
+        // an `UNDEFINED`-layout image, which is invalid even when the
+        // driver tolerates it (llvmpipe does, which is why this went
+        // unnoticed). Loud in dev; the trait documents the contract.
+        debug_assert!(
+            self.drawn.get(),
+            "read_rgba8 on a color target that has never been drawn: submit at least one render pass first"
+        );
         let device = &vk_device.device;
         // Widen *before* multiplying: `width * height * 4` in `u32`
         // wraps past ~2048px-square targets in release (panics in
         // debug), silently staging a too-small buffer. `u64` holds
-        // any `u32 × u32 × 4` product exactly.
-        let size = u64::from(self.width) * u64::from(self.height) * 4;
+        // any `u32 × u32 × 4` product exactly. Narrow back to `usize`
+        // checked: a plain `as` cast truncates on 32-bit platforms,
+        // and the too-short length below would become an
+        // out-of-bounds read via `from_raw_parts`.
+        let size_u64 = u64::from(self.width) * u64::from(self.height) * 4;
+        let size = usize::try_from(size_u64).expect("color target byte size exceeds address space");
 
         let staging_buffer_ci = vk::BufferCreateInfo::default()
-            .size(size)
+            .size(size_u64)
             .usage(vk::BufferUsageFlags::TRANSFER_DST)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
         let staging_buffer = unsafe { device.create_buffer(&staging_buffer_ci, None) }
@@ -189,10 +224,15 @@ impl VulkanColorTarget {
         }
 
         let pixels = unsafe {
+            // SAFETY: `staging_memory` is HOST_VISIBLE+HOST_COHERENT and
+            // `size` bytes were just copied into it by the waited-on
+            // submit above; `from_raw_parts` reads exactly those bytes
+            // into an owned `Vec` before unmapping, so no use-after-free
+            // and no out-of-bounds read.
             let ptr = device
-                .map_memory(staging_memory, 0, size, vk::MemoryMapFlags::empty())
+                .map_memory(staging_memory, 0, size_u64, vk::MemoryMapFlags::empty())
                 .expect("failed to map readback staging memory");
-            let data = std::slice::from_raw_parts(ptr as *const u8, size as usize).to_vec();
+            let data = std::slice::from_raw_parts(ptr as *const u8, size).to_vec();
             device.unmap_memory(staging_memory);
             data
         };
@@ -208,6 +248,10 @@ impl VulkanColorTarget {
 
 impl Drop for VulkanColorTarget {
     fn drop(&mut self) {
+        // SAFETY: all four handles still owned here (created in `new`,
+        // destroyed exactly once here), and the device outlives every
+        // resource via the `Rc<ash::Device>` clone (see the drop-order
+        // contract on `VulkanDevice`).
         unsafe {
             self.device.destroy_framebuffer(self.framebuffer, None);
             self.device.destroy_image_view(self.view, None);

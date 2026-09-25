@@ -39,6 +39,15 @@ pub struct VulkanCommandEncoder<'a> {
     /// at least one real driver — observed on llvmpipe while
     /// hardening — so host-side refusal is soundness, not polish).
     bound: Option<BoundPipeline>,
+    /// Whether a render pass is currently open (between
+    /// `begin_render_pass` and `end_render_pass`) and whether a vertex
+    /// buffer has been bound in it. Tracked so `draw` can refuse
+    /// unbound draws loudly (recording `vkCmdDraw` with no pipeline is
+    /// driver-undefined, in the same class as the `set_texture` ordering
+    /// violation this struct already refuses) and so `Drop` can close
+    /// out an abandoned encoder without leaking its command buffer.
+    pass_open: bool,
+    vertex_buffer_bound: bool,
 }
 
 /// What [`VulkanCommandEncoder`] remembers about the bound pipeline:
@@ -56,10 +65,15 @@ impl<'a> VulkanCommandEncoder<'a> {
             .command_pool(vk_device.command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
+        // SAFETY: fully specified allocate-info against this device's
+        // own pool; returns error (panics below) rather than a null
+        // handle on failure.
         let command_buffer = unsafe { vk_device.device.allocate_command_buffers(&ai) }
             .expect("failed to allocate command buffer")[0];
 
         let begin_info = vk::CommandBufferBeginInfo::default();
+        // SAFETY: freshly allocated primary buffer, never begun;
+        // default begin-info requests no extensions or inheritance.
         unsafe {
             vk_device
                 .device
@@ -71,6 +85,8 @@ impl<'a> VulkanCommandEncoder<'a> {
             vk_device,
             command_buffer,
             bound: None,
+            pass_open: false,
+            vertex_buffer_bound: false,
         }
     }
 
@@ -79,6 +95,11 @@ impl<'a> VulkanCommandEncoder<'a> {
     /// docs for why blocking is fine at `v0.0.6`'s scope.
     pub(crate) fn submit_and_wait(self) {
         let device = &self.vk_device.device;
+        // SAFETY: `command_buffer` was begun in `new()` and has only
+        // had valid record calls since (each refused loudly on misuse
+        // above); ending, submitting, waiting, and freeing it here is
+        // the single owner path (`Drop` handles only the abandoned
+        // path — see below — and this call `forget`s `self` after).
         unsafe {
             device
                 .end_command_buffer(self.command_buffer)
@@ -94,11 +115,57 @@ impl<'a> VulkanCommandEncoder<'a> {
                 .expect("failed to wait for submitted work to complete");
             device.free_command_buffers(self.vk_device.command_pool, &command_buffers);
         }
+        // The command buffer is freed above; `Drop` must not free it
+        // again. `submit_and_wait` consumes `self` precisely so there
+        // is exactly one owner of the submission decision — forgetting
+        // here hands lifetime responsibility back with no second free.
+        std::mem::forget(self);
+        // `pass_open`/`vertex_buffer_bound` die with the forgotten
+        // value; they were only ever needed for the abandoned path.
+    }
+}
+
+impl<'a> Drop for VulkanCommandEncoder<'a> {
+    /// Frees an encoder that never reached [`VulkanCommandEncoder::submit_and_wait`]
+    /// (panic mid-pass, early return, `catch_unwind` across test code).
+    /// Without this, the allocated command buffer — and any begun but
+    /// unended render pass recorded into it — leaks when the pool is
+    /// eventually destroyed. Ending an open pass here keeps the buffer
+    /// valid to free; a real driver accepts `end` + free without
+    /// submit, which is exactly the abandoned-encoder case (nothing was
+    /// ever presented, so no layout transition is owed to anyone).
+    ///
+    // SAFETY: every `unsafe` call below operates on `self.command_buffer`,
+    // allocated from `self.vk_device.command_pool` in `new()` and not yet
+    // freed (only `submit_and_wait` frees it, and that path forgets
+    // `self` so this `Drop` never runs for it). `end_command_buffer` /
+    // `end_render_pass` / `free_command_buffers` on a valid, owned,
+    // begun buffer is sound; the device outlives the encoder via the
+    // `&'a VulkanDevice` borrow (abandoning the encoder cannot drop
+    // the device first — borrowck enforces the order).
+    fn drop(&mut self) {
+        let device = &self.vk_device.device;
+        unsafe {
+            if self.pass_open {
+                device.cmd_end_render_pass(self.command_buffer);
+                self.pass_open = false;
+            }
+            // `Drop` must never panic: this path runs for abandoned
+            // encoders, which includes unwinding from an earlier panic
+            // (panic mid-pass, `catch_unwind` across test code) — a
+            // failed `end` here would panic during that unwind and
+            // abort the process. The buffer is freed regardless; a
+            // driver that rejects the `end` gets a freed-never-
+            // submitted buffer, which is exactly the abandoned case.
+            let _ = device.end_command_buffer(self.command_buffer);
+            device.free_command_buffers(self.vk_device.command_pool, &[self.command_buffer]);
+        }
     }
 }
 
 impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     fn begin_render_pass(&mut self, target: &VulkanColorTarget, desc: &RenderPassDescriptor) {
+        target.mark_drawn();
         let device = &self.vk_device.device;
         let clear_value = vk::ClearValue {
             color: vk::ClearColorValue {
@@ -119,6 +186,10 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
             .render_area(render_area)
             .clear_values(&clear_values);
 
+        // SAFETY: render pass + framebuffer + area + clear values are
+        // all live and mutually compatible (shared pass, target-sized
+        // area); viewport/scissor are set to the same target rect
+        // immediately after, so no draw can execute outside them.
         unsafe {
             device.cmd_begin_render_pass(
                 self.command_buffer,
@@ -140,6 +211,8 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
             device.cmd_set_viewport(self.command_buffer, 0, &[viewport]);
             device.cmd_set_scissor(self.command_buffer, 0, &[render_area]);
         }
+        self.pass_open = true;
+        self.vertex_buffer_bound = false;
     }
 
     fn set_pipeline(&mut self, pipeline: &VulkanPipeline) {
@@ -147,6 +220,10 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
             layout: pipeline.layout,
             textured: pipeline.textured,
         });
+        // SAFETY: `command_buffer` is begun (constructor) and the
+        // pipeline/layout handles are live (borrowed `pipeline`
+        // outlives this call); recording bind commands is always valid
+        // on a begun buffer regardless of pass state.
         unsafe {
             self.vk_device.device.cmd_bind_pipeline(
                 self.command_buffer,
@@ -157,6 +234,10 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn set_vertex_buffer(&mut self, buffer: &VulkanBuffer) {
+        // SAFETY: same begun-buffer reasoning as `set_pipeline`;
+        // `buffer.buffer` is live (borrowed `buffer` outlives the
+        // call) and offset 0 is in-bounds for any nonzero buffer
+        // (zero-byte buffers are refused at creation).
         unsafe {
             self.vk_device.device.cmd_bind_vertex_buffers(
                 self.command_buffer,
@@ -165,6 +246,7 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
                 &[0],
             );
         }
+        self.vertex_buffer_bound = true;
     }
 
     fn set_texture(&mut self, texture: &VulkanTexture) {
@@ -199,6 +281,23 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn draw(&mut self, vertex_count: u32) {
+        // Recording `vkCmdDraw` with no pipeline bound is
+        // driver-undefined (same class as the `set_texture` ordering
+        // violation refused above) — fail loudly on the host instead.
+        // A missing vertex buffer is likewise refused: drawing from
+        // binding 0 with nothing bound reads garbage or faults,
+        // depending on the driver.
+        self.bound.expect(
+            "draw requires a bound pipeline: call set_pipeline \
+              before draw",
+        );
+        assert!(
+            self.vertex_buffer_bound,
+            "draw requires a bound vertex buffer: call set_vertex_buffer before draw"
+        );
+        // SAFETY: pipeline + vertex buffer presence just verified
+        // above; `cmd_draw` with valid bindings on a begun buffer
+        // inside an open pass is well-defined.
         unsafe {
             self.vk_device
                 .device
@@ -207,6 +306,10 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn end_render_pass(&mut self) {
+        self.pass_open = false;
+        // SAFETY: ends the pass `begin_render_pass` began on the same
+        // begun buffer; symmetric open/close pairing is the only
+        // requirement, and both sides live in this impl.
         unsafe {
             self.vk_device
                 .device
