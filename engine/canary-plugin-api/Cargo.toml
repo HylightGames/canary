@@ -30,6 +30,7 @@ canary-ecs = { path = "../canary-ecs" }
 # wasm32-wasip2 was never correct to begin with.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 libloading = "0.9"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 # Tier A (WASM Component Model / WASI 0.2) loader, v0.0.3. Tracks the
 # current wasmtime major as a caret requirement (48.x as of 2026-09,
@@ -50,6 +51,7 @@ wasmtime = { version = "48", default-features = false, features = ["component-mo
 # to satisfy the other. See .github/dependabot.yml's ignore list.
 
 [dev-dependencies]
+tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
 # The `wat` feature (WAT text-format parsing) is dev-only on purpose:
 # production Tier A loading always goes through real `.wasm` binaries
 # (see docs/roadmap/v0.0.3-roadmap.md's `.cwasm`-is-a-cache-artifact,

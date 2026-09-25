@@ -273,24 +273,42 @@ impl Plugin for WasmComponentPlugin {
         // surfaces as an `Err` here. `Plugin::on_load` is infallible by
         // signature — matching Tier B's C ABI, whose `on_load` vtable
         // entry has no way to report failure either (see
-        // `crate::abi::PluginVTable`) — so a trap is silently ignored
-        // rather than propagated, consistent with, not a new gap
-        // relative to, the existing trait's shape.
+        // `crate::abi::PluginVTable`) — so a trap is reported via
+        // `tracing::warn!` rather than propagated, consistent with, not
+        // a new gap relative to, the existing trait's shape.
         self.refuel();
-        let _ = self
+        if let Err(error) = self
             .bindings
             .canary_plugin_lifecycle()
-            .call_on_load(&mut self.store);
+            .call_on_load(&mut self.store)
+        {
+            tracing::warn!(
+                plugin = %self.name,
+                entrypoint = "on_load",
+                ?error,
+                "Tier A guest trapped during on_load; \
+                 the infallible Plugin::on_load signature cannot propagate it"
+            );
+        }
     }
 
     fn on_unload(&mut self) {
-        // See `on_load` above for why a trap here is swallowed, not
-        // propagated.
+        // See `on_load` above for why a trap here is reported via
+        // `tracing::warn!`, not propagated.
         self.refuel();
-        let _ = self
+        if let Err(error) = self
             .bindings
             .canary_plugin_lifecycle()
-            .call_on_unload(&mut self.store);
+            .call_on_unload(&mut self.store)
+        {
+            tracing::warn!(
+                plugin = %self.name,
+                entrypoint = "on_unload",
+                ?error,
+                "Tier A guest trapped during on_unload; \
+                 the infallible Plugin::on_unload signature cannot propagate it"
+            );
+        }
     }
 }
 
@@ -1020,5 +1038,110 @@ mod tests {
                  capability gating has regressed"
             ),
         }
+    }
+
+    /// A trapped guest entry must stay observable: `Plugin::on_load`
+    /// is infallible by signature, so the trap itself is still
+    /// swallowed — but a `tracing::warn!` event must fire, otherwise a
+    /// crash-looping guest is invisible to the host.
+    #[test]
+    fn trapped_on_load_emits_a_warn_event() {
+        use std::sync::{Arc, Mutex};
+        use tracing::field::{Field, Visit};
+        use tracing::Event;
+        use tracing_subscriber::layer::{Context, Layer};
+        use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+        use tracing_subscriber::Registry;
+
+        struct CapturingLayer {
+            events: Arc<Mutex<Vec<(tracing::Level, String)>>>,
+        }
+
+        struct MessageVisitor(String);
+        impl Visit for MessageVisitor {
+            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                use std::fmt::Write;
+                let _ = write!(self.0, "{}={value:?} ", field.name());
+            }
+        }
+
+        impl<S: tracing::Subscriber> Layer<S> for CapturingLayer {
+            fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+                let mut visitor = MessageVisitor(String::new());
+                event.record(&mut visitor);
+                self.events
+                    .lock()
+                    .expect("test mutex should not be poisoned")
+                    .push((*event.metadata().level(), visitor.0));
+            }
+        }
+
+        const TRAPPING_WAT: &str = r#"
+            (component
+              (core module $guest
+                (func (export "on-load")
+                  (loop $forever
+                    br $forever
+                  )
+                )
+                (func (export "on-unload"))
+                (func (export "last-entity-count") (result i32) (i32.const 0))
+              )
+              (core instance $guest_instance (instantiate $guest))
+              (func $on_load_lifted (canon lift (core func $guest_instance "on-load")))
+              (func $on_unload_lifted (canon lift (core func $guest_instance "on-unload")))
+              (func $last_entity_count_lifted (result u32)
+                (canon lift (core func $guest_instance "last-entity-count")))
+              (instance $lifecycle_export
+                (export "on-load" (func $on_load_lifted))
+                (export "on-unload" (func $on_unload_lifted))
+                (export "last-entity-count" (func $last_entity_count_lifted))
+              )
+              (export "canary:plugin/lifecycle@0.1.0" (instance $lifecycle_export))
+            )
+        "#;
+
+        let low_fuel = ResourceBudget {
+            fuel: 1_000,
+            ..ResourceBudget::default()
+        };
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), low_fuel)
+            .expect("engine setup should not fail");
+        let component = Component::new(&loader.engine, TRAPPING_WAT)
+            .expect("the fixture WAT should parse as a valid component");
+        let mut plugin = loader
+            .instantiate(
+                component,
+                PathBuf::from("<trap-warn test fixture>"),
+                "trap-warn-test-plugin",
+                &HashSet::new(),
+                world_with_entities(0),
+            )
+            .expect("instantiation itself should succeed -- the loop only runs once called");
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let layer = CapturingLayer {
+            events: Arc::clone(&events),
+        };
+        let subscriber = Registry::default().with(layer);
+        // Observability only: `on_load` still returns `()` (the trap
+        // is swallowed, exactly as before) — the regression this
+        // guards is the warn event going missing, not the signature.
+        tracing::subscriber::with_default(subscriber, || {
+            plugin.on_load();
+        });
+        let events = events
+            .lock()
+            .expect("test mutex should not be poisoned")
+            .clone();
+        assert!(
+            events
+                .iter()
+                .any(|(level, fields)| *level == tracing::Level::WARN
+                    && fields.contains("on_load")
+                    && fields.contains("trap-warn-test-plugin")),
+            "a trapping on_load must emit a WARN event naming the entrypoint and plugin, \
+             got: {events:?}"
+        );
     }
 }
