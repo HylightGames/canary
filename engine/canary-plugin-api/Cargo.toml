@@ -41,7 +41,7 @@ tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 # docs/development/build-system.md history section). Both wasmtime
 # entries here (main + dev `wat`-feature) must move together — same
 # crate, one lockfile resolution.
-wasmtime = { version = "48", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
+wasmtime = { version = "49", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
 # NOTE: `wasmtime-wasi` is deliberately *not* a dependency: nothing in
 # `src/` references `wasmtime_wasi::`, and adding it pulls a second full
 # wasmtime build graph for no coverage. When a real `wasmtime_wasi::`
@@ -60,7 +60,7 @@ tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
 # `cargo-component`/`wit-bindgen` toolchain -- see `tier_a.rs`'s test
 # module docs. Cargo unifies this feature in for `cargo test` builds
 # without it affecting `cargo build --release`.
-wasmtime = { version = "48", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
+wasmtime = { version = "49", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
 # Used directly in tier_a.rs's tests (wat::parse_str), not just pulled
 # in transitively via wasmtime's own "wat" feature above -- needs an
 # explicit dependency entry. Left unpinned (unlike the old =1.207.0)
