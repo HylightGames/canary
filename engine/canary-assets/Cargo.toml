@@ -14,18 +14,16 @@ canary-ecs = { path = "../canary-ecs" }
 thiserror = "2.0.19"
 
 # Content-hash backend for `AssetId` (ADR 0018: opaque hash of file bytes +
-# loader version). Chose `sha2 0.10.x` over `blake3` after a real spike build
-# on this toolchain (rustc 1.98.1, 2026-09-19): `sha2 0.10.9` compiles clean
+# loader version). Chose `sha2` over `blake3` after a real spike build
+# on this toolchain (rustc 1.98.1, 2026-09-19): `sha2` compiles clean
 # with a tiny pure-Rust transitive tree (digest, block-buffer, generic-array,
 # typenum, crypto-common, cpufeatures, cfg-if — confirmed via `cargo tree`,
 # no build scripts, no C compiler needed), while `blake3` drags in `cc`
 # compilation plus platform SIMD paths this release's kilobyte fixtures do
-# not need. (`sha2 0.11` was previously declined for its `edition2024`
-# declaration -- a hard wall under the old pre-1.91 sandbox cargo, now
-# irrelevant on this toolchain; re-evaluate the major on its API merits,
-# not the edition field. 2026-09: stayed on 0.10.x -- same SHA-256
-# algorithm either way, so no hash-stability reason to move, and the
-# smaller audited tree wins until a 0.11-only need appears.)
+# not need. 2026-09: moved `0.10.9` to `0.11` (same SHA-256 algorithm
+# either way, so no hash-stability impact; the old `edition2024`
+# objection was a pre-1.91 sandbox-cargo wall, irrelevant on this
+# toolchain — see `docs/development/build-system.md` History).
 sha2 = "0.11"
 
 # Mesh source parsing (Phase 2, ADR 0018: GLB for meshes). `default-features
