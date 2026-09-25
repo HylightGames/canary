@@ -255,6 +255,12 @@ pub struct WasmComponentPlugin {
     name: String,
     store: Store<HostState>,
     bindings: TierAPlugin,
+    /// The per-entry execution budget, re-armed by [`WasmComponentPlugin::refuel`]
+    /// before every guest entry point. Wasmtime fuel is consumed
+    /// permanently (never self-replenishing), so without re-arming, a
+    /// long-lived plugin would trap forever once its first budget ran
+    /// out — every later call, including `on_unload`, would fail.
+    fuel: u64,
 }
 
 impl Plugin for WasmComponentPlugin {
@@ -270,6 +276,7 @@ impl Plugin for WasmComponentPlugin {
         // `crate::abi::PluginVTable`) — so a trap is silently ignored
         // rather than propagated, consistent with, not a new gap
         // relative to, the existing trait's shape.
+        self.refuel();
         let _ = self
             .bindings
             .canary_plugin_lifecycle()
@@ -279,6 +286,7 @@ impl Plugin for WasmComponentPlugin {
     fn on_unload(&mut self) {
         // See `on_load` above for why a trap here is swallowed, not
         // propagated.
+        self.refuel();
         let _ = self
             .bindings
             .canary_plugin_lifecycle()
@@ -287,6 +295,21 @@ impl Plugin for WasmComponentPlugin {
 }
 
 impl WasmComponentPlugin {
+    /// Re-arms the execution budget before a guest entry point.
+    /// Every guest call must go through this first: fuel never
+    /// replenishes itself, and an exhausted budget traps the call it
+    /// runs out in — so re-arming per entry is what keeps a long-lived
+    /// plugin (and its `on_unload`) callable indefinitely.
+    fn refuel(&mut self) {
+        // `set_fuel` only fails if fuel consumption was never enabled
+        // on the engine, which `WasmPluginLoader::new` always enables;
+        // an error here would mean the budget is silently unenforced,
+        // so fail loudly rather than run unbounded.
+        self.store
+            .set_fuel(self.fuel)
+            .expect("fuel consumption must be enabled on the Wasmtime engine");
+    }
+
     /// Test-only accessor for what the guest cached via the `ecs-read`
     /// capability. Not part of the [`Plugin`] trait surface — specific
     /// to this slice's illustrative `ecs-read` interface, not anything
@@ -443,6 +466,7 @@ impl WasmPluginLoader {
             name: name.into(),
             store,
             bindings,
+            fuel: self.budget.fuel,
         })
     }
 }
@@ -829,6 +853,49 @@ mod tests {
     }
 
     // -- WASM-boundary tests: the capability *linking* mechanism itself --
+
+    #[test]
+    fn fuel_is_rearmed_before_every_guest_entry_point() {
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
+        let component = Component::new(&loader.engine, TEST_COMPONENT_WAT)
+            .expect("the fixture WAT should parse as a valid component");
+
+        let mut capabilities = HashSet::new();
+        capabilities.insert(Capability::ReadEcsWorld);
+
+        let mut plugin = loader
+            .instantiate(
+                component,
+                PathBuf::from("<test fixture>"),
+                "test-plugin",
+                &capabilities,
+                world_with_entities(5),
+            )
+            .expect("instantiation with the granted capability should succeed");
+
+        // Wasmtime fuel never replenishes itself: without per-entry
+        // re-arming, the second call would run on whatever the first
+        // left over (strictly less), and a long-lived plugin would
+        // eventually trap forever. Equal remaining fuel after two
+        // identical entries proves each was re-armed, not drained.
+        plugin.on_load();
+        assert_eq!(plugin.last_entity_count(), 5);
+        let fuel_after_first = plugin
+            .store
+            .get_fuel()
+            .expect("fuel consumption is enabled on this engine");
+        plugin.on_load();
+        assert_eq!(plugin.last_entity_count(), 5);
+        let fuel_after_second = plugin
+            .store
+            .get_fuel()
+            .expect("fuel consumption is enabled on this engine");
+        assert_eq!(
+            fuel_after_first, fuel_after_second,
+            "each guest entry must start from a full budget, not the previous call's remainder"
+        );
+    }
 
     #[test]
     fn granting_read_ecs_world_lets_the_component_read_real_world_state() {

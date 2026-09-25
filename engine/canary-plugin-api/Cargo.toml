@@ -63,5 +63,5 @@ wasmtime = { version = "48", default-features = false, features = ["component-mo
 # in transitively via wasmtime's own "wat" feature above -- needs an
 # explicit dependency entry. Left unpinned (unlike the old =1.207.0)
 # since nothing here requires rustc 1.75 anymore; cargo resolves
-# whatever's compatible with wasmtime 36.x's own wat requirement.
+# whatever's compatible with wasmtime 48.x's own wat requirement.
 wat = "1"
