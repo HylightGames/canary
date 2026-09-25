@@ -110,7 +110,7 @@ const DEFAULT_ASPECT_RATIO: f32 = 1.0;
 /// [`Float32x3`](canary_render::VertexFormat::Float32x3) color attribute (3
 /// floats). [`BakedFrame::vertex_count`] and the draw call both derive from
 /// this constant so the layout has a single source of truth.
-const FLOATS_PER_VERTEX: usize = 5;
+pub(crate) const FLOATS_PER_VERTEX: usize = 5;
 
 /// Camera-space depths at or below this threshold are treated as on-or-behind
 /// the camera plane.
@@ -240,6 +240,10 @@ pub struct BakedFrame {
     /// Baked vertex floats: `x, y, r, g, b` per vertex, `5 * vertex_count()`
     /// floats total. May be empty (an empty scene bakes to an empty frame,
     /// which still clears the target when drawn).
+    ///
+    /// Alignment invariant: `len() % FLOATS_PER_VERTEX == 0` always —
+    /// the bake functions guarantee it, and the draw call
+    /// `debug_assert!`s it. Hand-constructed frames must uphold it too.
     pub vertices: Vec<f32>,
 }
 
@@ -323,6 +327,14 @@ pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f3
 
     let mut triangles: Vec<PendingTriangle> = Vec::new();
     for item in items {
+        // Colors ride through untouched, so a non-finite channel
+        // reaches the upload verbatim (undefined UNORM output).
+        // Checked here rather than in `Renderable::new`, which stays
+        // infallible by design.
+        debug_assert!(
+            item.color.iter().all(|c| c.is_finite()),
+            "non-finite Renderable color uploads as undefined pixels"
+        );
         let matrix = item.global.matrix();
         for chunk in item.vertices.chunks_exact(3) {
             // `chunks_exact(3)` drops a partial tail instead of panicking;
@@ -363,13 +375,33 @@ pub fn bake_scene_to_vertices_with_aspect(items: &[RenderItem], aspect_ratio: f3
 
     let mut vertices = Vec::with_capacity(triangles.len() * 3 * FLOATS_PER_VERTEX);
     for triangle in &triangles {
-        for corner in &triangle.corners {
+        // Project first, emit after: a partial triangle (fewer than
+        // three vertices) would misalign the whole soup, so validity is
+        // decided per triangle, never per vertex.
+        let mut projected = [(0.0f32, 0.0f32); 3];
+        let mut valid = true;
+        for (corner, slot) in triangle.corners.iter().zip(projected.iter_mut()) {
             // Spinning-cube's `project`, generalized to caller-supplied
             // aspect: perspective divide, with the Y-flip negate that keeps
             // object-space "up" visually up under Vulkan's Y-down NDC.
             let ndc_x = (corner.x * FOCAL_LENGTH) / (corner.z * aspect_ratio);
             let ndc_y = -(corner.y * FOCAL_LENGTH) / corner.z;
-            vertices.extend_from_slice(&[ndc_x, ndc_y]);
+            // Finite camera-space inputs can still overflow this divide
+            // (e.g. huge x against a near-minimum z): an `inf` NDC
+            // vertex would upload garbage the driver reads as geometry,
+            // so the triangle is skipped exactly like a behind-camera
+            // one rather than emitted half-valid.
+            if !ndc_x.is_finite() || !ndc_y.is_finite() {
+                valid = false;
+                break;
+            }
+            *slot = (ndc_x, ndc_y);
+        }
+        if !valid {
+            continue;
+        }
+        for (ndc_x, ndc_y) in &projected {
+            vertices.extend_from_slice(&[*ndc_x, *ndc_y]);
             vertices.extend_from_slice(&triangle.color);
         }
     }
@@ -701,13 +733,41 @@ mod tests {
         // When: baked.
         let baked = bake_scene_to_vertices(std::slice::from_ref(&nan_depth));
 
-        // Then: skipped — NaN fails the `z <= MIN_CAMERA_DEPTH` comparison,
-        // so the behind-camera guard lets it through and the projection
-        // emits NaN NDC vertices that poison the uploaded buffer (and
-        // diverge from the textured bake, which already skips NaN depths).
+        // Then: skipped — the camera-space guard checks finiteness
+        // first (`!v.is_finite()`), so the NaN depth never reaches the
+        // projection; same as the textured bake's `all(finite && ...)`
+        // clause (the two are De Morgan-equivalent, not divergent).
         assert!(
             baked.is_empty(),
             "a NaN depth has no defined projection and must skip, got {baked:?}"
+        );
+    }
+
+    #[test]
+    fn bake_skips_triangles_whose_projection_overflows_to_inf() {
+        // Given: finite camera-space inputs whose perspective divide
+        // overflows — `f32::MAX` x against an ordinary depth. Both
+        // values pass the camera-space guard (finite, z well above
+        // the minimum), so only a post-projection check can catch this:
+        // the numerator overflows `f32` long before the divide.
+        let overflowing = RenderItem {
+            global: GlobalTransform::default(),
+            vertices: vec![[f32::MAX, 0.0, 0.0], [1.0, 0.0, 3.0], [0.0, 1.0, 3.0]],
+            color: [1.0, 0.0, 0.0],
+        };
+
+        // When: baked.
+        let baked = bake_scene_to_vertices(std::slice::from_ref(&overflowing));
+
+        // Then: skipped whole (a partial triangle would misalign the
+        // soup), and whatever remains is all finite.
+        assert!(
+            baked.is_empty(),
+            "an overflowing projection must skip the triangle, got {baked:?}"
+        );
+        assert!(
+            baked.iter().all(|v| v.is_finite()),
+            "no bake output may carry inf/NaN, got {baked:?}"
         );
     }
 

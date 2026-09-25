@@ -119,12 +119,11 @@ use canary_assets::load_mesh;
 use canary_ecs::{Entity, World};
 use canary_render::{ColorTargetDescriptor, PipelineDescriptor, RenderDevice};
 use canary_render_ecs::{
-    bake_access, bake_scene_to_vertices_with_aspect, draw_baked_frame, expand_mesh_to_soup,
-    extract_scene, render_vertex_attributes, render_vertex_stride, BakedFrame, Renderable,
-    RENDER_WGSL,
+    bake_scene_to_vertices_with_aspect, draw_baked_frame, expand_mesh_to_soup, extract_scene,
+    render_vertex_attributes, render_vertex_stride, BakedFrame, Renderable, RENDER_WGSL,
 };
 use canary_render_vulkan::VulkanDevice;
-use canary_scheduler::Schedule;
+use canary_scheduler::{Schedule, SystemAccess};
 use canary_transform::{register_transform_propagation, set_parent, GlobalTransform, Transform};
 use glam::{Quat, Vec3};
 
@@ -207,19 +206,33 @@ fn load_cube_faces() -> [Renderable; 6] {
     })
 }
 
-/// Bakes the current scene into the [`BakedFrame`] resource for this
-/// example's 480×360 target: [`extract_scene`] →
-/// [`bake_scene_to_vertices_with_aspect`] → overwrite the resource.
+/// Access declaration for [`bake_frame_wide`] below (which bakes the
+/// current scene into the [`BakedFrame`] resource for this example's
+/// 480×360 target: [`extract_scene`] →
+/// [`bake_scene_to_vertices_with_aspect`] → overwrite the resource).
 ///
-/// Registered with the bridge's [`bake_access`] declaration (reads
-/// `GlobalTransform` + `Renderable`, writes-resource `BakedFrame`), so the
-/// scheduler stages it exactly like the bridge's own
-/// `register_render_bake` system — alone in a later stage, strictly after
-/// propagation. The only difference from the bridge's bake system is the
-/// aspect ratio: the bridge's bakes for a square target, while this
-/// target is 4:3, and baking with the wrong aspect stretches the image
-/// (see the bridge's own docs on `bake_scene_to_vertices_with_aspect`).
-/// No projection or sort logic lives here — that all stays in the bridge.
+/// This example's own declaration rather than the bridge's
+/// [`bake_access`](canary_render_ecs::bake_access): this bake uses
+/// fresh [`extract_scene`] and never touches `ExtractScratch`, so
+/// declaring that resource write would be a lie (harmless for ordering
+/// — the `GlobalTransform` read-conflict still stages this strictly
+/// after propagation — but a lie the scheduler shouldn't have to
+/// tolerate). Reads `GlobalTransform` + `Renderable`, writes-resource
+/// `BakedFrame`, so the scheduler stages it exactly like the bridge's
+/// own `register_render_bake` system — alone in a later stage, strictly
+/// after propagation. The only difference from the bridge's bake system
+/// is the aspect ratio: the bridge's bakes for a square target, while
+/// this target is 4:3, and baking with the wrong aspect stretches the
+/// image (see the bridge's own docs on
+/// `bake_scene_to_vertices_with_aspect`). No projection or sort logic
+/// lives here — that all stays in the bridge.
+fn example_bake_access() -> SystemAccess {
+    SystemAccess::new()
+        .reads::<GlobalTransform>()
+        .reads::<Renderable>()
+        .writes_resource::<BakedFrame>()
+}
+
 fn bake_frame_wide(world: &mut World) {
     let aspect_ratio = WIDTH as f32 / HEIGHT as f32;
     let items = extract_scene(world);
@@ -331,7 +344,7 @@ fn main() {
     let cube = spawn_cube(&mut world, &load_cube_faces());
     let mut schedule = Schedule::new();
     register_transform_propagation(&mut schedule);
-    schedule.add_write_system(bake_access(), bake_frame_wide);
+    schedule.add_write_system(example_bake_access(), bake_frame_wide);
 
     let output_path = std::env::args()
         .nth(1)

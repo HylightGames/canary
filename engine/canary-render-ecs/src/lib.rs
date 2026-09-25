@@ -1,3 +1,13 @@
+// ============================================================================
+// Canary Engine
+// https://github.com/HylightGames/canary
+//
+// Copyright (c) 2026-present Canary Engine contributors
+//
+// Licensed under the MIT License.
+// See LICENSE in the project root for details.
+// ============================================================================
+
 //! ECS-to-render bridge: extracts renderables from the [`World`](canary_ecs::World),
 //! CPU-bakes them into NDC vertex buffers, and draws them through `canary-render`.
 //!

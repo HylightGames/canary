@@ -154,6 +154,13 @@ pub trait RenderDevice {
     /// can assert on real rendered pixels rather than trust that
     /// nothing panicked — see that release's own "the actual milestone"
     /// scope item.
+    ///
+    /// Draw-before-read contract: the target must have gone through at
+    /// least one submitted render pass first. A freshly created target
+    /// holds undefined contents, and copying from it is invalid even
+    /// when a lenient driver appears to tolerate it — backends fail
+    /// loudly in dev on violation (see `canary-render-vulkan`'s
+    /// target-drawn tracking).
     fn read_color_target_rgba8(&self, target: &Self::ColorTarget) -> Vec<u8>;
 }
 

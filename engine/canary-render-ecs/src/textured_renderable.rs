@@ -52,7 +52,7 @@ const DEFAULT_ASPECT_RATIO: f32 = 1.0;
 /// attribute followed by one [`Float32x2`](canary_render::VertexFormat::Float32x2)
 /// UV attribute. [`BakedTexturedFrame::vertex_count`] derives from this
 /// constant so the layout has a single source of truth.
-const FLOATS_PER_TEXTURED_VERTEX: usize = 4;
+pub(crate) const FLOATS_PER_TEXTURED_VERTEX: usize = 4;
 
 /// Camera-space depths at or below this threshold are treated as
 /// on-or-behind the camera plane — same guard, same value, same
@@ -202,6 +202,10 @@ pub fn extract_textured_scene(world: &World) -> Vec<TexturedRenderItem> {
 pub struct BakedTexturedFrame {
     /// Baked vertex floats: `x, y, u, v` per vertex,
     /// `4 * vertex_count()` floats total.
+    ///
+    /// Same alignment invariant as [`BakedFrame`](crate::BakedFrame):
+    /// `len() % FLOATS_PER_TEXTURED_VERTEX == 0`, guaranteed by the
+    /// bake, asserted by the draw.
     pub vertices: Vec<f32>,
 }
 
@@ -281,6 +285,12 @@ pub fn bake_textured_scene_to_vertices_with_aspect(
             item.uvs.len(),
             "extract guarantees parallel positions and UVs; a mismatch is an engine bug, not game content"
         );
+        // Out-of-range UVs are legal (wrap/clamp sampling); non-finite
+        // ones sample undefined texels, so only finiteness is asserted.
+        debug_assert!(
+            item.uvs.iter().all(|uv| uv.iter().all(|c| c.is_finite())),
+            "non-finite UV samples undefined texels"
+        );
         let matrix = item.global.matrix();
         // `chunks_exact(3)` over both slices in lockstep: no per-item
         // scratch allocation (the previous push/clear scratch `Vec`s cost
@@ -324,10 +334,32 @@ pub fn bake_textured_scene_to_vertices_with_aspect(
 
     let mut vertices = Vec::with_capacity(triangles.len() * 3 * FLOATS_PER_TEXTURED_VERTEX);
     for triangle in &triangles {
-        for (corner, uv) in triangle.corners.iter().zip(triangle.uvs.iter()) {
+        // Project first, emit after (same partial-triangle hazard as
+        // the soup bake): validity is per triangle, never per vertex.
+        let mut projected = [((0.0f32, 0.0f32), [0.0f32; 2]); 3];
+        let mut valid = true;
+        for ((corner, uv), slot) in triangle
+            .corners
+            .iter()
+            .zip(triangle.uvs.iter())
+            .zip(projected.iter_mut())
+        {
             let ndc_x = (corner.x * FOCAL_LENGTH) / (corner.z * aspect_ratio);
             let ndc_y = -(corner.y * FOCAL_LENGTH) / corner.z;
-            vertices.extend_from_slice(&[ndc_x, ndc_y, uv[0], uv[1]]);
+            // Finite camera-space inputs can overflow this divide into
+            // non-finite NDC (see the soup bake for the mechanism);
+            // skip the triangle rather than uploading garbage.
+            if !ndc_x.is_finite() || !ndc_y.is_finite() {
+                valid = false;
+                break;
+            }
+            *slot = ((ndc_x, ndc_y), *uv);
+        }
+        if !valid {
+            continue;
+        }
+        for ((ndc_x, ndc_y), uv) in &projected {
+            vertices.extend_from_slice(&[*ndc_x, *ndc_y, uv[0], uv[1]]);
         }
     }
     vertices
@@ -654,7 +686,8 @@ mod tests {
         let baked = bake_textured_scene_to_vertices(std::slice::from_ref(&nan_depth));
 
         // Then: skipped — the all-depths-finite-and-positive guard already
-        // rejects NaN here (unlike the soup bake, which lets it through).
+        // rejects NaN here, same as the soup bake's own finiteness-first
+        // guard (the two are De Morgan-equivalent, not divergent).
         // This pins the correct side of the path-consistency contract.
         assert!(
             baked.is_empty(),
@@ -707,6 +740,34 @@ mod tests {
         assert!(
             baked.is_empty(),
             "an infinite projected position must skip, got {baked:?}"
+        );
+        assert!(
+            baked.iter().all(|v| v.is_finite()),
+            "no bake output may carry inf/NaN, got {baked:?}"
+        );
+    }
+
+    #[test]
+    fn bake_skips_textured_triangles_whose_divide_overflows_to_inf() {
+        // Given: inputs finite through the transform and the
+        // camera-space guard, but overflowing in the perspective divide
+        // itself (`f32::MAX` x against an ordinary depth). Unlike the
+        // scale-overflow test above, nothing before the divide can
+        // catch this — only the post-projection check.
+        let overflowing = TexturedRenderItem {
+            global: GlobalTransform::default(),
+            vertices: vec![[f32::MAX, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        };
+
+        // When: baked.
+        let baked = bake_textured_scene_to_vertices(std::slice::from_ref(&overflowing));
+
+        // Then: skipped whole (a partial triangle would misalign the
+        // interleaved position/uv soup), and whatever remains is finite.
+        assert!(
+            baked.is_empty(),
+            "an overflowing divide must skip the triangle, got {baked:?}"
         );
         assert!(
             baked.iter().all(|v| v.is_finite()),

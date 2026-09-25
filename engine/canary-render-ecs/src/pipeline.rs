@@ -27,8 +27,8 @@ use canary_render::{
     VertexAttribute, VertexFormat,
 };
 
-use crate::extract::BakedFrame;
-use crate::textured_renderable::BakedTexturedFrame;
+use crate::extract::{BakedFrame, FLOATS_PER_VERTEX};
+use crate::textured_renderable::{BakedTexturedFrame, FLOATS_PER_TEXTURED_VERTEX};
 
 /// The vertex shader authoring source the bridge draws every frame.
 ///
@@ -251,6 +251,16 @@ pub fn draw_textured_frame<D: RenderDevice>(
     texture: &canary_assets::Texture,
     frame: &BakedTexturedFrame,
 ) {
+    // Hand-built frames bypass the bake functions that guarantee
+    // stride-aligned output; a misaligned tail would make the draw
+    // read past the uploaded bytes. Loud in dev (all in-repo producers
+    // emit aligned frames, proven by the stride tests); the struct
+    // stays constructible so tests can still build edge cases.
+    debug_assert!(
+        frame.vertices.len() % FLOATS_PER_TEXTURED_VERTEX == 0,
+        "malformed BakedTexturedFrame: {} floats is not a multiple of the 4-float textured stride",
+        frame.vertices.len()
+    );
     let vertex_buffer = if frame.is_empty() {
         None
     } else {
@@ -322,6 +332,14 @@ pub fn draw_baked_frame<D: RenderDevice>(
     pipeline: &D::Pipeline,
     frame: &BakedFrame,
 ) {
+    // Same malformed-frame guard as the textured path above: a
+    // misaligned tail would make `vertex_count`'s floored division
+    // under-read the draw while the upload carries the extra bytes.
+    debug_assert!(
+        frame.vertices.len() % FLOATS_PER_VERTEX == 0,
+        "malformed BakedFrame: {} floats is not a multiple of the 5-float soup stride",
+        frame.vertices.len()
+    );
     let vertex_buffer = if frame.is_empty() {
         None
     } else {
