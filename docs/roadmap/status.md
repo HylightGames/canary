@@ -361,7 +361,8 @@ deferred past `v0.1.0`, unchanged from this document's prior framing.
 **`v0.0.9` is implemented on `dev`, not yet tagged** — all three
 parts landed: real delta-time + wall-clock `App::run`;
 `canary-transform` (`Transform`/`GlobalTransform`/`Parent`/
-`Children` + scheduler-registered hierarchy propagation, 30 tests);
+`Children` + scheduler-registered hierarchy propagation with a
+quiet-tick skip plus `despawn_subtree` removal, 42 tests);
 and ECS-driven rendering, also on `dev`. The rendering half is a new
 `canary-render-ecs` bridge crate (`Renderable` + `extract_scene` +
 CPU-bake to a `BakedFrame` resource + `draw_baked_frame` through the
