@@ -57,53 +57,86 @@ pub fn propagate_transforms(world: &mut World) {
         .filter_map(|(entity, _, parent)| parent.map(|link| (*entity, link)))
         .collect();
 
-    // Depth of each entity (roots at 0), memoized. A parent link that
-    // leaves the snapshot — despawned entity, or one without a `Parent`
-    // component of its own — ends the walk; a cycle ends it too, so a
-    // malformed hierarchy degrades to local transforms rather than
-    // looping forever.
-    let mut depths: HashMap<Entity, usize> = HashMap::with_capacity(snapshot.len());
-    for (entity, _, _) in &snapshot {
-        let mut chain: Vec<Entity> = Vec::new();
-        let mut current = *entity;
-        loop {
-            if let Some(&known) = depths.get(&current) {
-                let base = known;
-                for (i, member) in chain.iter().enumerate() {
-                    depths.insert(*member, base + chain.len() - i);
-                }
-                break;
+    let mut ordered = snapshot;
+
+    // Fast-path: if no entities have parents, depth is 0 for all and ordering is unchanged.
+    if !parent_of.is_empty() {
+        // Depth of each entity (roots at 0), memoized. A parent link that
+        // leaves the snapshot — despawned entity, or one without a `Parent`
+        // component of its own — ends the walk; a cycle ends it too, so a
+        // malformed hierarchy degrades to local transforms rather than
+        // looping forever.
+        let mut depths: HashMap<Entity, usize> = HashMap::with_capacity(ordered.len());
+        for (entity, _, parent) in &ordered {
+            if parent.is_none() {
+                depths.insert(*entity, 0);
+                continue;
             }
-            if chain.contains(&current) {
-                // Cycle: number the walked members by their distance from
-                // the repeated link so ordering still terminates.
-                for (i, member) in chain.iter().enumerate() {
-                    depths.entry(*member).or_insert(chain.len() - i);
-                }
-                depths.entry(current).or_insert(0);
-                break;
-            }
-            chain.push(current);
-            match parent_of.get(&current) {
-                Some(next) => current = *next,
-                None => {
+            let mut chain: Vec<Entity> = Vec::new();
+            let mut current = *entity;
+            loop {
+                if let Some(&known) = depths.get(&current) {
+                    let base = known;
                     for (i, member) in chain.iter().enumerate() {
-                        depths.insert(*member, chain.len() - 1 - i);
+                        depths.insert(*member, base + chain.len() - i);
                     }
                     break;
                 }
+                if chain.contains(&current) {
+                    // Cycle: number the walked members by their distance from
+                    // the repeated link so ordering still terminates.
+                    for (i, member) in chain.iter().enumerate() {
+                        depths.entry(*member).or_insert(chain.len() - i);
+                    }
+                    depths.entry(current).or_insert(0);
+                    break;
+                }
+                chain.push(current);
+                match parent_of.get(&current) {
+                    Some(next) => current = *next,
+                    None => {
+                        for (i, member) in chain.iter().enumerate() {
+                            depths.insert(*member, chain.len() - 1 - i);
+                        }
+                        break;
+                    }
+                }
             }
         }
-    }
 
-    let mut ordered = snapshot;
-    ordered.sort_by_key(|(entity, _, _)| depths.get(entity).copied().unwrap_or(0));
+        ordered.sort_by_key(|(entity, _, _)| depths.get(entity).copied().unwrap_or(0));
+    }
 
     // Compose parent-before-child: `depths` ordering guarantees a parent's
     // global is already in `composed` when its child is visited — unless
     // the parent has no `Transform` (or is gone), in which case the child
     // falls back to its local matrix.
-    let mut composed: HashMap<Entity, glam::Mat4> = HashMap::with_capacity(ordered.len());
+    let mut composed: HashMap<Entity, glam::Mat4> =
+        HashMap::with_capacity(if parent_of.is_empty() {
+            0
+        } else {
+            ordered.len()
+        });
+    if parent_of.is_empty() {
+        for (entity, global) in ordered.iter().map(|(e, local, _)| (*e, *local)) {
+            let needs_write = world
+                .get::<GlobalTransform>(entity)
+                .is_none_or(|slot| *slot != GlobalTransform(global));
+            if !needs_write {
+                continue;
+            }
+            match world.get_mut::<GlobalTransform>(entity) {
+                Some(slot) => {
+                    *slot = GlobalTransform(global);
+                }
+                None => {
+                    let _ = world.insert(entity, GlobalTransform(global));
+                }
+            }
+        }
+        return;
+    }
+
     for (entity, local, parent) in &ordered {
         let global = parent
             .and_then(|link| composed.get(&link).copied())

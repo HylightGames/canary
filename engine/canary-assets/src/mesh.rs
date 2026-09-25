@@ -234,7 +234,13 @@ fn load_mesh_from_bytes(path: &Path, bytes: &[u8]) -> Result<Vec<Mesh>, AssetErr
     let mut meshes = Vec::new();
     for mesh in gltf.document.meshes() {
         for primitive in mesh.primitives() {
-            meshes.push(read_primitive(path, &primitive, blob)?);
+            let primitive_read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                read_primitive(path, &primitive, blob)
+            }));
+            match primitive_read {
+                Ok(res) => meshes.push(res?),
+                Err(_) => return Err(invalid("glTF primitive reader trapped on hostile input")),
+            }
         }
     }
     if meshes.is_empty() {
