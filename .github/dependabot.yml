@@ -33,16 +33,16 @@ updates:
     #     silently resolved a second copy).
     #   - `fluent` stays on 0.16 until an ADR migrates the crate's public
     #     locale type off unic-langid (0.17's langneg moved to icu_locid);
-    #     close/decline any 0.17+ proposal with that pointer. `sha2`
-    #     likewise stays 0.10 (same SHA-256; see
-    #     engine/canary-assets/Cargo.toml).
+    #     close/decline any 0.17+ proposal with that pointer. (`sha2`'s
+    #     former 0.10 hold is retired — `0.11` already landed; see
+    #     engine/canary-assets/Cargo.toml.)
     # Majors are excluded from the group below and arrive as individual
     # PRs -- same reasoning as ever: this project already hit real
     # MSRV/dependency-version friction per release (see build-system.md
     # History), so a major bump always gets its own verification, never
     # a ride-along with routine patches.
     labels:
-      - "type:enhancement"
+      - "type:dependencies"
       - "topic:core"
     commit-message:
       prefix: "deps"
@@ -58,7 +58,7 @@ updates:
         patterns:
           - "*"
     labels:
-      - "type:enhancement"
+      - "type:dependencies"
       - "topic:build-system"
     commit-message:
       prefix: "ci"

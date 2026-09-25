@@ -2,7 +2,7 @@ name: Release
 
 # Triggered by pushing an annotated version tag (e.g. `git push origin
 # v0.0.2`), following the versioning scheme in ADR 0006. Publishes a
-# GitHub Release using this repository's own RELEASE_NOTES_<tag>.md as
+# GitHub Release using this repository's own docs/release-notes/<tag>.md as
 # the release body -- the same file a human reads, not a duplicated
 # description maintained separately.
 #
@@ -30,21 +30,27 @@ jobs:
   build:
     name: Verify release build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Same as ci.yml: LFS fixtures must resolve to real bytes or
+          # the `cargo test --release` below reads pointer text instead.
+          lfs: true
       - name: cargo build --workspace --release
-        run: cargo build --workspace --release
+        run: cargo build --locked --workspace --release
       - name: cargo test --workspace --release
-        run: cargo test --workspace --release
+        run: cargo test --locked --workspace --release
 
   publish:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -52,7 +58,7 @@ jobs:
       - name: Resolve release notes file for this tag
         id: notes
         run: |
-          NOTES_FILE="RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          NOTES_FILE="docs/release-notes/${GITHUB_REF_NAME}.md"
           if [ -f "$NOTES_FILE" ]; then
             echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
           else

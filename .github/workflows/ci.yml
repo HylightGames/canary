@@ -34,6 +34,7 @@ jobs:
   fmt:
     name: Format check
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -48,6 +49,7 @@ jobs:
   lint-and-test:
     name: Build, lint, test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -69,11 +71,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config
       - name: cargo build --workspace
-        run: cargo build --workspace --all-targets
+        run: cargo build --locked --workspace --all-targets
       - name: cargo clippy --workspace
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: cargo test --workspace
-        run: cargo test --workspace
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: cargo test --locked --workspace
+        run: cargo test --locked --workspace
       # Separate steps (not folded into the ones above) so a winit-backend
       # regression on any OS is attributed clearly, and so the default
       # (most common) configuration's results aren't muddied by a second
@@ -84,15 +86,16 @@ jobs:
       # all three OSes rather than assumed to keep working since it's
       # off by default.
       - name: cargo build --workspace --features winit-backend
-        run: cargo build --workspace --all-targets --features canary-platform/winit-backend
+        run: cargo build --locked --workspace --all-targets --features canary-platform/winit-backend
       - name: cargo clippy --workspace --features winit-backend
-        run: cargo clippy --workspace --all-targets --features canary-platform/winit-backend -- -D warnings
-      - name: cargo test --workspace --features winit-backend
-        run: cargo test --workspace --features canary-platform/winit-backend
+        run: cargo clippy --locked --workspace --all-targets --features canary-platform/winit-backend -- -D warnings
+      - name: cargo test --locked --workspace --features winit-backend
+        run: cargo test --locked --workspace --features canary-platform/winit-backend
 
   windowing-integration:
     name: Real windowing integration test (Xvfb)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Linux-only: this exercises canary-platform's winit-backend against
     # a live (if virtual) X11 display -- window creation, redraw/resize,
     # real synthesized keyboard input via XTEST, and a real
@@ -117,19 +120,20 @@ jobs:
       - name: Run the real windowing integration test under Xvfb
         run: >
           xvfb-run --auto-servernum
-          cargo test -p canary-platform --features winit-backend
+          cargo test --locked -p canary-platform --features winit-backend
           --test winit_backend_window -- --ignored
 
   rendering-integration:
     name: Real Vulkan rendering integration test (llvmpipe)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Linux-only, same reasoning as windowing-integration above: this
     # exercises canary-render-vulkan against a real (if software) Vulkan
     # device -- a WGSL shader compiled to SPIR-V, an actual offscreen
     # render, and a readback asserted against real pixel values -- none
     # of which `lint-and-test` above actually runs, since no CI runner
     # has a real GPU and no Vulkan ICD is installed by default. Previously
-    # this test ran unguarded inside `cargo test --workspace` on every OS
+    # this test ran unguarded inside `cargo test --locked --workspace` on every OS
     # in that matrix, which is why it failed there instead of being
     # skipped: see this test's own module docs (`#[ignore]`d, same
     # pattern as `winit_backend_window.rs`).
@@ -145,14 +149,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y mesa-vulkan-drivers
-      - name: Run the real Vulkan rendering integration test
+      - name: Run the real Vulkan rendering integration tests
+        # Scoped to explicit test targets (not whole-crate `--ignored`):
+        # any future `#[ignore]` (e.g. a quarantined flake) must opt
+        # into this llvmpipe gate deliberately, not join it silently.
         run: >
-          cargo test -p canary-render-vulkan
-          --test hello_triangle -- --ignored
+          cargo test --locked -p canary-render-vulkan
+          --test hello_triangle -- --ignored &&
+          cargo test --locked -p canary-render-vulkan
+          --test texture_binding_misuse -- --ignored &&
+          cargo test --locked -p canary-render-vulkan
+          --test chaos -- --ignored
 
   render-ecs-integration:
     name: Real ECS-driven rendering integration test (llvmpipe)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Same reasoning as rendering-integration above: this exercises
     # canary-render-ecs's bridge (extract + CPU-bake + draw) against a
     # real (if software) Vulkan device -- multi-entity scenes, moved-
@@ -173,13 +185,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mesa-vulkan-drivers
       - name: Run the real ECS-driven rendering integration tests
+        # Scoped to explicit test targets (not whole-crate `--ignored`):
+        # any future `#[ignore]` (e.g. a quarantined flake) must opt
+        # into this llvmpipe gate deliberately, not join it silently.
         run: >
-          cargo test -p canary-render-ecs
-          -- --ignored
+          cargo test --locked -p canary-render-ecs
+          --test render_ecs_readback -- --ignored &&
+          cargo test --locked -p canary-render-ecs
+          --test physics_game_proof -- --ignored
 
   wasm-target-check:
     name: WASM component target compiles
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -189,11 +207,12 @@ jobs:
       - name: Install Rust with wasm32-wasip2
         run: rustup target add wasm32-wasip2
       - name: Check canary-plugin-api on wasm32-wasip2
-        run: cargo check -p canary-plugin-api --target wasm32-wasip2
+        run: cargo check --locked -p canary-plugin-api --target wasm32-wasip2
 
   localization:
     name: Localization lint and compare (moz.l10n)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Phase 1 of the localization pipeline
     # (docs/development/localization-pipeline.md): Mozilla's `moz.l10n`
     # CLI checks every `.ftl` file under `locales/` parses (`lint`) and
@@ -219,10 +238,11 @@ jobs:
         run: |
           # ubuntu-latest runners ship CPython 3 as `python3` -- no
           # setup-python action needed and no third-party actions added.
-          # Pinned to ==0.14.2 (checked 2026-09-20: latest on PyPI; the
-          # downloaded wheel was verified to provide the `moz-l10n`
-          # console script with `lint` and `compare` subcommands).
-          python3 -m pip install "moz.l10n==0.14.2"
+          # Hash-pinned (`--require-hashes`) so a compromised or drifted
+          # wheel fails loudly: versions + hashes live in
+          # .github/moz-l10n-requirements.txt (recorded 2026-09-20),
+          # bumped deliberately, never relaxed.
+          python3 -m pip install --require-hashes -r .github/moz-l10n-requirements.txt
       - name: Lint and compare locales (or report vacuous-active)
         run: |
           if [ -n "$(find locales -name '*.ftl' -print -quit 2>/dev/null)" ]; then

@@ -26,10 +26,13 @@ jobs:
   cargo-audit:
     name: cargo audit (RustSec advisories)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        # Pinned: the security gate's own tool must not float — a broken
+        # audit release would red-block every PR. Bump deliberately.
+        run: cargo install cargo-audit --version 0.22.2 --locked
       - name: cargo audit
         # Accepted-warning baseline (zero errors required; warnings need a
         # written reason to stay): RUSTSEC-2026-0192 (`ttf-parser`
@@ -38,4 +41,8 @@ jobs:
         # a rapier replacement would move it -- and not a vulnerability,
         # so it stays visible rather than ignored. Revisit if a real
         # advisory lands on this chain or rapier moves off it.
-        run: cargo audit
+        # `--deny warnings` with the single accepted `--ignore` makes
+        # the baseline mechanical: a *second* warning (yanked,
+        # unmaintained, unsound) fails loudly instead of passing
+        # silently next to the accepted one.
+        run: cargo audit --deny warnings --ignore RUSTSEC-2026-0192

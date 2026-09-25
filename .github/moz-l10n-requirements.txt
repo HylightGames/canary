@@ -1,0 +1,23 @@
+# Pinned, hash-verified requirements for the `localization` CI job
+# (.github/workflows/ci.yml). Every wheel hash below was recorded from
+# the real PyPI artifacts on 2026-09-20; install with
+# `pip install --require-hashes -r .github/moz-l10n-requirements.txt`
+# so a compromised or drifted wheel fails loudly instead of entering
+# the gate silently. Bump versions deliberately (and re-record hashes
+# from a fresh `pip download`), never by relaxing the flags.
+moz-l10n==0.14.2 \
+    --hash=sha256:b66a626185a6d2578a51c304725f1b4bc3b4995a06cf28de51fd9f719ff7b6bc
+click==8.5.0 \
+    --hash=sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360
+fluent-syntax==0.19.0 \
+    --hash=sha256:b352b3475fac6c6ed5f06527921f432aac073d764445508ee5218aeccc7cc5c4
+gitignorant==0.3.1 \
+    --hash=sha256:d2b96ffe90eaf4fa2e1d68ad4e3f807213c8ec1e54a943a9e7105a9f7aaa4232
+iniparse==0.5 \
+    --hash=sha256:db6ef1d8a02395448e0e7b17ac0aa28b8d338b632bbd1ffca08c02ddae32cf97
+polib==1.2.0 \
+    --hash=sha256:1c77ee1b81feb31df9bca258cbc58db1bbb32d10214b173882452c73af06d62d
+six==1.17.0 \
+    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

@@ -21,6 +21,13 @@ Cargo.lock.bak
 *.cwasm
 
 # --- WebAssembly build artifacts ----------------------------------------------
+# NOTE: `*.wasm` is blanket-ignored because build outputs dominate, but
+# Tier A doctrine treats compiled `.wasm` fixtures as canonical test
+# inputs (see canary-plugin-api/Cargo.toml). A future
+# `tests/fixtures/*.wasm` must re-include itself explicitly:
+#   !tests/fixtures/*.wasm
+# (plus a `.gitattributes` LFS line -- check how `*.glb`/`*.png` are
+# handled there before adding large binaries).
 
 *.wasm
 
