@@ -18,8 +18,9 @@ use canary_scheduler::{Schedule, SystemAccess};
 
 use crate::{GlobalTransform, Parent, Transform};
 
-/// Declares the data access of [`propagate_transforms`]: reads `Transform`
-/// and `Parent`, writes `GlobalTransform`.
+/// Declares the data access of [`propagate_transforms`]: reads `Transform`,
+/// `Parent`, and `GlobalTransform` (read-before-write), writes
+/// `GlobalTransform`.
 pub fn transform_propagation_access() -> SystemAccess {
     SystemAccess::new()
         .reads::<Transform>()
@@ -112,6 +113,25 @@ pub fn propagate_transforms(world: &mut World) {
     }
 
     for (entity, global) in composed {
+        // Non-finite globals must fail loudly in dev, not churn change
+        // detection forever: `NaN != NaN` would rewrite (and dirty the
+        // tick for) this entity on every run. The recomposition above
+        // is deterministic, so exact inequality below means "changed".
+        debug_assert!(
+            global.is_finite(),
+            "propagate_transforms composed a non-finite GlobalTransform"
+        );
+        // Skip, never poison, in every profile (same doctrine as the
+        // physics sync-side NaN guard): the `debug_assert` above is
+        // compiled out in release, and without this skip a NaN local
+        // would write a NaN global that the exact-inequality check
+        // below rewrites on every future run — perpetual change-tick
+        // churn plus a poisoned matrix downstream. Retaining the last
+        // good `GlobalTransform` (or none, if never written) keeps one
+        // bad `Transform` from corrupting the whole hierarchy.
+        if !global.is_finite() {
+            continue;
+        }
         // Read-then-maybe-write, not blind `get_mut`: `get_mut` stamps
         // the current tick unconditionally (a caller holding `&mut T`
         // is conservatively assumed to write through it), so an
@@ -137,7 +157,9 @@ pub fn propagate_transforms(world: &mut World) {
                 // mid-pass, so this cannot fail in practice; a stale
                 // handle here would mean a concurrent modification this
                 // single-threaded pass cannot observe.
-                let _ = world.insert(entity, GlobalTransform(global));
+                world
+                    .insert(entity, GlobalTransform(global))
+                    .expect("entity alive at snapshot time; single-threaded pass");
             }
         }
     }
@@ -519,6 +541,60 @@ mod tests {
                 .next()
                 .is_none(),
             "a no-op re-propagation must not dirty change detection"
+        );
+    }
+
+    /// Release-only pin for the non-finite skip above: a NaN local must
+    /// retain the last good global (never poison it), and must not
+    /// dirty change detection on re-runs. Gated on release because
+    /// debug builds intentionally `debug_assert`-panic on the same
+    /// input one line above — both behaviors are covered, each where
+    /// it applies (this runs in the release-workflow test pass; the
+    /// debug panic path is exercised by definition whenever a debug
+    /// run feeds non-finite input).
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn non_finite_global_is_skipped_never_poisoned() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        propagate_transforms(&mut world);
+        let good = world.get::<GlobalTransform>(entity).copied();
+
+        // Poison the local transform, re-propagate twice: the global
+        // must still equal the last good matrix (not NaN), and the
+        // second run must not dirty the tick (NaN != NaN would).
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(f32::NAN, 0.0, 0.0)),
+            )
+            .unwrap();
+        propagate_transforms(&mut world);
+        let retained = world.get::<GlobalTransform>(entity).copied();
+        assert_eq!(
+            retained, good,
+            "a non-finite local must retain the last good global, got {retained:?}"
+        );
+        assert!(
+            retained.is_some_and(|g| g.matrix().is_finite()),
+            "retained global must be finite, got {retained:?}"
+        );
+        world.advance_tick();
+        let baseline = world.change_tick();
+        world.advance_tick();
+        propagate_transforms(&mut world);
+        assert!(
+            world
+                .query_changed_since::<GlobalTransform>(baseline)
+                .next()
+                .is_none(),
+            "a skipped non-finite entity must not dirty change detection"
         );
     }
 }

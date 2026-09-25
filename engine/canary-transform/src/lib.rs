@@ -29,7 +29,7 @@ mod hierarchy;
 mod propagation;
 mod transform;
 
-pub use hierarchy::{remove_parent, set_parent, Children, Parent};
+pub use hierarchy::{despawn_subtree, remove_parent, set_parent, Children, Parent};
 pub use propagation::{
     propagate_transforms, register_transform_propagation, transform_propagation_access,
 };

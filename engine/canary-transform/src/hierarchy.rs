@@ -25,6 +25,15 @@ pub struct Parent(pub Entity);
 ///
 /// Kept in sync with `Parent` by [`set_parent`]/[`remove_parent`] — never
 /// edited directly when those helpers are available.
+///
+/// External-consumer metadata, not propagation input: the propagation
+/// system walks `Parent` links only and never reads `Children`, so this
+/// list exists for gameplay/UI/networking queries, not for the engine's
+/// own transform pass. Raw [`World::despawn`] on a hierarchy member does
+/// not maintain it — detach via [`remove_parent`] (or use a helper that
+/// does) before despawning, or stale handles accumulate here. Stale
+/// entries are dead-generation handles, never aliases (see
+/// [`World::is_alive`]), but they are the caller's to clean up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Children(pub Vec<Entity>);
 
@@ -133,6 +142,66 @@ fn is_descendant_of(world: &World, candidate: Entity, ancestor: Entity) -> bool 
 /// parent is a successful no-op, not an error.
 pub fn remove_parent(world: &mut World, child: Entity) -> Result<(), EcsError> {
     set_parent(world, child, None)
+}
+
+/// Despawns `root` and its entire descendant subtree, leaving no stale
+/// hierarchy links behind.
+///
+/// Raw [`World::despawn`] knows nothing about `Parent`/`Children` (a
+/// deliberate crate boundary — `canary-ecs` must not name hierarchy
+/// types), so despawning hierarchy members directly orphans children's
+/// `Parent` links and leaves dead handles in survivors' `Children`
+/// lists. This helper is the correct way to remove a hierarchy:
+/// post-order, it despawns every descendant before `root` itself, and
+/// detaches `root` from a surviving parent's `Children` first — so no
+/// live entity retains a link to anything despawned here.
+///
+/// A forged cycle in stored data terminates rather than recursing
+/// forever (an entity already visited on this walk is not
+/// re-entered); cycle *creation* remains rejected at write time by
+/// [`set_parent`].
+///
+/// Returns [`EcsError::StaleOrUnknownEntity`] when `root` is not
+/// alive; in that case nothing is despawned.
+pub fn despawn_subtree(world: &mut World, root: Entity) -> Result<(), EcsError> {
+    if !world.is_alive(root) {
+        return Err(EcsError::StaleOrUnknownEntity);
+    }
+    // Detach from a surviving parent first, so no live `Children`
+    // list retains `root` after this call.
+    if let Some(parent) = world.get::<Parent>(root).map(|link| link.0) {
+        if let Some(children) = world.get_mut::<Children>(parent) {
+            children.0.retain(|entity| *entity != root);
+        }
+        world.remove::<Parent>(root);
+    }
+    // Post-order: descendants first (each handles its own subtree via
+    // the same detach+recurse, so a forged cycle terminates on the
+    // visited set rather than looping), then `root` itself, whose own
+    // `Children` component dies with it.
+    let mut visited = vec![root];
+    let mut stack: Vec<Entity> = world
+        .get::<Children>(root)
+        .map(|children| children.0.clone())
+        .unwrap_or_default();
+    while let Some(entity) = stack.pop() {
+        if !world.is_alive(entity) || visited.contains(&entity) {
+            continue;
+        }
+        visited.push(entity);
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.0.iter().copied());
+        }
+    }
+    for entity in visited.iter().skip(1) {
+        // `is_alive` was checked when visited; a despawn cannot fail
+        // here short of concurrent modification, which this
+        // single-threaded walk cannot observe.
+        world
+            .despawn(*entity)
+            .expect("entity visited alive in a single-threaded walk");
+    }
+    world.despawn(root)
 }
 
 #[cfg(test)]
@@ -296,5 +365,46 @@ mod tests {
             None,
             "a rejected attach must leave the existing relationship untouched"
         );
+    }
+
+    #[test]
+    fn despawn_subtree_removes_descendants_and_detaches_from_surviving_parent() {
+        let mut world = World::new();
+        let grandparent = world.spawn();
+        let root = world.spawn();
+        let child = world.spawn();
+        let grandchild = world.spawn();
+        set_parent(&mut world, root, Some(grandparent)).unwrap();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        set_parent(&mut world, grandchild, Some(child)).unwrap();
+
+        despawn_subtree(&mut world, root).unwrap();
+
+        assert!(!world.is_alive(root));
+        assert!(!world.is_alive(child));
+        assert!(!world.is_alive(grandchild));
+        assert!(world.is_alive(grandparent));
+        assert_eq!(
+            world.get::<Children>(grandparent),
+            Some(&Children(vec![])),
+            "surviving parent must no longer list the despawned root"
+        );
+    }
+
+    #[test]
+    fn despawn_subtree_on_stale_handle_errors_and_despawns_nothing() {
+        let mut world = World::new();
+        let root = world.spawn();
+        let child = world.spawn();
+        set_parent(&mut world, child, Some(root)).unwrap();
+        world.despawn(root).unwrap();
+
+        assert_eq!(
+            despawn_subtree(&mut world, root),
+            Err(EcsError::StaleOrUnknownEntity)
+        );
+        // The earlier raw despawn already orphaned the child; the
+        // failed subtree call must not have touched it further.
+        assert!(world.is_alive(child));
     }
 }
