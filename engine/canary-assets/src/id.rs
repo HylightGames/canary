@@ -13,6 +13,7 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
+use crate::io::{read_file_with_budget, resolve_in_root, MAX_ASSET_FILE_BYTES};
 use crate::AssetError;
 
 /// Version string mixed into every [`AssetId`] hash input.
@@ -100,9 +101,27 @@ impl AssetId {
     /// than re-implementing file reads. A missing or unreadable file
     /// yields [`AssetError::Io`] with the path attached — never a
     /// panic — because asset code runs against user-supplied paths.
+    /// Files past [`MAX_ASSET_FILE_BYTES`] yield
+    /// [`AssetError::OverBudget`] before their contents are allocated,
+    /// the same capped read every loader shares.
     pub fn for_file(path: &Path) -> Result<Self, AssetError> {
-        let bytes = std::fs::read(path).map_err(|source| AssetError::io(path, source))?;
+        let bytes = read_file_with_budget(path, MAX_ASSET_FILE_BYTES)?;
         Ok(Self::new(&bytes))
+    }
+
+    /// Reads the file at root-relative `candidate` and returns its
+    /// [`AssetId`], refusing anything that escapes `root`.
+    ///
+    /// The confined twin of [`AssetId::for_file`] for the future asset
+    /// manager: the candidate is resolved with
+    /// [`crate::resolve_in_root`] first (a `..` escape, an absolute
+    /// path, or a symlink-out fails as [`AssetError::OutsideRoot`]
+    /// before a byte is read), then hashed exactly like [`for_file`](Self::for_file).
+    /// A valid in-root file hashes identical to the direct entry
+    /// point; confinement only narrows *which* paths are accepted.
+    pub fn for_file_within_root(root: &Path, candidate: &Path) -> Result<Self, AssetError> {
+        let resolved = resolve_in_root(root, candidate)?;
+        Self::for_file(&resolved)
     }
 
     /// Renders this ID as 64 lowercase hex characters.
@@ -127,12 +146,13 @@ impl AssetId {
     /// The round trip (`to_hex` → `from_hex`) is what future cache
     /// filenames and log scrapers depend on, so it is tested here,
     /// not left as an implied property. Garbage (wrong length or
-    /// non-hex characters) yields [`AssetError::InvalidFormat`] —
-    /// never a panic — with the offending text as the "path", since a
-    /// malformed ID string is malformed *content* arriving from outside
-    /// the trust boundary, the same category as malformed file bytes.
+    /// non-hex characters) yields [`AssetError::InvalidId`] — never a
+    /// panic — with the offending text carried as data: a malformed ID
+    /// string is malformed *content* arriving from outside the trust
+    /// boundary, and it must never be installed as a [`Path`], so
+    /// [`AssetError::path`] stays `None` for it.
     pub fn from_hex(hex: &str) -> Result<Self, AssetError> {
-        let invalid = |reason: &str| AssetError::invalid_format(Path::new(hex), reason);
+        let invalid = |reason: &str| AssetError::invalid_id(hex, reason);
         if hex.len() != HEX_LENGTH {
             return Err(invalid("asset id hex must be 64 characters"));
         }
@@ -244,6 +264,98 @@ mod tests {
             matches!(err, AssetError::Io { .. }),
             "missing file must be Io, got: {err:?}"
         );
+    }
+
+    #[test]
+    fn for_file_within_root_hashes_identically_and_refuses_escapes() {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let root = dir.path().join("assets");
+        std::fs::create_dir(&root).expect("root must be creatable");
+        std::fs::write(root.join("probe.bin"), b"on-disk bytes")
+            .expect("rooted copy must be writable");
+        // The `..` escape needs a real file outside the root: a
+        // dangling traversal fails as Io (missing file), which would
+        // prove nothing about confinement.
+        std::fs::write(dir.path().join("probe.bin"), b"on-disk bytes")
+            .expect("outside copy must be writable");
+
+        let direct = AssetId::for_file(&root.join("probe.bin")).expect("rooted copy must hash");
+        let confined = AssetId::for_file_within_root(&root, Path::new("probe.bin"))
+            .expect("in-root candidate must hash");
+        assert_eq!(
+            confined, direct,
+            "confinement must change which paths are accepted, never the hash"
+        );
+        assert_eq!(confined, AssetId::new(b"on-disk bytes"));
+
+        for escape in [
+            Path::new("../probe.bin").to_path_buf(),
+            dir.path().join("probe.bin"),
+        ] {
+            let err = AssetId::for_file_within_root(&root, &escape)
+                .expect_err("escape must fail before hashing");
+            assert!(
+                matches!(err, AssetError::OutsideRoot { .. }),
+                "escape must be OutsideRoot, got: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn for_file_refuses_an_oversized_file_before_allocating() {
+        use crate::io::MAX_ASSET_FILE_BYTES;
+
+        // A sparse file reports past the budget from metadata while
+        // costing (almost) nothing on disk: identity hashing must
+        // refuse it without allocating its contents.
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let path = dir.path().join("big.bin");
+        let file = std::fs::File::create(&path).expect("sparse fixture must be creatable");
+        file.set_len(MAX_ASSET_FILE_BYTES + 1)
+            .expect("sparse resize must succeed");
+        drop(file);
+
+        let err = AssetId::for_file(&path).expect_err("over-limit file must fail");
+        match &err {
+            AssetError::OverBudget { limit, actual, .. } => {
+                assert_eq!(*limit, MAX_ASSET_FILE_BYTES);
+                assert_eq!(*actual, MAX_ASSET_FILE_BYTES + 1);
+            }
+            other => panic!("over-limit file must be OverBudget, got: {other:?}"),
+        }
+        assert_eq!(
+            err.path(),
+            Some(path.as_path()),
+            "the error must name the offending file"
+        );
+    }
+
+    #[test]
+    fn from_hex_error_carries_the_offending_text_as_data_not_a_path() {
+        // Wrong length and non-hex content alike: the offending text
+        // must travel as data, never installed as a `Path`, so `path()`
+        // stays `None` for every malformed input.
+        for garbage in ["not hex at all", &"zz".repeat(32), &"ab".repeat(31)] {
+            let err = AssetId::from_hex(garbage).expect_err("malformed hex must fail");
+            match &err {
+                AssetError::InvalidId { value, .. } => {
+                    assert_eq!(
+                        value, garbage,
+                        "the error must carry the offending text as data"
+                    );
+                }
+                other => panic!("malformed hex must be InvalidId, got: {other:?}"),
+            }
+            assert_eq!(
+                err.path(),
+                None,
+                "attacker text must never surface as a filesystem path"
+            );
+            assert!(
+                err.to_string().contains(garbage),
+                "message must carry the offending text, got: {err}"
+            );
+        }
     }
 
     #[test]

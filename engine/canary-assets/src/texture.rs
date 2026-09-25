@@ -29,6 +29,7 @@
 use std::io::Cursor;
 use std::path::Path;
 
+use crate::io::{read_file_with_budget, resolve_in_root, MAX_ASSET_FILE_BYTES};
 use crate::AssetError;
 
 /// Default ceiling for the decoded size of one texture, in bytes.
@@ -117,6 +118,21 @@ pub fn load_texture(path: &Path) -> Result<Texture, AssetError> {
     load_texture_with_budget(path, DEFAULT_MAX_TEXTURE_BYTES)
 }
 
+/// Loads the PNG file at root-relative `candidate` as a [`Texture`],
+/// enforcing [`DEFAULT_MAX_TEXTURE_BYTES`] and refusing anything that
+/// escapes `root`.
+///
+/// The confined twin of [`load_texture`] for the future asset manager:
+/// the candidate is resolved with [`crate::resolve_in_root`] first (a
+/// `..` escape, an absolute path, or a symlink-out fails as
+/// [`AssetError::OutsideRoot`] before a byte is read), then decoded
+/// exactly like [`load_texture_with_budget`] — same conversion
+/// contract, same budgets, same values. See
+/// [`load_texture_with_budget_within_root`] for an explicit ceiling.
+pub fn load_texture_within_root(root: &Path, candidate: &Path) -> Result<Texture, AssetError> {
+    load_texture_with_budget_within_root(root, candidate, DEFAULT_MAX_TEXTURE_BYTES)
+}
+
 /// Loads the PNG file at `path` as a [`Texture`], refusing decodes whose
 /// output would exceed `max_decode_bytes`.
 ///
@@ -157,6 +173,9 @@ pub fn load_texture(path: &Path) -> Result<Texture, AssetError> {
 ///
 /// Failure taxonomy (all variants carry `path`):
 /// - Missing/unreadable file → [`AssetError::Io`].
+/// - File past [`MAX_ASSET_FILE_BYTES`] → [`AssetError::OverBudget`],
+///   refused before its bytes are allocated — ahead of every
+///   decode-budget gate below, which only fires once bytes exist.
 /// - Bad signature, corrupt chunks, truncated data, decoder output that
 ///   disagrees with the header → [`AssetError::InvalidFormat`].
 /// - Claimed or actual size past `max_decode_bytes` →
@@ -170,7 +189,7 @@ pub fn load_texture(path: &Path) -> Result<Texture, AssetError> {
 pub fn load_texture_with_budget(path: &Path, max_decode_bytes: u64) -> Result<Texture, AssetError> {
     let invalid = |reason: String| AssetError::invalid_format(path, reason);
 
-    let bytes = std::fs::read(path).map_err(|source| AssetError::io(path, source))?;
+    let bytes = read_file_with_budget(path, MAX_ASSET_FILE_BYTES)?;
 
     let mut decoder = png::Decoder::new(Cursor::new(bytes.as_slice()));
     decoder.set_limits(png::Limits {
@@ -230,6 +249,26 @@ pub fn load_texture_with_budget(path: &Path, max_decode_bytes: u64) -> Result<Te
         height,
         rgba8,
     })
+}
+
+/// Loads the PNG file at root-relative `candidate` as a [`Texture`],
+/// refusing decodes whose output would exceed `max_decode_bytes` and
+/// refusing anything that escapes `root`.
+///
+/// The confined twin of [`load_texture_with_budget`]: the candidate is
+/// resolved with [`crate::resolve_in_root`] first (a `..` escape, an
+/// absolute path, or a symlink-out fails as
+/// [`AssetError::OutsideRoot`] before a byte is read), then decoded
+/// exactly like [`load_texture_with_budget`] — same conversion
+/// contract, same budgets, same values. A valid in-root file decodes
+/// byte-identical to the direct entry point.
+pub fn load_texture_with_budget_within_root(
+    root: &Path,
+    candidate: &Path,
+    max_decode_bytes: u64,
+) -> Result<Texture, AssetError> {
+    let resolved = resolve_in_root(root, candidate)?;
+    load_texture_with_budget(&resolved, max_decode_bytes)
 }
 
 /// RGBA8 byte count for a `width` by `height` image, or `None` on
@@ -518,6 +557,71 @@ mod tests {
         assert!(
             matches!(err, AssetError::Io { .. }),
             "missing file must be Io, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn within_root_decodes_valid_files_byte_identical_and_refuses_escapes() {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let root = dir.path().join("assets");
+        std::fs::create_dir(&root).expect("root must be creatable");
+        let bytes = std::fs::read(fixture("rgba2x2.png")).expect("RGBA fixture must exist");
+        std::fs::write(root.join("rgba2x2.png"), &bytes).expect("rooted copy must be writable");
+        // The `..` escape needs a real file outside the root: a
+        // dangling traversal fails as Io (missing file), which would
+        // prove nothing about confinement.
+        std::fs::write(dir.path().join("rgba2x2.png"), &bytes)
+            .expect("outside copy must be writable");
+
+        let direct = load_texture(&root.join("rgba2x2.png")).expect("rooted copy must load");
+        let confined = load_texture_within_root(&root, Path::new("rgba2x2.png"))
+            .expect("in-root candidate must load");
+        assert_eq!(
+            confined.rgba8(),
+            direct.rgba8(),
+            "confinement must change which paths are accepted, never the pixels"
+        );
+
+        for escape in [
+            Path::new("../rgba2x2.png").to_path_buf(),
+            dir.path().join("rgba2x2.png"),
+        ] {
+            let err = load_texture_within_root(&root, &escape)
+                .expect_err("escape must fail before decoding");
+            assert!(
+                matches!(err, AssetError::OutsideRoot { .. }),
+                "escape must be OutsideRoot, got: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_file_is_refused_before_allocating() {
+        use crate::io::MAX_ASSET_FILE_BYTES;
+
+        // A sparse file reports past the file budget from metadata
+        // while costing (almost) nothing on disk: the loader must
+        // refuse it without allocating its contents, ahead of every
+        // decode-budget gate.
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let path = dir.path().join("big.png");
+        let file = std::fs::File::create(&path).expect("sparse fixture must be creatable");
+        file.set_len(MAX_ASSET_FILE_BYTES + 1)
+            .expect("sparse resize must succeed");
+        drop(file);
+
+        let err = load_texture(&path).expect_err("over-limit file must fail");
+        match &err {
+            AssetError::OverBudget { limit, actual, .. } => {
+                assert_eq!(*limit, MAX_ASSET_FILE_BYTES);
+                assert_eq!(*actual, MAX_ASSET_FILE_BYTES + 1);
+            }
+            other => panic!("over-limit file must be OverBudget, got: {other:?}"),
+        }
+        assert_eq!(
+            err.path(),
+            Some(path.as_path()),
+            "the error must name the offending file"
         );
     }
 

@@ -88,6 +88,25 @@ pub enum AssetError {
         actual: u64,
     },
 
+    /// A hex [`crate::AssetId`] rendering failed to parse (wrong length
+    /// or non-hex characters).
+    ///
+    /// Separate from [`AssetError::InvalidFormat`] on purpose: that
+    /// variant's `path` is a filesystem path, and installing attacker
+    /// text (a malformed ID string from outside the trust boundary) as
+    /// a `Path` would hand path confusion — and log-injection-shaped
+    /// surprises — to every future `path()` consumer. The offending
+    /// text travels here as `value`, plain data that `path()` never
+    /// returns, so no log line or file lookup can mistake it for
+    /// somewhere on disk.
+    #[error("invalid asset id '{value}': {reason}")]
+    InvalidId {
+        /// The offending text, carried as data — never a filesystem path.
+        value: String,
+        /// What was wrong with it, in one short clause.
+        reason: String,
+    },
+
     /// An [`crate::AssetHandle`] referred to a slot that is empty,
     /// holds a different generation, or was never allocated in this
     /// [`crate::AssetStore`]. Carries raw `index`/`generation` rather
@@ -104,6 +123,26 @@ pub enum AssetError {
         index: u32,
         /// The generation the stale handle expected.
         generation: u64,
+    },
+
+    /// A root-relative candidate path resolved outside its asset root
+    /// (a `..` escape, an absolute path, or a symlink inside the root
+    /// pointing out of it).
+    ///
+    /// Separate from [`AssetError::Io`] on purpose: the file may exist
+    /// and be readable, but the *request* is refused — the future asset
+    /// manager joins untrusted relative paths (manifest entries, pack
+    /// listings) onto a trusted root, and anything that does not stay
+    /// under that root is a confinement failure, not a missing file.
+    /// `root` is the trusted root the candidate was resolved against;
+    /// `path` is the resolved path that escaped (canonicalized, so a
+    /// symlink-out names its real target, not the link).
+    #[error("asset path '{}' escapes its root '{}'", path.display(), root.display())]
+    OutsideRoot {
+        /// The trusted root the candidate was resolved against.
+        root: PathBuf,
+        /// The resolved path that escaped the root.
+        path: PathBuf,
     },
 }
 
@@ -150,19 +189,44 @@ impl AssetError {
         }
     }
 
+    /// Constructs the [`AssetError::InvalidId`] variant from the
+    /// offending text and a short reason clause. The text is stored as
+    /// data, never installed as a [`Path`].
+    pub fn invalid_id(value: &str, reason: impl Into<String>) -> Self {
+        AssetError::InvalidId {
+            value: value.to_owned(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Constructs the [`AssetError::OutsideRoot`] variant from the
+    /// trusted root and the resolved path that escaped it.
+    pub fn outside_root(root: &Path, path: &Path) -> Self {
+        AssetError::OutsideRoot {
+            root: root.to_path_buf(),
+            path: path.to_path_buf(),
+        }
+    }
+
     /// The path this error is about, or `None` for
     /// [`AssetError::UnknownHandle`], which names a store slot rather
-    /// than a file.
+    /// than a file, and for [`AssetError::InvalidId`], whose offending
+    /// text is data rather than somewhere on disk.
     ///
     /// Exists so loggers and user-facing reporters can group or filter
     /// asset failures by file without matching on every variant.
+    /// [`AssetError::OutsideRoot`] reports the resolved path that
+    /// escaped: it is genuinely a filesystem path (unlike `InvalidId`
+    /// text), and refusing to name it would leave the log line unable
+    /// to say *which* request was refused.
     pub fn path(&self) -> Option<&Path> {
         match self {
             AssetError::Io { path, .. }
             | AssetError::InvalidFormat { path, .. }
             | AssetError::UnsupportedFeature { path, .. }
-            | AssetError::OverBudget { path, .. } => Some(path),
-            AssetError::UnknownHandle { .. } => None,
+            | AssetError::OverBudget { path, .. }
+            | AssetError::OutsideRoot { path, .. } => Some(path),
+            AssetError::UnknownHandle { .. } | AssetError::InvalidId { .. } => None,
         }
     }
 }
@@ -227,6 +291,21 @@ mod tests {
     }
 
     #[test]
+    fn invalid_id_carries_text_as_data_never_as_a_path() {
+        let err = AssetError::invalid_id("zz-not-hex-at-all", "asset id hex must be 64 characters");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("zz-not-hex-at-all"),
+            "message must carry the offending text, got: {rendered}"
+        );
+        assert_eq!(
+            err.path(),
+            None,
+            "attacker text must never surface as a filesystem path"
+        );
+    }
+
+    #[test]
     fn unknown_handle_has_no_path() {
         let err = AssetError::UnknownHandle {
             index: 3,
@@ -234,5 +313,22 @@ mod tests {
         };
         assert_eq!(err.path(), None, "handle errors name a slot, not a file");
         assert!(err.to_string().contains('3'));
+    }
+
+    #[test]
+    fn outside_root_names_both_the_escape_and_the_root() {
+        let err = AssetError::outside_root(Path::new("/game/assets"), Path::new("/etc/passwd"));
+        let rendered = err.to_string();
+        assert!(rendered.contains("/etc/passwd"), "got: {rendered}");
+        assert!(rendered.contains("/game/assets"), "got: {rendered}");
+        assert_eq!(
+            err.path(),
+            Some(Path::new("/etc/passwd")),
+            "path() must name the refused resolution, not the root"
+        );
+        assert!(
+            matches!(err, AssetError::OutsideRoot { .. }),
+            "confinement refusal must be OutsideRoot, not Io, got: {err:?}"
+        );
     }
 }

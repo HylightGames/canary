@@ -26,6 +26,7 @@
 
 use std::path::Path;
 
+use crate::io::{read_file_with_budget, resolve_in_root, MAX_ASSET_FILE_BYTES};
 use crate::AssetError;
 
 /// Maximum vertices accepted from a single GLB primitive.
@@ -145,6 +146,9 @@ impl Mesh {
 ///
 /// Failure taxonomy (all variants carry `path`):
 /// - Missing/unreadable file → [`AssetError::Io`].
+/// - File past [`MAX_ASSET_FILE_BYTES`] → [`AssetError::OverBudget`],
+///   refused before its contents are allocated (untrusted-file
+///   discipline: the capped read runs before any decode).
 /// - Unparseable bytes, missing `POSITION`, empty geometry, inconsistent
 ///   attribute counts, out-of-bounds indices, index count not a multiple
 ///   of 3 → [`AssetError::InvalidFormat`] (the *file* is broken).
@@ -159,8 +163,25 @@ impl Mesh {
 /// produce `Err`, never a panic. There is no `async` API because the
 /// scheduler has no threading story for background loading yet (ADR 0018).
 pub fn load_mesh(path: &Path) -> Result<Vec<Mesh>, AssetError> {
-    let bytes = std::fs::read(path).map_err(|source| AssetError::io(path, source))?;
+    let bytes = read_file_with_budget(path, MAX_ASSET_FILE_BYTES)?;
     load_mesh_from_bytes(path, &bytes)
+}
+
+/// Loads the GLB file at root-relative `candidate` as [`Mesh`] values,
+/// refusing anything that escapes `root`.
+///
+/// The confined twin of [`load_mesh`] for the future asset manager,
+/// which joins untrusted listing paths onto a content root: the
+/// candidate is resolved with [`crate::resolve_in_root`] first (a
+/// `..` escape, an absolute path, or a symlink-out fails as
+/// [`AssetError::OutsideRoot` before a byte is read), then decoded
+/// exactly like [`load_mesh`] — same budgets, same taxonomy, same
+/// values. A valid in-root file loads byte-identical to the direct
+/// entry point; confinement only narrows *which* paths are accepted.
+pub fn load_mesh_within_root(root: &Path, candidate: &Path) -> Result<Vec<Mesh>, AssetError> {
+    let resolved = resolve_in_root(root, candidate)?;
+    let bytes = read_file_with_budget(&resolved, MAX_ASSET_FILE_BYTES)?;
+    load_mesh_from_bytes(&resolved, &bytes)
 }
 
 /// Parses GLB `bytes` (attributed to `path` in errors) into [`Mesh`] values.
@@ -645,6 +666,69 @@ mod tests {
         assert!(
             matches!(err, AssetError::Io { .. }),
             "missing file must be Io, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn within_root_loads_valid_files_byte_identical_and_refuses_escapes() {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let root = dir.path().join("assets");
+        std::fs::create_dir(&root).expect("root must be creatable");
+        let bytes = std::fs::read(fixture("quad.glb")).expect("quad fixture must exist");
+        std::fs::write(root.join("quad.glb"), &bytes).expect("rooted copy must be writable");
+        // The `..` escape needs a real file outside the root: a
+        // dangling traversal fails as Io (missing file), which would
+        // prove nothing about confinement.
+        std::fs::write(dir.path().join("quad.glb"), &bytes).expect("outside copy must be writable");
+
+        let direct = load_mesh(&root.join("quad.glb")).expect("rooted copy must load");
+        let confined = load_mesh_within_root(&root, Path::new("quad.glb"))
+            .expect("in-root candidate must load");
+        assert_eq!(
+            confined, direct,
+            "confinement must change which paths are accepted, never the values"
+        );
+
+        for escape in [
+            Path::new("../quad.glb").to_path_buf(),
+            dir.path().join("quad.glb"),
+        ] {
+            let err = load_mesh_within_root(&root, &escape)
+                .expect_err("escape must fail before decoding");
+            assert!(
+                matches!(err, AssetError::OutsideRoot { .. }),
+                "escape must be OutsideRoot, got: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_file_is_refused_before_allocating() {
+        use crate::io::MAX_ASSET_FILE_BYTES;
+
+        // A sparse file reports past the file budget from metadata
+        // while costing (almost) nothing on disk: the loader must
+        // refuse it without allocating its contents, before any
+        // per-primitive budget is even reached.
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let path = dir.path().join("big.glb");
+        let file = std::fs::File::create(&path).expect("sparse fixture must be creatable");
+        file.set_len(MAX_ASSET_FILE_BYTES + 1)
+            .expect("sparse resize must succeed");
+        drop(file);
+
+        let err = load_mesh(&path).expect_err("over-limit file must fail");
+        match &err {
+            AssetError::OverBudget { limit, actual, .. } => {
+                assert_eq!(*limit, MAX_ASSET_FILE_BYTES);
+                assert_eq!(*actual, MAX_ASSET_FILE_BYTES + 1);
+            }
+            other => panic!("over-limit file must be OverBudget, got: {other:?}"),
+        }
+        assert_eq!(
+            err.path(),
+            Some(path.as_path()),
+            "the error must name the offending file"
         );
     }
 

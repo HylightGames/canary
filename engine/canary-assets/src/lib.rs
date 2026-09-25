@@ -29,7 +29,8 @@
 //!   `World` dependency.
 //! - [`AssetError`]: typed failures with path context (`Io`,
 //!   `InvalidFormat`, `UnsupportedFeature`, `OverBudget`,
-//!   `UnknownHandle`).
+//!   `UnknownHandle`) plus `InvalidId`, which carries malformed hex
+//!   text as data rather than as a path.
 //! - [`Mesh`] + [`load_mesh`]: every triangle primitive of a
 //!   self-contained GLB file becomes its own validated mesh value
 //!   (index bounds, attribute consistency, triangle-mode only enforced
@@ -75,6 +76,7 @@
 mod error;
 mod handle;
 mod id;
+mod io;
 mod mesh;
 mod store;
 mod texture;
@@ -82,6 +84,13 @@ mod texture;
 pub use error::AssetError;
 pub use handle::AssetHandle;
 pub use id::{AssetId, LOADER_VERSION};
-pub use mesh::{load_mesh, Mesh, MAX_MESH_INDICES_PER_PRIMITIVE, MAX_MESH_VERTICES_PER_PRIMITIVE};
+pub use io::{resolve_in_root, MAX_ASSET_FILE_BYTES};
+pub use mesh::{
+    load_mesh, load_mesh_within_root, Mesh, MAX_MESH_INDICES_PER_PRIMITIVE,
+    MAX_MESH_VERTICES_PER_PRIMITIVE,
+};
 pub use store::AssetStore;
-pub use texture::{load_texture, load_texture_with_budget, Texture, DEFAULT_MAX_TEXTURE_BYTES};
+pub use texture::{
+    load_texture, load_texture_with_budget, load_texture_with_budget_within_root,
+    load_texture_within_root, Texture, DEFAULT_MAX_TEXTURE_BYTES,
+};
