@@ -112,6 +112,10 @@ pub struct World {
     /// A single-slot analogue of a component column: one value, one
     /// [`Tick`], per type, rather than a `Vec` of them.
     resources: HashMap<TypeId, ResourceEntry>,
+    /// Cached count of currently-alive entities, so
+    /// [`World::entity_count`] is O(1) instead of scanning every slot
+    /// ever created (including long-dead ones) on every call.
+    alive_count: usize,
 }
 
 impl World {
@@ -129,6 +133,7 @@ impl World {
             current_tick: Tick::default(),
             schema_registry: HashMap::new(),
             resources: HashMap::new(),
+            alive_count: 0,
         }
     }
 
@@ -140,6 +145,9 @@ impl World {
     /// empty archetype, moving to progressively larger (or, after a
     /// [`World::remove`], smaller) archetypes as components are added.
     pub fn spawn(&mut self) -> Entity {
+        // Every successful spawn below increments `alive_count`
+        // exactly once (and `despawn` decrements it) — see
+        // [`World::entity_count`].
         let entity = if let Some(index) = self.free_indices.pop() {
             let slot = &mut self.slots[index as usize];
             slot.alive = true;
@@ -171,6 +179,7 @@ impl World {
         };
 
         let empty_archetype = self.empty_archetype;
+        self.alive_count += 1;
         let row = {
             let archetype = &mut self.archetypes[empty_archetype.0];
             archetype.insert_row(entity, Vec::new());
@@ -215,6 +224,7 @@ impl World {
         // makes that distinction meaningful instead of theoretical.
         slot.generation = slot.generation.wrapping_add(1);
         slot.location = None;
+        self.alive_count -= 1;
         self.free_indices.push(entity.index);
 
         Ok(())
@@ -228,9 +238,10 @@ impl World {
             .is_some_and(|slot| slot.alive && slot.generation == entity.generation)
     }
 
-    /// The number of currently-alive entities.
+    /// The number of currently-alive entities, maintained
+    /// incrementally by [`World::spawn`]/[`World::despawn`] (O(1)).
     pub fn entity_count(&self) -> usize {
-        self.slots.iter().filter(|slot| slot.alive).count()
+        self.alive_count
     }
 
     fn location_of(&self, entity: Entity) -> Option<EntityLocation> {
@@ -354,6 +365,16 @@ impl World {
     /// alive and has one. Moves `entity` to a smaller archetype,
     /// carrying every remaining component along unchanged (values and
     /// change ticks alike).
+    ///
+    /// Idempotent by design: a stale/unknown entity and an alive
+    /// entity lacking `T` both yield `None`, identically. `remove`
+    /// answers "give me the component if there is one to take," not
+    /// "prove this handle is live" — callers that need the distinction
+    /// (use-after-despawn detection) check [`World::is_alive`] first,
+    /// the way [`World::insert`]/[`World::despawn`] enforce it with
+    /// [`EcsError::StaleOrUnknownEntity`]. Do not "fix" this into a
+    /// `Result` without also updating every call site that relies on
+    /// the current shape.
     pub fn remove<T: 'static>(&mut self, entity: Entity) -> Option<T> {
         let location = self.location_of(entity)?;
         let type_id = TypeId::of::<T>();
@@ -554,6 +575,13 @@ impl World {
     /// yielded entity's `A` as changed at the current
     /// [`World::change_tick`], the same conservative "assume the caller
     /// writes through it" policy [`World::get_mut`] already uses.
+    ///
+    /// Note the marking happens at *call* time, not per yielded item:
+    /// merely constructing (even dropping unconsumed) this iterator
+    /// dirties every matched row, so a no-op call still advances
+    /// downstream [`World::query_changed_since`] consumers. This is a
+    /// consequence of the eager collection below, not a separate
+    /// policy -- factor it into change-detection-sensitive code.
     ///
     /// Eagerly collects into a `Vec` internally (returning its
     /// `IntoIter`) rather than lazily streaming per archetype -- unlike
@@ -1047,6 +1075,21 @@ mod tests {
     }
 
     #[test]
+    fn removing_from_a_stale_entity_returns_none_like_an_absent_component() {
+        // Pins the documented `remove` contract: idempotent removal
+        // answers "nothing to take" identically for dead handles and
+        // missing components. Liveness checks belong to `is_alive`,
+        // not to this return value.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world.insert(entity, Position { x: 1.0, y: 1.0 }).unwrap();
+        world.despawn(entity).unwrap();
+
+        assert!(!world.is_alive(entity));
+        assert_eq!(world.remove::<Position>(entity), None);
+    }
+
+    #[test]
     fn query_spans_multiple_archetypes() {
         let mut world = World::new();
 
@@ -1157,6 +1200,11 @@ mod tests {
         assert_eq!(world.entity_count(), 1);
         world.despawn(b).unwrap();
         assert_eq!(world.entity_count(), 0);
+        // Recycled slots must not double-count: despawning freed the
+        // slot, respawning reuses it, and the count tracks live
+        // entities, not slots ever created.
+        let _ = world.spawn();
+        assert_eq!(world.entity_count(), 1);
     }
 
     #[test]

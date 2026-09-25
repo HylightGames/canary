@@ -138,6 +138,12 @@ impl Archetype {
         // `self.columns` (which could invalidate the other reference or
         // relocate its allocation), and both keys are confirmed present
         // by the `contains_key` checks above before this block runs.
+        // Structural mutation while the returned pair is live is
+        // impossible by construction, not just by discipline: the
+        // columns map is built once in `from_parts` and no method on
+        // `Archetype` inserts into or removes from it afterwards
+        // (rows come and go via the columns' own `Vec`s, never via the
+        // map), so no rehash can relocate either borrow's target.
         unsafe {
             let columns_ptr: *mut HashMap<TypeId, Box<dyn ColumnOps>> = &mut self.columns;
             let mutable_column = (*columns_ptr).get_mut(&mutable_id)?.as_mut();
@@ -147,9 +153,14 @@ impl Archetype {
     }
 
     /// The row index a value just appended by [`Archetype::insert_row`]
-    /// now occupies.
+    /// now occupies. The archetype must be non-empty (every caller
+    /// appends first); an empty archetype fails loudly here rather
+    /// than wrapping `0 - 1` into `usize::MAX` and indexing garbage.
     pub(crate) fn last_row_index(&self) -> usize {
-        self.entities.len() - 1
+        self.entities
+            .len()
+            .checked_sub(1)
+            .expect("last_row_index called on an empty archetype (insert a row first)")
     }
 
     /// Removes row `row` entirely -- the occupying entity and every
