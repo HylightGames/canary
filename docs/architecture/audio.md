@@ -68,8 +68,9 @@ every other subsystem doc in this project:
 
 ## Status in this foundation
 
-Entirely architectural. No `canary-audio` crate, no `AudioBackend` trait,
-and no FMOD/Wwise binding exist yet. Not yet assigned a specific
-`0.0.x` release — see
-[`docs/roadmap/future-roadmap.md`](../roadmap/future-roadmap.md) for how
-this project avoids assigning fake specificity to work this far out.
+`canary-audio` is assigned to `v0.0.12`: the `AudioBackend` trait plus
+a **rodio bootstrap backend** (see [ADR
+0023](../decisions/architecture-decision-records/0023-audio-bootstrap-rodio-behind-custom-trait.md)),
+not the custom engine — the trait boundary this document demands comes
+first, exactly as designed, and the custom default remains the
+long-term direction. No audio code exists yet.
