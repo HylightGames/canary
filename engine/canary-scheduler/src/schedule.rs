@@ -129,6 +129,14 @@ impl Schedule {
     /// fresh from the current registration order and each system's
     /// declared [`SystemAccess`] -- see [`Schedule`]'s own docs for what
     /// "stages" means and what it does and doesn't parallelize.
+    ///
+    /// # Panics
+    /// A panicking system body propagates out of `run` (a read-stage
+    /// panic surfaces after [`std::thread::scope`] has joined the
+    /// stage's threads). There is no rollback: a write system that
+    /// panics mid-body may leave `World` half-mutated. Treat a
+    /// panicking system as a bug to fix, not a recoverable error to
+    /// catch -- `run` offers no atomicity guarantee across systems.
     pub fn run(&mut self, world: &mut World) {
         for stage in self.compute_stages() {
             self.run_stage(&stage, world);

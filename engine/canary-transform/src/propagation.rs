@@ -1239,4 +1239,24 @@ mod tests {
             "a skipped non-finite entity must not dirty change detection"
         );
     }
+
+    /// Debug-only counterpart to the release pin above: the same NaN
+    /// local that release skips must fail loudly in debug (the
+    /// `debug_assert!(global.is_finite())`), so a poisoned hierarchy is
+    /// caught in development rather than silently retained. Gated on
+    /// debug for the mirror reason the release pin is gated on release.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "non-finite GlobalTransform")]
+    fn non_finite_global_panics_loudly_in_debug() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(f32::NAN, 0.0, 0.0)),
+            )
+            .unwrap();
+        propagate_transforms(&mut world);
+    }
 }

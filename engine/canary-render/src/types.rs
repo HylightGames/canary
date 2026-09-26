@@ -24,6 +24,10 @@ pub struct BufferDescriptor<'a> {
     /// has no story for updating a buffer's content after creation —
     /// real, likely future work once something other than a single
     /// static triangle needs it.
+    ///
+    /// Must be non-empty: backends reject an empty upload loudly
+    /// (rather than creating a zero-byte GPU allocation) at creation
+    /// time.
     pub data: &'a [u8],
 }
 

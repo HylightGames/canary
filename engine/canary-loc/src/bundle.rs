@@ -608,6 +608,41 @@ mod tests {
         );
     }
 
+    // --- Duplicate-key handling ----------------------------------------
+
+    #[test]
+    fn duplicate_keys_across_resources_warn_but_still_resolve() {
+        // `LocaleBundle::new` intentionally warns (rather than failing)
+        // when two resources define the same key: the first resource
+        // wins inside `fluent-bundle`, so construction must stay
+        // total. This pins that contract — a WARN event fires, and the
+        // key still resolves — so a future refactor cannot silently
+        // turn the warn path into an error or a dropped key.
+        let en = langid("en-US");
+        let events = capture_events(|| {
+            let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+                vec![
+                    resource("shared-key = First Definition"),
+                    resource("shared-key = Second Definition"),
+                ]
+            });
+
+            let resolved = bundle.resolve(&crate::key!("shared-key"), None);
+            assert_eq!(
+                resolved, "First Definition",
+                "the first resource's value should win, got: {resolved:?}"
+            );
+        });
+
+        assert!(
+            events
+                .iter()
+                .any(|(level, fields)| *level == tracing::Level::WARN
+                    && fields.contains("could not be added")),
+            "expected a WARN event about the duplicate key; captured events: {events:?}"
+        );
+    }
+
     // --- Pseudo-locale end-to-end ----------------------------------------
 
     #[test]
