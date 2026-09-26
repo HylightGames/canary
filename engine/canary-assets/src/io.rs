@@ -34,8 +34,8 @@ use crate::AssetError;
 ///
 /// The value is **provisional** pending measured calibration against real
 /// content, exactly like the per-primitive mesh budgets and the texture
-/// decode budget. Callers with measured needs read through
-/// [`read_file_with_budget`] with their own ceiling instead.
+/// decode budget. Callers with measured needs use the crate-private
+/// capped reader with their own ceiling instead.
 pub const MAX_ASSET_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Resolves an untrusted root-relative `candidate` path against a

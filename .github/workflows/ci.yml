@@ -64,12 +64,15 @@ jobs:
         run: rustup component add clippy
       # Linux only: winit's X11/Wayland backends need these at compile
       # time (not just runtime) -- see engine/canary-platform/Cargo.toml's
-      # winit-backend feature docs.
+      # winit-backend feature docs. libasound2-dev is the same class of
+      # dependency for canary-audio: rodio's playback feature builds on
+      # cpal's ALSA backend, whose alsa-sys build script probes
+      # pkg-config alsa at compile time (ADR 0023).
       - name: Install X11/Wayland dev libraries (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev
       - name: cargo build --workspace
         run: cargo build --locked --workspace --all-targets
       - name: cargo clippy --workspace

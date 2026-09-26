@@ -1,0 +1,44 @@
+[package]
+name = "canary-audio"
+description = "Canary Engine audio: AudioBackend trait + private rodio bootstrap backend, components, trigger system. See docs/architecture/audio.md and ADR 0023."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-ecs = { path = "../canary-ecs" }
+canary-scheduler = { path = "../canary-scheduler" }
+canary-transform = { path = "../canary-transform" }
+canary-assets = { path = "../canary-assets" }
+glam = "0.33"
+thiserror = "2.0.19"
+
+# Bootstrap playback backend (ADR 0023: rodio is the explicitly-labeled
+# bootstrap, not the long-term default — the custom engine replaces the
+# private backend crate-side, never the trait or components). Exact `=`
+# pin: rodio keeps a breaking cadence with an UPGRADE guide, so even a
+# patch bump arrives as an intentional change, per the transitive-pin
+# policy in docs/development/build-system.md.
+#
+# `default-features = false` plus ONLY `playback`, `hound`, and `lewton`
+# is load-bearing, not minimalism: rodio 0.22 routes every other decoder
+# feature (`wav`, `vorbis`, `flac`, `mp3`, `mp4`) through Symphonia, which
+# is MPL-2.0 and therefore declined by this engine's no-entanglement
+# values (the same license check that put `hound`+`lewton` in
+# canary-assets). `hound` (WAV, Apache-2.0) and `lewton` (Vorbis,
+# MIT OR Apache-2.0) are the MIT/Apache-only decoder pair covering this
+# milestone's WAV + Ogg Vorbis bar; `playback` (cpal, Apache-2.0) is the
+# device sink. Verified license-clean via `cargo tree` + `cargo metadata`
+# at implementation time: no symphonia/MPL-2.0 crate may enter the graph,
+# and enabling a decoder feature beyond these two is a deliberate,
+# license-checked change, never drive-by.
+rodio = { version = "=0.22.2", default-features = false, features = ["playback", "hound", "lewton"] }
+
+[dev-dependencies]
+# Attenuation-math properties (range, monotonicity, hand-computed values
+# as oracle), mirroring the canary-ecs/canary-physics proptest style.
+proptest = "1"
