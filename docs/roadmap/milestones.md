@@ -1,6 +1,6 @@
 # Milestones
 
-A dated record of progress against [`v0.0.1-roadmap.md`](v0.0.1-roadmap.md).
+A record of progress against [`v0.0.1-roadmap.md`](v0.0.1-roadmap.md).
 Where [`CHANGELOG.md`](../../CHANGELOG.md) records *what changed* in
 end-user/consumer terms, this document records *milestone-level* progress
 for project planning purposes — think of it as the project-management view,
@@ -188,6 +188,14 @@ the archetype-based ECS migration, exactly as scoped in
   checked against reality rather than assumed.
 
 Full detail: [`v0.0.2.md`](../release-notes/v0.0.2.md).
+
+## Current handoff
+
+`v0.0.12` is implemented on `dev`, not yet tagged. `v0.0.13` is the next
+planned milestone; see the live [`status`](status.md), the
+[`roadmap handoff`](README.md), and the detailed
+[`v0.1.0 plan`](v0.1.0-plan.md). This file remains a concise historical
+milestone record; it is not the source of truth for what is next.
 
 ## Beyond `v0.0.2`
 

@@ -1,10 +1,12 @@
 # Editor Design (Target — Not Yet Built)
 
-No editor exists in this foundation, and none is planned before Era 5 (see
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)) — it
-depends on the plugin system (Era 2+) and rendering (Era 3) both existing
-first. This document describes the target design so that when editor work
-starts, it starts from a reasoned plan rather than an improvised one.
+No editor exists yet, and editor implementation is planned after the
+`v0.1.0` integration target (see
+[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)). Before
+editor work starts, Canary needs a supported consumer runtime, authored
+project save/reload, windowed `CanaryUI`, and safe plugin access to a live game
+world. This document describes the target design; it does not mean these
+prerequisites or an editor implementation already exist.
 
 ## The editor is a plugin host, not a special case
 
@@ -109,10 +111,10 @@ Originally left open in this document pending real editor-building
 experience. Since resolved, at the architecture level, as
 [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md):
 a `CanaryUI` abstraction (`canary-ui-core`) exists from the start, with
-`egui` — immediate-mode, pure Rust, already integrating naturally with
-`wgpu` per [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md) —
-as the first concrete backend, shared between the editor and game-facing
-UI rather than built twice. See
+`egui` as the first concrete backend, shared between the editor and
+game-facing UI rather than built twice. Canary's renderer uses its own
+RHI and native backend crates per ADR 0016; it does not use `wgpu` as the
+rendering backend. See
 [`docs/architecture/ui-toolkit.md`](../architecture/ui-toolkit.md) for the
 full design.
 
@@ -122,3 +124,8 @@ editor-building experience to inform it: whether a fully custom,
 backend, and if so when. `ADR 0011` deliberately doesn't answer that —
 only that the abstraction exists now so the question can be answered
 later without a rewrite of every panel built in the meantime.
+
+The editor's initial vertical slice and its prerequisites are sequenced in
+[`docs/roadmap/future-roadmap.md`](../roadmap/future-roadmap.md). Treat the
+public panel/plugin API as unproven until lifecycle, failure isolation,
+reload/replacement, and workspace persistence have been dogfooded.

@@ -41,8 +41,13 @@ Implemented:
 - Audio playback (trait + bootstrap backend, game-state triggered)
 - Core runtime and platform abstractions
 
-A full renderer (materials, lighting, post-processing), UI,
-networking, and project state/the editor are still in development or planned.
+A windowed renderer, game-facing UI, and reusable consumer runtime are the
+next planned step (`v0.0.13`); project state, a first networking slice, and
+live collaboration follow in `v0.0.14`–`v0.0.16` before the `v0.1.0`
+small-game integration proof. A full render graph/material system, editor,
+visual scripting, asset cooking/hot reload, and marketplace remain later work.
+See the [roadmap handoff](docs/roadmap/README.md) for the exact continuation
+sequence.
 
 See [`docs/roadmap/status.md`](docs/roadmap/status.md) for the complete,
 living implementation status.

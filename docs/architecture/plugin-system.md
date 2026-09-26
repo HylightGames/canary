@@ -185,11 +185,13 @@ frustrated modder.
 - **Tier A's `HostState` owns the `World` it exposes by value**, rather
   than safely lending access to one some other code is concurrently
   using. Giving a WASM host call temporary, scoped access to an
-  already-running `World` is a real design question that belongs with
-  whatever the parallel job-stealing scheduler eventually settles for
-  *every* system's `World` access (still unbuilt — see
-  `docs/architecture/core-runtime.md#threading--the-job-system`), not
-  something Tier A invented ad hoc for itself. See
+  already-running `World` is a real design question that belongs with the
+  current scheduler and its system-access model, not something Tier A should
+  solve ad hoc for itself. `canary-scheduler` exists, but its declarations are
+  manual metadata and are not checked against closure access (R-24). Resolve
+  this boundary with reusable runtime composition in `v0.0.13`; see
+  `docs/architecture/core-runtime.md#threading--the-job-system` and the
+  [contributor handoff](../roadmap/README.md). See
   `engine/canary-plugin-api/src/tier_a.rs`'s `HostState` doc comment.
 
 Resolved since the August 2026 review, for `v0.0.1`: the Tier B vtable

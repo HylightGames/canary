@@ -42,6 +42,13 @@ remain open until a game and UI consume them. The layer boundary is already
 locked and must exist before `CanaryUI` and gameplay are accepted as sharing
 one input path.
 
+The UI/gameplay routing rule is also open: define when focused UI captures a
+physical input, when a mapped action is suppressed, and how intentional
+pass-through works. A pointer or key used to operate a menu must not also
+trigger a gameplay action by accident. Settle this at the input/UI seam and
+test it in `v0.0.13`; it is a consumer behavior contract, not an `egui`
+implementation detail.
+
 ## Simulation time and execution
 
 The runner owns a single logical tick per simulation run. It advances that

@@ -134,3 +134,13 @@ because most engines don't do this.
   those are implementation-time decisions for whenever `v0.0.2`+ work on
   this actually starts, not speculative API design made without a real
   backend to validate it against yet.
+
+## Implementation status update (September 2026)
+
+The original sequencing reference above predates the sharpened `v0.1.0`
+integration plan. `canary-ui-core` and its `egui` backend are still not
+implemented as of `v0.0.12`; the game-facing vertical slice is now planned
+for `v0.0.13`, before any editor work. The widget/event/backend API should be
+designed and validated against that real game consumer. The old `v0.0.2+`
+wording is historical, not a current milestone assignment. See
+[`docs/roadmap/v0.1.0-plan.md`](../../roadmap/v0.1.0-plan.md).

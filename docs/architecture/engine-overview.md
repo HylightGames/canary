@@ -48,9 +48,10 @@ or through explicit, documented interfaces — never through ad hoc globals.
 |---|---|---|
 | Platform abstraction | `canary-platform` | [platform-abstraction.md](platform-abstraction.md) |
 | Core runtime (App, logging, error conventions) | `canary-core` | [core-runtime.md](core-runtime.md) |
+| Game runtime composition | `canary-runtime` is currently a private headless harness; reusable consumer API planned | [core-runtime.md](core-runtime.md#the-appengine-bootstrap) |
 | ECS | `canary-ecs` | [core-runtime.md](core-runtime.md) |
 | Scheduler (stage-based system execution) | `canary-scheduler` | [execution-model.md](execution-model.md) |
-| Input and simulation boundary | *(planned: platform/runtime/gameplay contract)* | [input-and-simulation.md](input-and-simulation.md) |
+| Input and simulation boundary | `canary-platform` raw input exists; runtime/gameplay action flow is planned | [input-and-simulation.md](input-and-simulation.md) |
 | Transform & hierarchy | `canary-transform` | [transform.md](transform.md) |
 | Plugin trait & loader | `canary-plugin-api` | [plugin-system.md](plugin-system.md) |
 | Scripting / language-agnostic runtime | *(planned: `canary-script`)* | [scripting-system.md](scripting-system.md) |
@@ -71,7 +72,8 @@ The input and simulation document records the accepted RawInput →
 InputMapping → InputAction → PlayerInput → SimulationInput boundary and
 separates it from the current platform input stubs. That flow is an
 acceptance prerequisite for shared UI/gameplay input and deterministic
-simulation work; it is not yet an end-to-end implementation.
+simulation work; it is not yet an end-to-end implementation. It is part of
+the next `v0.0.13` milestone.
 
 ## The two structural bets this engine makes
 
@@ -87,25 +89,27 @@ load-bearing enough that the rest of the architecture assumes them:
 2. **Everything replaceable is a trait, not a `#[cfg]` flag.** Rendering,
    physics, and asset importers are defined as interfaces in Layer 3 with a
    default implementation, so a different implementation is a new crate, not
-   a fork. See [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)
-   for the concrete example (RHI with native per-API backends).
+   a fork. See [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)
+   for the RHI with native per-API backends, and the subsystem architecture
+   documents for their respective boundaries.
 
 ## Threading model, in one paragraph
 
-Canary assumes a job-stealing thread pool, not "one thread per subsystem."
-The ECS scheduler (see [core-runtime.md](core-runtime.md)) analyzes system
-data-access declarations to build a dependency graph, then hands runnable
-systems to the job pool; independent systems (e.g. "AI planning for enemies"
-and "particle simulation") run concurrently without either subsystem's code
-containing a single explicit thread spawn. A stage-based `Schedule`
-(`canary-scheduler`, since v0.0.8) already batches non-conflicting
-read-only systems to run concurrently while every write system runs
-alone in registration order — the job-stealing pool, concurrent
-disjoint writes, and `App`-level wiring are the parts still deferred,
-not the scheduler itself.
+The current scheduler is a stage-based `Schedule` (`canary-scheduler`,
+since `v0.0.8`): compatible read-only systems can run concurrently, and
+every writer runs alone in registration order. Access declarations are manual
+metadata and are not checked against closure access; keep the solo-writer
+policy until access can be enforced (R-24). A persistent job-stealing pool,
+concurrent disjoint writes, and reusable `App`-level game composition remain
+future work; measure game-shaped workloads before selecting a pool design.
 See [ADR discussion in core-runtime.md](core-runtime.md#threading--the-job-system).
 
-## How a frame is expected to flow (target design, post-Era 2)
+## Target frame flow
+
+The input/action path, window presentation, and reusable consumer composition
+are not implemented yet; `.13` is planned to prove them. Network and UI stages
+are optional until their corresponding subsystems are built. The sequence
+below describes the target integration order, not the current runtime.
 
 ```mermaid
 sequenceDiagram
@@ -113,15 +117,18 @@ sequenceDiagram
     participant ECS as ECS scheduler
     participant Game as Game/gameplay systems
     participant Phys as Physics
+    participant Audio as Audio
     participant Net as Networking
+    participant UI as CanaryUI
     participant Render as Renderer
 
-    Platform->>ECS: Pump input/window events
-    ECS->>Game: Run gameplay systems (parallel where possible)
-    ECS->>Phys: Run physics step (fixed timestep)
-    ECS->>Net: Collect replicated component deltas
-    Net-->>ECS: Apply incoming remote state
+    Platform->>ECS: Raw input and window events
+    ECS->>Game: Map actions, run deterministic simulation
+    ECS->>Phys: Run ordered fixed-timestep step
+    Game->>Audio: Trigger sound from game state
+    ECS->>Net: Exchange authoritative state and input
     ECS->>Render: Extract render-relevant state (read-only snapshot)
+    UI->>Render: Submit HUD using shared input/UI state
     Render->>Platform: Submit frame to RHI / present
 ```
 

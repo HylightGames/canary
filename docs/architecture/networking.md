@@ -1,14 +1,15 @@
 # Networking & Multiplayer
 
 Architecture for the planned networking subsystem (see
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)). No
-`canary-net` or transport implementation exists yet. This is one of the
+[`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md)). No `canary-net`
+or transport implementation exists yet. The initial networking milestone is
+planned for `v0.0.15`, after project state. This is one of the
 areas where [`docs/research/engine-comparisons.md`](../research/engine-comparisons.md)
 most directly informed the design: retrofitting multiplayer onto an engine
 whose ECS and simulation loop weren't designed with replication in mind is
 one of the most consistently painful experiences in game development, so
-several of the decisions below are seeded architecturally as early as
-Era 2, well before the networking subsystem itself is built.
+foundational decisions were recorded before implementation rather than
+waiting for the transport milestone.
 
 See [ADR 0007](../decisions/architecture-decision-records/0007-networking-and-multiplayer-model.md)
 for the decision record.
@@ -97,9 +98,10 @@ engine.
 
 ## Rollback netcode: architected for, not required
 
-Full rollback netcode (common in fighting games — resimulating several
-frames of *every* client's local state on misprediction, not just the local
-player's) is explicitly **not** a v0.0.1 or even an early-era requirement.
+Client prediction/reconciliation and full rollback netcode (resimulating
+several frames of client state after a misprediction) are explicitly outside
+the `v0.1.0` requirement; see the
+[`v0.1.0 plan`](../roadmap/v0.1.0-plan.md#explicitly-not-required-for-v010).
 But because the ECS is designed around explicit system data-access
 declarations and a fixed timestep from the start (see
 [core-runtime.md](core-runtime.md)), adding rollback support later is
@@ -110,7 +112,9 @@ in [rendering.md](rendering.md) for the RHI.
 
 ## Status in this foundation
 
-Entirely architectural. No `canary-net` crate, no `quinn` dependency, and no
-replication marker types exist yet — tracked explicitly in
-[`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md) as later-era
-work, seeded by ECS design decisions made now.
+No `canary-net` crate, transport, or replication marker types exist yet.
+Stable component schema identity is implemented. Snapshot APIs, durable
+removal/destruction history, canonical ordering, and frame-tagged simulation
+input are specified or required by ADRs 0020–0022 but are not implemented.
+The first end-to-end proof must use a separate server and client process;
+see [`v0.0.15`](../roadmap/v0.1.0-plan.md#v0015--networking).

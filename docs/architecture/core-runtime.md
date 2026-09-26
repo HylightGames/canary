@@ -1,7 +1,9 @@
 # Core Runtime
 
-Covers `canary-core` and `canary-ecs`: the parts of the engine that exist
-before there's a window, a renderer, or a network connection.
+Covers `canary-core` and `canary-ecs`: the application lifecycle, ECS data
+model, and boundaries between the engine core and the subsystems composed
+above it. Windowing and rendering exist in other crates; reusable consumer
+runtime composition and networking remain separate work.
 
 ## The `App`/`Engine` bootstrap
 
@@ -82,7 +84,7 @@ scale and becomes a rewrite at production scale:
 
 ## ECS architecture
 
-### Target design (Era 2+)
+### ECS design and target contracts
 
 Canary's ECS is **archetype-based**: entities with the same set of component
 types are stored contiguously (an "archetype table"), so iterating over
@@ -100,21 +102,27 @@ Target-design commitments:
   new one.
 - **Components** are plain Rust structs with no inheritance/vtable
   requirement — data, not behavior.
-- **Systems** declare their data access (which components/resources they
-  read vs. write) in their function signature; the scheduler uses that
-  declaration to run non-conflicting systems in parallel automatically. No
-  system manually spawns a thread.
+- **Systems** make data access explicit so the scheduler can identify
+  conflicts. Today, `SystemAccess` is manual metadata beside a closure that
+  can access the full `World`; it is not checked against the body (R-24).
+  Keep writers solo until typed system parameters or an equivalent mechanism
+  enforces the declaration. Concurrent disjoint writes and automatic
+  signature inference are not implemented.
 - **Queries** are cached where possible so that iterating "all entities with
   X" doesn't re-derive the matching archetype set every call.
 - **Change detection** (has this component been written since system Y last
-  ran?) is a first-class query filter, because it's foundational for
-  networking replication (only send what changed) and for editor tooling
-  (only re-cook what changed).
+  ran?) is a first-class query filter. Mutation ticks do not report removals
+  or destruction; durable history for those is still required for networking
+  (R-33).
 
 ### What's implemented as of `v0.0.7`
 
-`canary-ecs`'s `World` now matches the target design above on every point
-except the scheduler itself:
+At `v0.0.7`, `canary-ecs`'s `World` implemented archetype storage, cached
+queries, multi-component reads, a limited mutable/shared query, typed
+resources, change detection, and stable component schema registration. The
+scheduler was added separately in `v0.0.8`; current execution limitations are
+described in
+[`execution-model.md`](execution-model.md#known-limitations):
 
 - **Archetype storage**: entities sharing a component-type signature live
   together in one archetype table; each component type is its own
@@ -147,9 +155,9 @@ except the scheduler itself:
   [`docs/architecture/plugin-system.md`](plugin-system.md) for that side
   of it, which lives in a different crate than this one.
 
-This section covers `canary-ecs` specifically, so it stays at "as of
-`v0.0.7`" even though the engine as a whole has since moved to `v0.0.8`
-— the scheduler that milestone added,
+This section covers `canary-ecs` specifically, so the implementation details
+remain scoped to `v0.0.7`, while the engine as a whole is now at `v0.0.12`.
+The scheduler added in `v0.0.8`,
 [Threading & the job system](#threading--the-job-system) below, lives
 in a new crate (`canary-scheduler`), not here, and doesn't change
 anything about `canary-ecs`'s own API. Tier A's own loader, capability
@@ -213,9 +221,10 @@ for the enforced version of these conventions.
 
 ## Known limitations
 
-No open known limitations for `canary-ecs`'s ECS design as of `v0.0.7` —
-the scheduler now exists as its own crate, and no known storage or
-identity invariant from the v0.0.7 ECS slice is open. See
+The ECS storage and identity work landed in `v0.0.2` and `v0.0.7`; that does
+not close the execution and replication limitations around it. In particular,
+manual/unverified scheduler access declarations (R-24) and missing durable
+removal/destruction history (R-33) remain open. See
 [`execution-model.md`](execution-model.md#known-limitations) for current
 scheduler and runtime-composition gaps, and the resolution notes below
 for what the August 2026 review and the `v0.0.2` archetype migration

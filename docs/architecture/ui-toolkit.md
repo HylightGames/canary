@@ -9,10 +9,10 @@ past this pattern — see
 [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)).
 See
 [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md)
-for the decision record; this document is the fuller design. Nothing
-here is implemented yet, as of `v0.0.8` — this is architecture written
-ahead of its code, the same reason every other subsystem doc in this
-project is written ahead of its code, not a claim that it's imminent.
+for the decision record; this document is the fuller design. Neither the
+`canary-ui-core` abstraction nor an `egui` backend is implemented as of
+`v0.0.12`. The first game-facing UI slice is planned for `v0.0.13`; this
+design is not evidence that code already exists.
 
 ## The mistake this is designed to avoid
 
@@ -149,11 +149,12 @@ to accept.
 
 ## Status in this foundation
 
-Entirely architectural — no `canary-ui-core` crate exists yet. Depends on
-the editor's own work starting (Era 5, per
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)),
-which is itself gated on rendering and the plugin system, per
-[`docs/roadmap/future-roadmap.md`](../roadmap/future-roadmap.md). See
+Entirely architectural — no `canary-ui-core` crate exists yet. The
+implementation is planned for `v0.0.13` as game-facing UI before the editor;
+it depends on reusable runtime composition, live window presentation, and the
+shared input path in the [`v0.1.0 plan`](../roadmap/v0.1.0-plan.md). Editor
+work follows after `v0.1.0` per the
+[`future roadmap`](../roadmap/future-roadmap.md). See
 [`docs/ui/editor-design.md`](../ui/editor-design.md), which this document
 supersedes for the specific "which toolkit" question that doc had left
 open.

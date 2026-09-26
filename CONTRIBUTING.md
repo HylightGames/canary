@@ -17,9 +17,10 @@ Before making a change, make sure you understand the part of the project you are
 Start with:
 
 1. [`docs/vision/`](docs/vision/) for Canary's goals, principles, and non-negotiable constraints.
-2. [`docs/architecture/`](docs/architecture/) for the subsystem or boundary you intend to modify.
-3. [`docs/decisions/architecture-decision-records/`](docs/decisions/architecture-decision-records/) for decisions that may already govern the approach.
-4. [`docs/roadmap/status.md`](docs/roadmap/status.md) to understand whether the area is implemented, experimental, architected, or planned.
+2. [`docs/roadmap/README.md`](docs/roadmap/README.md) for the current handoff and how the roadmap documents fit together.
+3. [`docs/roadmap/status.md`](docs/roadmap/status.md) to understand whether the area is implemented, experimental, architected, or planned.
+4. [`docs/architecture/`](docs/architecture/) for the subsystem or boundary you intend to modify.
+5. [`docs/decisions/architecture-decision-records/README.md`](docs/decisions/architecture-decision-records/README.md) for decisions that may already govern the approach.
 
 ### Check existing decisions first
 

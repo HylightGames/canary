@@ -8,6 +8,26 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
+## Current handoff — `v0.0.13` is next
+
+`v0.0.12` audio is implemented on `dev`, not yet tagged. The next planned
+milestone is `v0.0.13` (`CanaryUI` + windowed presentation). The concrete
+starting sequence and acceptance proof are in
+[`v0.1.0-plan.md`](v0.1.0-plan.md#v0013-canaryui--windowed-presentation),
+with a shorter contributor checklist in [`README.md`](README.md). In order:
+decide and document the reusable game-runtime composition boundary (including
+safe plugin access to the active `World`), implement renderer capabilities and
+the window surface seam, connect raw input through deterministic game actions,
+then prove UI and gameplay together in a live window. Do not begin `.14` until
+the supported consumer path and `.13` proof are usable.
+
+The next milestones are `.14` authored project state and simulation snapshots,
+`.15` minimal server-authoritative networking, `.16` the first collaboration
+slice, then `.1.0` integration in a small sample game. The detailed sequence
+and out-of-scope items are in [`v0.1.0-plan.md`](v0.1.0-plan.md); long-term
+editor, visual scripting, and ecosystem work is in
+[`future-roadmap.md`](future-roadmap.md).
+
 ## `v0.0.1` — Released
 
 - [x] Repository, git history, MIT license
@@ -18,7 +38,7 @@ a point-in-time record — the same convention as
 - [x] CI (Linux/macOS/Windows build matrix, `wasm32-wasip2` target check)
 - [x] Full `docs/` architecture (vision, architecture, decisions, roadmap,
       development, ui, research, reviews)
-- [x] 14 ADRs (`0001`–`0014`; see the [ADR index](../decisions/architecture-decision-records/))
+- [x] 14 ADRs (`0001`–`0014`; see the [ADR index](../decisions/architecture-decision-records/README.md))
 - [x] Cargo workspace + `xtask` build orchestration
 - [x] `canary-core` — `App`/`Subsystem` bootstrap, structured logging,
       error-handling conventions
@@ -64,7 +84,7 @@ archetype ECS migration.
 the parallel job-stealing scheduler, Tier A WASM plugin loading, real
 windowing, rendering, physics, networking, `CanaryUI`, `canary-state`.
 
-## `v0.0.3` — In progress, nearly complete
+## `v0.0.3` — Implemented, not yet tagged
 
 Full detail: [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Single focus:
 Tier A (sandboxed WASM Component Model) plugin loading.
@@ -572,6 +592,7 @@ about working code in `engine/`.
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
 | Consumer runtime composition | ✅ | ⚠️ | `canary-runtime` is a private headless binary harness with a private `EcsSubsystem`; there is no reusable game-runtime library/API yet. Close this gap for the `v0.1.0` consumer proof |
 | Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
+| Input and simulation boundary | ✅ | ⚠️ Partial | Platform raw input exists; `InputMapping`/`InputAction`/`PlayerInput`/frame-tagged `SimulationInput` and UI focus/capture are not implemented. Required in `v0.0.13`; see [`input-and-simulation.md`](../architecture/input-and-simulation.md) |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
 | Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
 | Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented on `dev`, not yet tagged |
@@ -584,10 +605,10 @@ about working code in `engine/`.
 | Scripting system | ✅ | ❌ | Depends on Tier A |
 | Asset system | ✅ | ✅ (minimal) | `AssetId`/`AssetHandle<T>`/`AssetStore<T>` with sync GLB/PNG/WAV/Vorbis loaders; `AssetId` is provisional content identity. Stable `LogicalAssetId`, cooking, cache, hot reload, importers-as-plugins, and broader formats remain future work; `v0.0.10`/`.12` |
 | Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, headless default), `AudioSource`/`AudioListener` + trigger system using propagated `GlobalTransform` poses; host must insert a device backend for audible output. Custom engine stays the long-term default per ADR 0023; `v0.0.12` |
-| `CanaryUI` (UI toolkit) | ✅ | ❌ | ADR 0011; abstraction layer could start independent of a backend |
+| `CanaryUI` (UI toolkit) | ✅ | ❌ | ADR 0011; planned for `v0.0.13` as game-facing UI using the shared runtime, input, window surface, and renderer path |
 | Project state & versioning (`canary-state`) | ✅ | ❌ | Authored identity and simulation snapshot contracts in ADRs 0021–0022; stable-ID registries, codecs, migration, and snapshots are not implemented |
 | Live collaboration | ✅ | ❌ | ADR 0013 (`Accepted` — topology only; protocol/permissions unresolved) |
-| Editor | ⚠️ Partial (vision-level) | ❌ | Era 5; blocked on plugin system + rendering + `CanaryUI` |
+| Editor | ⚠️ Partial (vision-level) | ❌ | Post-`v0.1.0`; build on the proven consumer runtime, project-state formats, `CanaryUI`, plugin lifecycle, and windowed rendering. See [`future-roadmap.md`](future-roadmap.md) |
 | CLI/headless operation (editor) | ✅ (principle recorded) | N/A yet | No editor exists to apply it to; proven in spirit by `canary-runtime`/`xtask` today |
 | 2D/3D & non-game applicability | ✅ (vision + physics + rendering) | N/A | Positioning + architectural constraint, not a standalone feature |
 
