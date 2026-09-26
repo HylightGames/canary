@@ -48,7 +48,7 @@ or through explicit, documented interfaces — never through ad hoc globals.
 |---|---|---|
 | Platform abstraction | `canary-platform` | [platform-abstraction.md](platform-abstraction.md) |
 | Core runtime (App, logging, error conventions) | `canary-core` | [core-runtime.md](core-runtime.md) |
-| Game runtime composition | `canary-runtime` is currently a private headless harness; reusable consumer API planned | [core-runtime.md](core-runtime.md#the-appengine-bootstrap) |
+| Game runtime composition | `canary-runtime` is currently a private headless harness; reusable consumer API proposed, not implemented | [runtime-composition.md](runtime-composition.md) |
 | ECS | `canary-ecs` | [core-runtime.md](core-runtime.md) |
 | Scheduler (stage-based system execution) | `canary-scheduler` | [execution-model.md](execution-model.md) |
 | Input and simulation boundary | `canary-platform` raw input exists; runtime/gameplay action flow is planned | [input-and-simulation.md](input-and-simulation.md) |

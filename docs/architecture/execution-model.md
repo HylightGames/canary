@@ -49,9 +49,11 @@ work (see "Known limitations" below).
    or physics simulation time. The simulation runner owns advancement and
    advances once before the systems for a simulation run; the scheduler
    executes work without advancing time. The current `canary-runtime`
-   harness follows this rule in its `EcsSubsystem`. A structured
-   `RunContext` and a general fixed-step/presentation loop remain future
-   runtime work; see ADR 0021 Amendment 7.
+   harness follows this rule in its `EcsSubsystem`. The proposed
+   `RunContext` ownership and consumer lifecycle are described in
+   [runtime-composition.md](runtime-composition.md) and ADR 0024; neither
+   the public context API nor a general fixed-step/presentation loop is
+   implemented. The proposal applies ADR 0021 Amendment 7.
 4. **Identity.** Structural identity (`Entity` index+generation and a
    component's `TypeId`), schema identity (`CanaryComponent::SCHEMA_ID`),
    authored identity, and content identity are distinct. Assets follow

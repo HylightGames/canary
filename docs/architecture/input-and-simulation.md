@@ -14,8 +14,10 @@ There is no `InputAction`, mapping context, player-input layer, or
 frame-tagged simulation input type. The application loop supplies elapsed
 wall-clock duration to subsystems. The `canary-runtime` headless harness
 advances its ECS tick once before each scheduled simulation run; a general
-`RunContext`, fixed-step simulation runner, and presentation pacing policy
-remain future runtime work.
+`RunContext` and consumer lifecycle are proposed in
+[`runtime-composition.md`](runtime-composition.md) and ADR 0024, but are
+not implemented. A general fixed-step simulation runner and presentation
+pacing policy remain future runtime work.
 
 ## Input path
 
@@ -58,11 +60,13 @@ physics simulation time, and logical ECS tick remain distinct. One
 presentation frame may contain no simulation step or multiple simulation
 steps once a fixed-step runner exists.
 
-The intended runtime context carries the logical tick, simulation time,
-outer frame number, delta, and run identity. Its API and the fixed-step
-accumulator are future implementation work. The current headless harness
-uses a simpler direct `World::advance_tick` boundary, which is sufficient
-to keep change detection and transform propagation meaningful there.
+The proposed runtime context carries the logical tick, simulation time,
+outer frame number, separately named frame/simulation deltas, and run
+identity. Its public API remains unimplemented. The current headless
+harness uses a simpler direct `World::advance_tick` boundary, which is
+sufficient to keep change detection and transform propagation meaningful
+there. See [runtime-composition.md](runtime-composition.md) for the proposed
+ownership and initial `.13` scope.
 
 ## Commands, messages, and observations
 

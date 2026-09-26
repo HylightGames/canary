@@ -14,12 +14,14 @@ a point-in-time record — the same convention as
 milestone is `v0.0.13` (`CanaryUI` + windowed presentation). The concrete
 starting sequence and acceptance proof are in
 [`v0.1.0-plan.md`](v0.1.0-plan.md#v0013-canaryui--windowed-presentation),
-with a shorter contributor checklist in [`README.md`](README.md). In order:
-decide and document the reusable game-runtime composition boundary (including
-safe plugin access to the active `World`), implement renderer capabilities and
-the window surface seam, connect raw input through deterministic game actions,
-then prove UI and gameplay together in a live window. Do not begin `.14` until
-the supported consumer path and `.13` proof are usable.
+with a shorter contributor checklist in [`README.md`](README.md). A concrete
+runtime-composition proposal and ADR 0024 now document the first design task;
+they remain proposed and must be reviewed and resolved before implementation.
+Then implement renderer capabilities and the window surface seam, connect raw
+input through deterministic game actions, and prove UI and gameplay together
+in a live window. R-34 and R-36 remain open until their relevant runtime
+contracts are implemented and proven. Do not begin `.14` until the supported
+consumer path and `.13` proof are usable.
 
 The next milestones are `.14` authored project state and simulation snapshots,
 `.15` minimal server-authoritative networking, `.16` the first collaboration
@@ -590,7 +592,7 @@ about working code in `engine/`.
 |---|---|---|---|
 | Repository/governance | ✅ | ✅ | `v0.0.1` |
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
-| Consumer runtime composition | ✅ | ⚠️ | `canary-runtime` is a private headless binary harness with a private `EcsSubsystem`; there is no reusable game-runtime library/API yet. Close this gap for the `v0.1.0` consumer proof |
+| Consumer runtime composition | ✅ | ⚠️ | [Proposal](../architecture/runtime-composition.md) and [ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md) are under review; `canary-runtime` is still a private headless binary harness with no reusable game-runtime library/API. R-34/R-36 remain open pending implementation and proof |
 | Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
 | Input and simulation boundary | ✅ | ⚠️ Partial | Platform raw input exists; `InputMapping`/`InputAction`/`PlayerInput`/frame-tagged `SimulationInput` and UI focus/capture are not implemented. Required in `v0.0.13`; see [`input-and-simulation.md`](../architecture/input-and-simulation.md) |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |

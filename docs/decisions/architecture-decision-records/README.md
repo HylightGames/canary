@@ -33,6 +33,7 @@ status; check the record before relying on a decision.
 | [0021](0021-amendments-to-pre-v0-3-locks.md) | Amendments to the pre-v0.3 locks |
 | [0022](0022-constitution-clarifications-and-red-team.md) | Architectural constitution clarifications and review |
 | [0023](0023-audio-bootstrap-rodio-behind-custom-trait.md) | Audio bootstrap behind a Canary-owned trait |
+| [0024](0024-reusable-runtime-composition.md) | Proposed reusable runtime composition and scoped plugin access |
 
 Planned decisions are listed as triggers in
 [`docs/roadmap/future-roadmap.md`](../../roadmap/future-roadmap.md). They are

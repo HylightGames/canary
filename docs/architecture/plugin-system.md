@@ -188,10 +188,12 @@ frustrated modder.
   already-running `World` is a real design question that belongs with the
   current scheduler and its system-access model, not something Tier A should
   solve ad hoc for itself. `canary-scheduler` exists, but its declarations are
-  manual metadata and are not checked against closure access (R-24). Resolve
-  this boundary with reusable runtime composition in `v0.0.13`; see
-  `docs/architecture/core-runtime.md#threading--the-job-system` and the
-  [contributor handoff](../roadmap/README.md). See
+  manual metadata and are not checked against closure access (R-24). A
+  proposed exclusive, invocation-scoped boundary is recorded for review in
+  [`runtime-composition.md`](runtime-composition.md) and ADR 0024. R-34 stays
+  open until an accepted design is implemented and proven in `v0.0.13`. See
+  the [contributor handoff](../roadmap/README.md) and
+  `docs/architecture/core-runtime.md#threading--the-job-system`. See
   `engine/canary-plugin-api/src/tier_a.rs`'s `HostState` doc comment.
 
 Resolved since the August 2026 review, for `v0.0.1`: the Tier B vtable

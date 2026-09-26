@@ -2,8 +2,10 @@
 
 Covers `canary-core` and `canary-ecs`: the application lifecycle, ECS data
 model, and boundaries between the engine core and the subsystems composed
-above it. Windowing and rendering exist in other crates; reusable consumer
-runtime composition and networking remain separate work.
+above it. Windowing and rendering exist in other crates. Reusable consumer
+composition is proposed in
+[`runtime-composition.md`](runtime-composition.md) and ADR 0024; it is not
+implemented. Networking remains separate work.
 
 ## The `App`/`Engine` bootstrap
 
@@ -11,9 +13,9 @@ runtime composition and networking remain separate work.
 server, editor, or test harness) shares:
 
 ```rust
-// Illustrative composition. `canary-runtime` currently demonstrates
-// this with a private headless EcsSubsystem; it is not yet a reusable
-// game-runtime library. A game subsystem owns and runs its Schedule.
+// Current low-level App usage, not the proposed reusable game-runtime API.
+// `canary-runtime` currently demonstrates composition with a private
+// headless EcsSubsystem; see runtime-composition.md and ADR 0024.
 let mut app = canary_core::App::new();
 app.add_subsystem(some_crate::SomeSubsystem::default());
 app.run(|| {

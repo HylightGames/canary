@@ -18,13 +18,14 @@ definition in [`v0.1.0-plan.md`](v0.1.0-plan.md#v0013-canaryui--windowed-present
 
 Work through these prerequisites in order:
 
-1. **Specify reusable runtime composition.** Replace the private-harness-only
-   assumption with a documented, supported way for a game to compose the
-   platform, simulation schedule, renderer, UI, and audio phases. Define who
-   owns and advances `RunContext`/the ECS tick, phase order, errors and
-   shutdown, and how a plugin receives safe scoped access to the active game
-   `World` (R-34 and R-36). Record the chosen public boundary in an architecture
-   document and an ADR before implementing it.
+1. **Review and settle reusable runtime composition.** A concrete proposal
+   for a public `canary-runtime` composition layer, `RunContext`/tick
+   ownership, phase order, errors/shutdown, lifecycle scope, and invocation-
+   scoped Tier A access to the live game `World` is in
+   [`runtime-composition.md`](../architecture/runtime-composition.md) and
+   [ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md).
+   Review or amend it before implementing. R-34/R-36 remain open until the
+   live-world boundary and lifecycle are implemented and proven.
 2. **Complete the window-to-renderer seam.** Follow ADRs 0020–0022: query
    renderer capabilities through Canary-owned types; create a surface from a
    platform `Window` without leaking backend types; handle format selection,

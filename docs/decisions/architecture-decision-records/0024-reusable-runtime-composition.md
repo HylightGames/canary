@@ -1,0 +1,145 @@
+# 0024. Reusable game-runtime composition and scoped plugin access
+
+**Status:** Proposed for `v0.0.13`; review before implementation.
+
+## Context
+
+Canary has working subsystem traits, a scheduler, platform abstractions,
+rendering and physics slices, and a headless runtime binary. It does not yet
+have a reusable game-facing composition API. `canary-core::App` owns a
+simple `init`/`tick`/`shutdown` loop over subsystems, while the private
+`canary-runtime` binary owns a `World` and `Schedule` in its private
+`EcsSubsystem`. The binary demonstrates one integration; a game cannot yet
+use it as a supported runtime.
+
+The runtime must own simulation time advancement and phase ordering without
+making lower-level crates depend on the platform, renderer, audio, UI, or
+plugin loader. It must also provide Tier A plugins scoped access to the
+active game world. The current `HostState` owns a separate `World`, and the
+scheduler's manual `SystemAccess` declarations cannot prove concurrent
+access safe (R-24, R-34). `Subsystem` currently offers only `init`, `tick`,
+and `shutdown`; a richer lifecycle is a separate risk (R-36).
+
+ADRs 0021–0022 already lock runner-owned ticks, the input/simulation
+boundary, command/message semantics, and the simulation/presentation split.
+This ADR defines the composition direction that applies those foundations
+to the first consumer runtime. It does not choose the exact public Rust API
+or implementation mechanism for guest-memory borrowing.
+
+## Proposed decision
+
+1. **Place reusable composition in the existing `canary-runtime` package.**
+   Promote it from a binary-only harness package to a public library
+   composition layer; the current headless executable may remain as a
+   consumer of that library. Keep `canary-core` as a lower-level,
+   subsystem-agnostic lifecycle primitive. Do not create a new
+   `canary-app`/`canary-game` crate until a second real composition consumer
+   shows that the boundary needs to split.
+2. **Make the runtime the owner of one active world and its execution.**
+   A consumer supplies game logic and selects optional subsystem backends.
+   The runtime owns the active `World`, schedule execution, `RunContext`,
+   phase order, and teardown from start through shutdown. A consumer may
+   configure and populate its world before the run; during the run, access
+   is mediated by the runtime's documented phase and capability boundaries.
+3. **Centralize phase order, retain headless composition.** The runtime
+   defines the sequence for platform event pumping, input routing,
+   simulation, observation/effect processing, UI, render extraction,
+   rendering/presentation, and shutdown. Presentation services are optional;
+   a headless game/server/test uses the same simulation and lifecycle
+   contract with those phases omitted.
+4. **Keep time ownership in the runtime.** The runtime alone advances ECS
+   `Tick`, exactly once immediately before each scheduled pass that may
+   mutate the world. Schedules and systems consume context and do not
+   advance the tick. Frame time, physics simulation time, and logical ECS
+   ticks remain distinct. The first `v0.0.13` composition preserves one
+   scheduled pass per outer frame and the existing physics fixed-step
+   accumulator; a general fixed-step game runner is a separate design.
+5. **Scope Tier A access to synchronous host invocations.** The active game
+   world is exposed only through granted Tier A host interfaces and the
+   existing schema codecs. Plugin calls happen at explicit exclusive
+   runtime boundaries, outside a running schedule, one at a time. No raw
+   `World` reference, pointer, or independently owned substitute world
+   escapes as the game state. This first scope applies to the existing
+   `on_load`/`on_unload` callbacks; it does not add a per-frame plugin hook.
+   The implementation must prove scoped access and trap cleanup safe
+   without relying on unverified scheduler metadata.
+6. **Define basic lifecycle failure semantics now.** A required-service
+   initialization failure aborts startup and cleans up successfully
+   initialized services in reverse order. An unhandled fatal phase failure
+   stops the loop, cleans up, and returns a typed error. Normal close stops
+   before the next simulation pass. Cleanup continues after individual
+   failures and does not hide the primary failure; panics remain panics after
+   cleanup is attempted. Pause/resume, hot reload, replacement, and restart
+   in place are not part of this first lifecycle. These guarantees apply to
+   errors surfaced by the runtime service contract. Current plugin hooks are
+   infallible, and Tier A guest traps are logged; before plugin loading can
+   be a required service, define a fallible loader boundary that can report
+   such failures to the runtime.
+
+The phase order, time semantics, scoped-access invariant, and lifecycle
+failure behavior are binding if this ADR is accepted. Exact type names,
+builder shape, service registration syntax, context delivery mechanism, and
+the safe Wasmtime host-state mechanism remain open for review before code.
+
+## Alternatives considered
+
+**Expand `canary-core::App` into the game runtime.** Rejected. `canary-core`
+is a lower-level crate and intentionally has no platform, schedule, render,
+audio, UI, or plugin dependencies. Teaching it those concepts would reverse
+the composition direction and make headless core use pay for higher layers.
+
+**Keep composition in a binary or ask every game to wire subsystems
+manually.** Rejected. A private binary cannot be a supported game API, and
+duplicated phase order would make tick ownership, error handling, and plugin
+access vary by application.
+
+**Add a new `canary-app` or `canary-game` crate now.** Deferred. It would
+create a second public layer before a second consumer has shown what should
+live there. The existing `canary-runtime` package already occupies the
+upward composition position and can expose its behavior as a library.
+
+**Give each Tier A instance its own copied or moved `World`.** Rejected.
+That cannot mutate or observe the active game state, which is the purpose of
+R-34.
+
+**Run a plugin concurrently with schedule systems using declared
+`SystemAccess`.** Rejected for the first runtime. The declarations are
+manual and unchecked (R-24), so they cannot prove that the plugin and
+systems access disjoint data. Exclusive, synchronous phase boundaries are
+the current safe contract.
+
+**Store a raw pointer or unchecked borrowed reference to `World` in
+Wasmtime state.** Rejected as an architectural contract. A plugin's
+authority and lifetime must be bounded at the host-call boundary; the
+implementation must choose a safe mechanism and demonstrate cleanup on
+guest traps before it can ship.
+
+## Consequences
+
+- The existing `canary-runtime` package gains a library role while
+  `canary-core::App` remains usable for simple subsystem-driven programs and
+  tests.
+- Game, server, and test consumers share lifecycle and tick ownership. Their
+  selected backends and optional presentation phases remain explicit.
+- The runtime takes responsibility for cross-subsystem ordering and
+  `RunContext`; subsystem registration alone is no longer treated as a
+  complete game-frame contract.
+- Tier A can affect the active game world only through capability-checked,
+  synchronous host calls. This does not add a per-frame plugin callback or
+  an editor extension API.
+- The first implementation remains single-threaded at phase boundaries.
+  Existing concurrent read-only scheduler stages continue within the
+  scheduler; runtime/plugin overlap and concurrent writers are excluded.
+- Runtime-level fixed-step execution, pause/resume, reload, replacement,
+  multiple windows, and concurrent plugin calls remain later design work.
+
+## Revisit conditions
+
+- A real second consumer that cannot use `canary-runtime` without an
+  unnatural abstraction may justify a separate application-composition
+  crate.
+- A proven typed system-access mechanism may justify relaxing exclusive
+  plugin/world phase boundaries.
+- A consumer that needs runtime pause, restart, replacement, or hot reload
+  must define those lifecycle transitions in a new ADR before they are
+  added to the public contract.
