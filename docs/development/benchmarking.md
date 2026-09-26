@@ -86,6 +86,49 @@ for suites that don't exist. **Adding a `benches/` directory to a new
 crate means adding that crate to the workflow's list**, otherwise its
 suite is built by nobody and quietly never measured.
 
+## CI gating policy: regressions inform, failures block
+
+CodSpeed is a performance observability and review signal, not a
+correctness gate — deliberately separate from the build, test, clippy,
+fmt, and security gates:
+
+```text
+Performance regression:
+    informational → review it
+
+
+Benchmark infrastructure failure:
+    CI failure → fix it
+```
+
+Concretely:
+
+- **A measured regression never fails the workflow.** When benchmarks
+  run and upload successfully, the `benchmarks` job passes regardless
+  of what the numbers say; CodSpeed posts the comparison (including
+  regressions) to the pull request for review. A slower number is a
+  question to answer in review ("is this cost bought by something?"),
+  not proof the PR is invalid — small fluctuations on shared CI
+  hardware are expected, so investigate meaningful regressions rather
+  than optimizing every wiggle.
+- **Anything that stops CodSpeed from executing still fails.** A
+  benchmark that does not compile, a `cargo codspeed build`/`run`
+  error, an invalid benchmark configuration, or a failed results
+  upload fails the job exactly like any other CI step — there is
+  deliberately no `continue-on-error` anywhere in `codspeed.yml`.
+  This distinction is structural, not conventional: the workflow has
+  no input that could turn a regression into a pass or an
+  infrastructure failure into a pass, because the regression verdict
+  is reported by CodSpeed itself while step failures are GitHub's.
+- **CodSpeed must not become a required check.** The repository's
+  branch rulesets (managed in GitHub's settings/API, not in this
+  repository — there is intentionally no in-repo representation to
+  edit) list only the correctness gates as required. Do not add the
+  CodSpeed status to any ruleset's required checks: that single
+  setting is what would turn an informational regression into a
+  merge block, and flipping it would contradict this policy without
+  changing a line of YAML.
+
 ## Writing a new benchmark
 
 - Measure something a frame or a load actually does. The suites above are
