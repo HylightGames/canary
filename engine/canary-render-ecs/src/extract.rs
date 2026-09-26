@@ -295,9 +295,19 @@ struct PendingTriangle {
 /// are *not* stored here: they live in the [`BakedFrame`] resource itself,
 /// whose buffer the scheduled bake system reuses the same way — one
 /// scratch resource per intermediate, one owner per buffer, no aliasing.
+///
+/// The painter sort runs over the reused `order` index buffer rather than
+/// over the triangles themselves: each `PendingTriangle` holds three
+/// `Vec3` corners plus color plus depth (~52 bytes), so swapping whole
+/// triangles during the sort moves an order of magnitude more bytes per
+/// comparison than swapping indices. Emission gathers through the sorted
+/// indices instead, keeping the output byte-identical to a direct sort
+/// (`sort_by` is stable, and equal depths retain extract order either
+/// way).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BakeScratch {
     triangles: Vec<PendingTriangle>,
+    order: Vec<usize>,
 }
 
 /// Bakes `items` into NDC-space vertex floats for a square target.
@@ -439,15 +449,24 @@ pub fn bake_scene_to_vertices_with_aspect_into(
     // Painter's algorithm: farthest first so nearer triangles overdraw.
     // `total_cmp` gives a deterministic order for every `f32` bit pattern
     // (no NaN-panic path exists in `sort_by`'s contract to worry about).
-    triangles.sort_by(|a, b| b.avg_depth.total_cmp(&a.avg_depth));
+    // Sorted as indices into `triangles` (see `BakeScratch`): swapping
+    // whole `PendingTriangle`s would move ~52 bytes per comparison.
+    let triangles: &[PendingTriangle] = &scratch.triangles;
+    let order = &mut scratch.order;
+    order.clear();
+    order.extend(0..triangles.len());
+    order.sort_by(|&a, &b| triangles[b].avg_depth.total_cmp(&triangles[a].avg_depth));
 
     // Refresh in place: last frame's vertex floats are dropped but their
     // allocation is kept, so the steady state never reallocates here.
     // Emission order is untouched — the `clear` cannot leak into the
     // result, and nothing below reads `out` before writing it.
+    // Gathered through the sorted indices: triangle for triangle, this is
+    // the same far-to-near order a direct sort would emit.
     out.clear();
     out.reserve(triangles.len() * 3 * FLOATS_PER_VERTEX);
-    for triangle in triangles.iter() {
+    for &index in order.iter() {
+        let triangle = &triangles[index];
         // Project first, emit after: a partial triangle (fewer than
         // three vertices) would misalign the whole soup, so validity is
         // decided per triangle, never per vertex.
