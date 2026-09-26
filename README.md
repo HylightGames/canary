@@ -18,10 +18,10 @@
   <a href=".github/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=github-actions&logoColor=white"></a>
   <a href="rust-toolchain.toml"><img alt="Rust" src="https://img.shields.io/badge/language-Rust-orange.svg?logo=rust"></a>
   <a href="https://app.codspeed.io/HylightGames/canary?utm_source=badge"><img src="https://img.shields.io/endpoint?url=https://codspeed.io/badge.json" alt="CodSpeed"/></a>
-  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.11-yellow.svg"></a>
+  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.12-yellow.svg"></a>
 </p>
 
-> **Early development:** Canary is currently at `v0.0.11` and is not yet
+> **Early development:** Canary is currently at `v0.0.12` and is not yet
 > production-ready. The engine foundation and extensibility systems are under
 > active development.
 
@@ -37,9 +37,11 @@ Implemented:
 - Sandboxed WebAssembly Component plugins
 - Real windowing (behind an opt-in feature) and a first rendering backend (Vulkan)
 - Fluent-backed localization
+- 2D physics (fixed-step simulation driving ECS transforms)
+- Audio playback (trait + bootstrap backend, game-state triggered)
 - Core runtime and platform abstractions
 
-A full renderer (materials, lighting, post-processing), UI, physics, audio,
+A full renderer (materials, lighting, post-processing), UI,
 networking, and project state/the editor are still in development or planned.
 
 See [`docs/roadmap/status.md`](docs/roadmap/status.md) for the complete,
