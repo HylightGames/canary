@@ -71,6 +71,8 @@ pub use component_value::{
 pub use error::PluginError;
 #[cfg(not(target_family = "wasm"))]
 pub use loader::NativePluginLoader;
-pub use plugin::Plugin;
+pub use plugin::{Plugin, PluginPhase, PluginRequirement};
 #[cfg(not(target_family = "wasm"))]
-pub use tier_a::{ResourceBudget, WasmComponentPlugin, WasmPluginLoader};
+pub use tier_a::{
+    PluginOutcome, ResourceBudget, ScopedGrant, WasmComponentPlugin, WasmPluginLoader,
+};

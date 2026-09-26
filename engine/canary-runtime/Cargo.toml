@@ -21,4 +21,8 @@ canary-render-ecs = { path = "../canary-render-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
 canary-transform = { path = "../canary-transform" }
 anyhow = "1.0.104"
+thiserror = "2.0.19"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+wat = "1"

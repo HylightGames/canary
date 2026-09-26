@@ -472,7 +472,9 @@ dependencies = [
  "canary-render-ecs",
  "canary-scheduler",
  "canary-transform",
+ "thiserror 2.0.20",
  "tracing",
+ "wat",
 ]
 
 [[package]]

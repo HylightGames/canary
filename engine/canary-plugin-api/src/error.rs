@@ -12,6 +12,8 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::plugin::PluginPhase;
+
 /// Errors from loading a plugin, either tier.
 ///
 /// Per `docs/vision/design-philosophy.md`'s "subsystems bind through
@@ -108,5 +110,44 @@ pub enum PluginError {
         /// same reason as [`PluginError::Load`]'s `source`.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// A Tier A guest trapped during a scoped lifecycle invocation —
+    /// either the guest's own code trapped (fuel exhaustion, an
+    /// unreachable, a failed guest-side assertion) or a host function
+    /// panicked and was converted to a trap at the host boundary
+    /// (see `docs/reviews/2026-09-r34-api-review.md` §2) rather than
+    /// unwinding through Wasmtime frames. The loaned world was
+    /// reclaimed through the normal cleanup path; fuel/memory limits
+    /// stayed armed on the store.
+    #[error("Tier A plugin `{plugin}` trapped during `{phase:?}`: {source}")]
+    GuestTrap {
+        /// The loader-supplied plugin name, not guest-observable.
+        plugin: String,
+        /// Which lifecycle callback trapped. Reported, never used for
+        /// control flow by the guest.
+        phase: PluginPhase,
+        /// The underlying trap, boxed for the same reason as
+        /// [`PluginError::Load`]'s `source`.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// A scoped invocation was refused because no loaned world was
+    /// available: either the runtime held `None` (a schedule overlap
+    /// or a second concurrent loan, both structurally impossible
+    /// through the [`crate::WasmComponentPlugin::call_scoped`] choke
+    /// point) or the plugin instance already held an outstanding loan
+    /// (a nested loan). Never a guest-recoverable condition — the
+    /// caller refused the loan before any guest code ran.
+    #[error(
+        "Tier A plugin `{plugin}` has no loaned world for `{phase:?}`: \
+         nested or overlapping scoped access is refused"
+    )]
+    WorldUnavailable {
+        /// The loader-supplied plugin name, not guest-observable.
+        plugin: String,
+        /// Which lifecycle callback was refused.
+        phase: PluginPhase,
     },
 }
