@@ -111,6 +111,17 @@ Concretely:
   not proof the PR is invalid — small fluctuations on shared CI
   hardware are expected, so investigate meaningful regressions rather
   than optimizing every wiggle.
+- **The GitHub check display is controlled in CodSpeed, not in YAML.**
+  The `CodSpeedHQ/action` has no input governing the check conclusion:
+  CodSpeed sets it server-side. To keep regressed runs from rendering
+  as a red failure while preserving full reporting, enable
+  **Informational Status Checks on Failure** in the repository's
+  **Settings tab on CodSpeed** (`app.codspeed.io`). With that option
+  on, the status check is sent as informational instead of failure —
+  results and PR comments are unchanged, only the red ❌ goes away.
+  This switch lives in the CodSpeed dashboard (not in this
+  repository, not in GitHub branch settings) and needs someone with
+  CodSpeed access for this repo to flip it once.
 - **Anything that stops CodSpeed from executing still fails.** A
   benchmark that does not compile, a `cargo codspeed build`/`run`
   error, an invalid benchmark configuration, or a failed results
