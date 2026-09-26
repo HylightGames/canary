@@ -26,6 +26,8 @@ remains visible).
 |---|---|---|
 | 2026-08 | [`2026-08-senior-architecture-review.md`](2026-08-senior-architecture-review.md) | Repository structure, Rust architecture, plugin ABI, ECS strategy, language independence, scripting, marketplace architecture, build system, versioning — conducted at the end of the `v0.0.1-pre1` foundation session, before further v0.0.1 development continued. |
 | 2026-09 | [`2026-09-ultrareview-hardening.md`](2026-09-ultrareview-hardening.md) | Whole-repository pre-release gate over `v0.0.9`–`v0.0.11` (untagged): FFI-unwind UB, encoder `Drop`, release NaN guards, locale budget bypass, hierarchy removal, index exhaustion, fuel/shutdown, CI/release gaps — fixed and verified (incl. Miri on `canary-ecs`); dead-slot reclamation and pre-1.0 API breaks deferred to the owner. |
+| 2026-09 | [`2026-09-r34-api-review.md`](2026-09-r34-api-review.md) | API review gating R-34 implementation (ADR 0024 acceptance): uniform-immediate writes, host-panic-to-trap, no tick at plugin phases, infallible trait + runtime-side fallible seam, resource-delivered `RunContext`, `(u32,u64)` generation parity. Binding on the implementation. |
+| 2026-09 | [`2026-09-ultrareview-hardening.md`](2026-09-ultrareview-hardening.md) | Whole-repository pre-release gate over `v0.0.9`–`v0.0.11` (untagged): FFI-unwind UB, encoder `Drop`, release NaN guards, locale budget bypass, hierarchy removal, index exhaustion, fuel/shutdown, CI/release gaps — fixed and verified (incl. Miri on `canary-ecs`); dead-slot reclamation and pre-1.0 API breaks deferred to the owner. |
 
 See also [`risk-register.md`](risk-register.md), a living (not point-in-time)
 list of tracked risks that reviews feed into and that should be updated
