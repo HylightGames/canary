@@ -119,12 +119,15 @@ impl Subsystem for EcsSubsystem {
     }
 
     fn tick(&mut self, dt: std::time::Duration) {
+        // The runner owns the logical ECS tick. Advance once before the
+        // simulation schedule so every write in this run receives the
+        // same new tick, including FrameDelta and system outputs.
+        self.world.advance_tick();
+
         // Frame time reaches the fixed-step accumulator as an ordinary
         // resource: inserting unconditionally overwrites last tick's
         // delta (resources hold one value per type), so no stale dt can
-        // survive across ticks. No `App` redesign — `tick(dt)` already
-        // receives the duration; this is the subsystem self-stepping
-        // seam the v0.0.11 plan names.
+        // survive across simulation runs.
         self.world.insert_resource(FrameDelta::new(dt));
         self.schedule.run(&mut self.world);
         tracing::debug!(
@@ -224,4 +227,42 @@ fn main() -> anyhow::Result<()> {
 
     tracing::info!("Canary Engine shutting down cleanly");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use canary_ecs::Tick;
+    use canary_transform::{GlobalTransform, Transform};
+
+    #[test]
+    fn runner_advances_once_per_tick_and_allows_quiet_propagation_to_settle() {
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(entity, Transform::identity())
+            .expect("transform insert must succeed");
+        let mut subsystem = EcsSubsystem::new(world);
+        let dt = std::time::Duration::from_millis(16);
+
+        subsystem.tick(dt);
+        let first_tick = subsystem.world.change_tick();
+        assert_ne!(first_tick, Tick::default());
+        assert!(subsystem.world.get::<GlobalTransform>(entity).is_some());
+
+        // The first follow-up run settles the propagation baseline.
+        subsystem.tick(dt);
+        let settled_tick = subsystem.world.change_tick();
+        assert_ne!(settled_tick, first_tick);
+
+        // With no transform or hierarchy changes, the next run advances
+        // time but does not rewrite GlobalTransform.
+        subsystem.tick(dt);
+        assert_ne!(subsystem.world.change_tick(), settled_tick);
+        assert!(subsystem
+            .world
+            .query_changed_since::<GlobalTransform>(settled_tick)
+            .next()
+            .is_none());
+    }
 }

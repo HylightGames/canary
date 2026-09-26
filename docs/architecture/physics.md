@@ -1,14 +1,17 @@
 # Physics
 
-Like rendering, no physics code exists in v0.0.1 — this document is
-architecture for a later era, reasoned about now.
+The 2D physics slice landed in `v0.0.11`; 3D physics and several advanced
+features remain future work. This document records both the implemented
+boundary and the longer-term backend direction.
 
 ## Trait-based abstraction, configured backends
 
 Physics follows the same "replaceable subsystem" pattern as rendering: a
-`PhysicsBackend` trait covering rigid bodies, colliders, constraints/joints,
-and scene queries (raycasts, sweeps, overlap tests). Engine and gameplay
-code call the trait, never the concrete backend crate — this is the same
+`PhysicsBackend` trait. The long-term surface is intended to cover rigid
+bodies, colliders, constraints/joints, and scene queries (raycasts,
+sweeps, overlap tests); today's 2D slice is narrower, as detailed below.
+Engine and gameplay code call the trait, never the concrete backend
+crate — this is the same
 "bind through an interface, never call a third party directly" discipline
 recorded as a project-wide principle in
 [`docs/vision/design-philosophy.md`](../vision/design-philosophy.md#subsystems-bind-through-interfaces-never-call-each-other-or-a-third-party-directly),
@@ -115,9 +118,10 @@ Rigid bodies and colliders are represented as ECS components
 simulation state but synchronizes transforms into ECS component storage
 once per physics step, following the same "backend owns its world, ECS gets
 a synchronized view" pattern used by existing Rust integrations like
-`bevy_rapier` — a pattern Canary's own ECS-native alternative path (mirroring
-Avian's approach) may improve on later, but not before the archetype ECS
-described in [core-runtime.md](core-runtime.md) exists to build it against.
+`bevy_rapier`. Canary's current Rapier2D backend uses that ownership
+boundary and synchronizes stepped poses through the physics system; an
+ECS-native alternative remains a future option, now that the archetype ECS
+foundation exists.
 
 ## Status in this foundation
 

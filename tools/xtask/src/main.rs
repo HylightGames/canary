@@ -16,9 +16,9 @@
 //! `cargo run -p xtask -- <command>`) rather than as shell scripts or an
 //! external build system.
 //!
-//! v0.0.1-pre1 ships one real subcommand, `check` (runs the same
-//! fmt/test sequence CI does, so a contributor can run it locally before
-//! pushing). More subcommands (asset cooking, packaging, plugin bindgen)
+//! v0.0.1-pre1 ships one real subcommand, `check` (runs the workspace's
+//! four core quality gates locally, against the committed lockfile).
+//! More subcommands (asset cooking, packaging, plugin bindgen)
 //! land as the subsystems they orchestrate are built — see
 //! `docs/roadmap/future-roadmap.md`.
 
@@ -44,52 +44,39 @@ fn print_usage() {
     eprintln!("Usage: cargo run -p xtask -- <command>");
     eprintln!();
     eprintln!("Commands:");
-    eprintln!("  check    Run the same fmt-check + test sequence CI runs");
+    eprintln!("  check    Run the four core workspace quality gates");
 }
 
-/// Runs `cargo fmt --check`, `cargo clippy` (if available), and `cargo
-/// test --workspace`, stopping at the first failure.
-///
-/// Clippy is detected rather than assumed: it requires the `clippy`
-/// component, which isn't guaranteed to be installed locally the way
-/// `rustfmt` and the test toolchain are. Earlier versions of this command
-/// skipped clippy unconditionally for that reason -- which meant `xtask
-/// check` passing locally didn't actually predict whether CI (which does
-/// run clippy) would pass, a real gap flagged in
-/// `docs/reviews/2026-08-senior-architecture-review.md` (Finding 8.2) and
-/// tracked as risk R-18. Detecting availability and running it when
-/// present, while still degrading gracefully with a clear message when
-/// it's absent, closes that gap without making clippy a hard requirement
-/// this command can't run without.
+/// Runs the four core workspace quality gates with the committed lockfile,
+/// stopping at the first failure. Clippy and rustfmt are required local
+/// toolchain components; a missing component is a failed check, not a
+/// successful partial run.
 fn run_check() -> ExitCode {
     println!("xtask: running `cargo fmt --all -- --check`");
     if !run(&["fmt", "--all", "--", "--check"]) {
         return ExitCode::FAILURE;
     }
 
-    if clippy_is_available() {
-        println!("xtask: running `cargo clippy --workspace --all-targets -- -D warnings`");
-        if !run(&[
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-        ]) {
-            return ExitCode::FAILURE;
-        }
-    } else {
-        eprintln!(
-            "xtask: `clippy` component not found locally -- skipping. \
-             CI still runs it and will catch anything this local check \
-             can't; install it with `rustup component add clippy` to \
-             catch the same issues before pushing."
-        );
+    println!("xtask: running `cargo build --locked --workspace --all-targets`");
+    if !run(&["build", "--locked", "--workspace", "--all-targets"]) {
+        return ExitCode::FAILURE;
     }
 
-    println!("xtask: running `cargo test --workspace`");
-    if !run(&["test", "--workspace"]) {
+    println!("xtask: running `cargo test --locked --workspace`");
+    if !run(&["test", "--locked", "--workspace"]) {
+        return ExitCode::FAILURE;
+    }
+
+    println!("xtask: running `cargo clippy --locked --workspace --all-targets -- -D warnings`");
+    if !run(&[
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings",
+    ]) {
         return ExitCode::FAILURE;
     }
 
@@ -112,17 +99,4 @@ fn run(args: &[&str]) -> bool {
             false
         }
     }
-}
-
-/// Whether `cargo clippy` is available in the current environment, probed
-/// by actually attempting to invoke it rather than guessing from the
-/// toolchain's channel or presence of other components.
-fn clippy_is_available() -> bool {
-    Command::new("cargo")
-        .args(["clippy", "--version"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
 }

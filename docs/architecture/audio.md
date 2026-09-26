@@ -1,10 +1,10 @@
 # Audio (`CanaryAudio`)
 
-Like rendering and physics, no audio code exists yet — this is
-architecture for a later era, following the same "bootstrap pragmatically,
-architect for replacement" pattern, with one inversion worth calling out
-explicitly: **the intended long-term default is a custom Canary-built
-audio engine, not a bootstrapped third-party one.**
+The v0.0.12 audio slice is implemented on `dev`: an `AudioBackend` trait,
+game-facing source/listener components, a scheduler system, decoded sound
+assets, and a rodio bootstrap backend. The custom Canary-built engine
+remains the intended long-term default; this document covers that target
+alongside the current implementation.
 
 ## Trait-based abstraction, custom default
 
@@ -19,8 +19,8 @@ Canary Audio (default,          FMOD / Wwise
 custom, in-house)                (bindable, opt-in)
 ```
 
-- **Default backend: a custom, in-house Canary audio engine.** Unlike
-  rendering (bootstrapped on `wgpu`) and physics (bootstrapped on
+- **Long-term default: a custom, in-house Canary audio engine.** Unlike
+  rendering (native Vulkan through `ash`) and physics (bootstrapped on
   Rapier), audio's default is intended to be Canary's own, not a
   dependency this project leans on to move faster early. This is a
   deliberate exception to the usual bootstrap pattern, not an
@@ -76,3 +76,12 @@ first, exactly as designed, and the custom default remains the
 long-term direction. `AudioSource`/`AudioListener` components, an
 `AudioConfig` resource, and a scheduler-registered trigger system
 complete the milestone's game-facing surface.
+
+The trigger is registered for a concrete backend type and ensures a
+headless `Default` backend when the host has not inserted one. The
+`AudioConfig.backend` field records the configured implementation; it
+does not open an output device. A game that wants audible rodio playback
+must construct `RodioBackend::try_new()` during startup and insert it as
+`Mutex<RodioBackend>` before the first audio system run. Headless mode is
+the intentional safe default. Audio reads propagated `GlobalTransform`
+poses, so transform propagation must run before audio in the schedule.

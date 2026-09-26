@@ -66,10 +66,12 @@ cargo run -p xtask -- <command>
 It exists for tasks that aren't "compile a crate" — asset cooking (once
 [`docs/architecture/asset-system.md`](../architecture/asset-system.md) has
 an implementation to invoke), packaging a distributable build, generating
-plugin/WIT bindings, or running the same checks CI runs, locally, in one
-command. This foundation ships `xtask` with a minimal `check` command
-(runs fmt-check, clippy, and tests in sequence) as a working proof of the
-pattern; it is expected to grow real subcommands as the corresponding
+plugin/WIT bindings, or running the four core workspace quality gates
+locally, in one command. This foundation ships `xtask` with a `check`
+command that runs format, locked workspace build, locked workspace tests,
+and locked workspace clippy; a missing toolchain component fails the
+check. CI adds platform-specific and ignored integration suites beyond
+these local gates. The command is expected to grow real subcommands as the corresponding
 subsystems (asset pipeline, plugin bindgen) are built.
 
 Using a Rust binary crate for this — rather than shell scripts or a Makefile
@@ -391,13 +393,11 @@ as the incidents that taught them):
   instead. See
   [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
   Finding 2.1, and risk register R-02.
-- **`xtask check` runs `clippy` when the component is available.**
-  `tools/xtask/src/main.rs` detects `clippy` and runs
-  `cargo clippy --workspace --all-targets -- -D warnings`, printing a
-  clear skip warning when the component isn't installed — so it can no
-  longer pass locally while CI's separate clippy gate fails on the same
-  push. Fixed for `v0.0.1` (see the review, Finding 8.2, and risk
-  register R-18).
+- **`xtask check` requires the same core tooling as the hard gates.**
+  Missing `clippy` or `rustfmt` is a failure. This prevents a local green
+  result from silently omitting a required gate. It was updated after
+  the original v0.0.1 fix to include the locked workspace build and to
+  fail when a required toolchain component is missing.
 - **No CI build-cache strategy exists.** Not urgent at the current crate
   count and contributor count; worth planning for before CI cost/latency
   becomes a visible problem rather than after. See the review, Finding

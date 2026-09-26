@@ -27,10 +27,10 @@
 //!    table — construction must never need a device, so registration
 //!    order never depends on hardware.
 //! 2. **Snapshot** every entity carrying [`AudioSource`]
-//!    (shared borrows only), resolving each source's world position
-//!    from its [`Transform`] when present
-//!    (absent `Transform` means non-positional: full gain, no
-//!    attenuation) and the listener pose from the first
+//!    (shared borrows only), resolving source and listener poses from
+//!    propagated [`GlobalTransform`] components (a missing source pose
+//!    means non-positional: full gain, no attenuation) and the listener
+//!    pose from the first
 //!    [`AudioListener`] entity (absent listener
 //!    means [`AudioListener::default_pose`]).
 //! 3. **Drive** the backend under the mutex: reap tracked voices whose
@@ -79,7 +79,7 @@ use std::sync::Mutex;
 use canary_assets::{AssetStore, Sound};
 use canary_ecs::{Entity, World};
 use canary_scheduler::{Schedule, SystemAccess};
-use canary_transform::Transform;
+use canary_transform::GlobalTransform;
 
 use crate::{AudioBackend, AudioConfig, AudioListener, AudioSource, SourceHandle, SourceState};
 
@@ -192,8 +192,9 @@ pub fn attenuation_gain(distance: f32) -> f32 {
 ///   always runs after them. The system genuinely never writes
 ///   `AudioSource` (no finish events in this cut), so the read-only
 ///   declaration is honest, not a staging trick.
-/// - `reads::<Transform>()` / `reads::<AudioListener>()` name the
-///   attenuation inputs.
+/// - `reads::<GlobalTransform>()` / `reads::<AudioListener>()` name the
+///   attenuation inputs. Register transform propagation before audio so
+///   these are world-space poses for the current simulation run.
 /// - `reads_resource::<AudioConfig>()` /
 ///   `reads_resource::<AssetStore<Sound>>()` name the consumed mix and
 ///   asset data; `writes_resource::<AudioVoices>()` /
@@ -211,7 +212,7 @@ pub fn attenuation_gain(distance: f32) -> f32 {
 pub fn audio_trigger_access<B: AudioBackend + 'static>() -> SystemAccess {
     SystemAccess::new()
         .reads::<AudioSource>()
-        .reads::<Transform>()
+        .reads::<GlobalTransform>()
         .reads::<AudioListener>()
         .reads_resource::<AudioConfig>()
         .reads_resource::<AssetStore<Sound>>()
@@ -235,8 +236,9 @@ struct SourceRecord {
     volume: f32,
     /// The loop mode fixed at the next play.
     looping: bool,
-    /// World-space position when the entity carries a `Transform`;
-    /// `None` means non-positional (full gain, no attenuation).
+    /// World-space position when the entity carries a propagated
+    /// `GlobalTransform`; `None` means non-positional (full gain, no
+    /// attenuation).
     position: Option<[f32; 3]>,
     /// The voice the table currently tracks for this entity, if any.
     voice: Option<VoiceEntry>,
@@ -278,9 +280,12 @@ pub fn audio_trigger_system<B: AudioBackend + Default + 'static>(world: &mut Wor
     let records: Vec<SourceRecord> = world
         .query::<AudioSource>()
         .map(|(entity, source)| {
-            let position = world
-                .get::<Transform>(entity)
-                .map(|transform| transform.translation.to_array());
+            let position = world.get::<GlobalTransform>(entity).map(|transform| {
+                transform
+                    .matrix()
+                    .transform_point3(glam::Vec3::ZERO)
+                    .to_array()
+            });
             let voice = tracked_voice(world, entity);
             let sound_data = match (source.state, voice) {
                 (SourceState::Playing, None) => world
@@ -303,12 +308,9 @@ pub fn audio_trigger_system<B: AudioBackend + Default + 'static>(world: &mut Wor
     let (listener_position, listener_forward) = world
         .query::<AudioListener>()
         .filter_map(|(entity, _)| {
-            world.get::<Transform>(entity).map(|transform| {
-                (
-                    transform.translation.to_array(),
-                    (transform.rotation * glam::Vec3::NEG_Z).to_array(),
-                )
-            })
+            world
+                .get::<GlobalTransform>(entity)
+                .map(audio_listener_world_pose)
         })
         .next()
         .unwrap_or_else(AudioListener::default_pose);
@@ -452,6 +454,20 @@ pub fn audio_trigger_system<B: AudioBackend + Default + 'static>(world: &mut Wor
     }
 }
 
+/// Extracts world position and a normalized world-forward direction from
+/// a propagated matrix, ignoring scale for the listener's orientation.
+fn audio_listener_world_pose(transform: &GlobalTransform) -> ([f32; 3], [f32; 3]) {
+    let matrix = transform.matrix();
+    let position = matrix.transform_point3(glam::Vec3::ZERO);
+    let forward = matrix.transform_vector3(glam::Vec3::NEG_Z);
+    let forward = if forward.is_finite() && forward.length_squared() > 0.0 {
+        forward.normalize()
+    } else {
+        glam::Vec3::NEG_Z
+    };
+    (position.to_array(), forward.to_array())
+}
+
 /// Reads one entity's tracked voice: the table is a separate resource
 /// from the backend, so this nests a shared table borrow inside the
 /// drive phase rather than interleaving ECS access with backend
@@ -464,7 +480,8 @@ fn tracked_voice(world: &World, entity: Entity) -> Option<VoiceEntry> {
 
 /// Folds one voice's per-tick gain: `master × source × attenuation`.
 ///
-/// Non-positional sources (no `Transform`) attenuate to unity.
+/// Non-positional sources (no propagated `GlobalTransform`) attenuate to
+/// unity.
 /// Non-finite products (a NaN game volume) pass through to the
 /// backend, which refuses them typed and keeps the last good gain —
 /// this function invents no clamping policy the backend would then
@@ -485,12 +502,14 @@ fn effective_gain(master: f32, source: f32, position: Option<[f32; 3]>, listener
 /// Registers [`audio_trigger_system`] on `schedule` as a write system
 /// with [`audio_trigger_access`]'s declaration.
 ///
-/// MUST be called AFTER the gameplay systems whose [`AudioSource`]
-/// state transitions it actuates — registration order plus
+/// MUST be called AFTER transform propagation and the gameplay systems
+/// whose [`AudioSource`] state transitions it actuates — registration order plus
 /// solo-write staging is the ordering mechanism (see the module docs);
 /// registering audio before its gameplay writers actuates one-tick-stale
 /// intents. Type parameter `B` names the backend behind the `Mutex<B>`
-/// world resource (`RodioBackend` in the game, the stub in tests).
+/// world resource (`RodioBackend` in the game, the stub in tests). The
+/// host initializes an audible backend resource before the first run;
+/// `B::default()` is the headless fallback.
 pub fn register_audio_trigger<B: AudioBackend + Default + 'static>(schedule: &mut Schedule) {
     schedule.add_write_system(audio_trigger_access::<B>(), audio_trigger_system::<B>);
 }
@@ -501,6 +520,7 @@ mod tests {
     use crate::backend::{StubBackend, StubEvent};
     use crate::AudioBackendName;
     use canary_assets::{load_sound, AssetHandle};
+    use canary_transform::Transform;
 
     /// Path to a checked-in sound fixture (WAV + Ogg live in
     /// `canary-assets/tests/fixtures/` — the asset pipeline this
@@ -793,27 +813,54 @@ mod tests {
         assert_eq!(backend_count(&world), 1);
     }
 
-    /// Per-tick gain is `master × source × attenuation`, asserted
-    /// against a hand-computed inverse-distance value: master 0.5,
-    /// source 0.5, three world units from the listener (gain 0.25) →
-    /// 0.0625.
+    /// Per-tick gain uses composed world poses: master 0.5, source 0.5,
+    /// and a parented source three world units from its listener
+    /// (attenuation 0.25) → 0.0625. The listener's rotated parent also
+    /// proves its world-forward direction reaches the backend.
     #[test]
-    fn volume_is_master_times_source_times_attenuation() {
+    fn parented_world_poses_drive_attenuation_and_listener_orientation() {
         let (mut world, entity) = setup();
         world.insert_resource(AudioConfig::new(0.5, AudioBackendName::Rodio));
+
+        let source_parent = world.spawn();
+        world
+            .insert(
+                source_parent,
+                Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+            )
+            .expect("source parent transform must succeed");
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)),
+            )
+            .expect("source transform must succeed");
+        canary_transform::set_parent(&mut world, entity, Some(source_parent))
+            .expect("source parenting must succeed");
+
+        let listener_parent = world.spawn();
+        world
+            .insert(
+                listener_parent,
+                Transform {
+                    translation: glam::Vec3::ZERO,
+                    rotation: glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                    scale: glam::Vec3::ONE,
+                },
+            )
+            .expect("listener parent transform must succeed");
         let listener = world.spawn();
         world
             .insert(listener, AudioListener)
             .expect("listener insert must succeed");
         world
-            .insert(listener, Transform::from_translation(glam::Vec3::ZERO))
+            .insert(listener, Transform::identity())
             .expect("listener pose must succeed");
-        world
-            .insert(
-                entity,
-                Transform::from_translation(glam::Vec3::new(3.0, 0.0, 0.0)),
-            )
-            .expect("source pose must succeed");
+        canary_transform::set_parent(&mut world, listener, Some(listener_parent))
+            .expect("listener parenting must succeed");
+
+        world.advance_tick();
+        canary_transform::propagate_transforms(&mut world);
         world
             .get_mut::<AudioSource>(entity)
             .expect("source must exist")
@@ -834,12 +881,22 @@ mod tests {
             (applied - 0.0625).abs() < 1e-9,
             "master 0.5 × source 0.5 × attenuation(3.0)=0.25 must be 0.0625, got {applied}"
         );
+        let listener_event = journal(&world)
+            .into_iter()
+            .find_map(|event| match event {
+                StubEvent::SetListener { position, forward } => Some((position, forward)),
+                _ => None,
+            })
+            .expect("the backend must receive the listener pose");
+        assert_eq!(listener_event.0, [0.0, 0.0, 0.0]);
         assert!(
-            journal(&world).contains(&StubEvent::SetListener {
-                position: [0.0, 0.0, 0.0],
-                forward: [0.0, 0.0, -1.0],
-            }),
-            "the listener pose must reach the backend every tick"
+            listener_event
+                .1
+                .iter()
+                .zip([-1.0, 0.0, 0.0])
+                .all(|(actual, expected)| (actual - expected).abs() < 1e-6),
+            "the listener's propagated world-forward must reach the backend: {:?}",
+            listener_event.1
         );
     }
 

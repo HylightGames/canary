@@ -656,12 +656,14 @@ impl World {
         self.current_tick
     }
 
-    /// Advances the world's tick. No automatic advancement exists:
-    /// `canary-scheduler` (which runs real systems, including hierarchy
-    /// propagation) deliberately does not own the tick, so callers doing
-    /// their own change-detection bookkeeping call this at whatever
-    /// granularity ("once per frame", "once per system") suits them.
-    /// See `docs/architecture/core-runtime.md#threading--the-job-system`.
+    /// Advances the world's logical tick by one simulation run.
+    ///
+    /// The app or simulation runner owns this boundary and should advance
+    /// once before running the systems for that simulation step. A
+    /// scheduler executes systems but does not own time. Do not advance
+    /// once per system or once per presentation frame when a frame can
+    /// contain zero or multiple simulation steps. See ADR 0021's
+    /// tick-ownership rule.
     pub fn advance_tick(&mut self) {
         self.current_tick.increment();
     }

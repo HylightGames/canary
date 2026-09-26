@@ -1,9 +1,10 @@
 # Project State, Versioning, and Collaboration
 
 This document formalizes a principle raised during `v0.0.1` and judged
-important enough to become part of the architectural core this release
-exists to establish, even though — like rendering, physics, and
-networking — nothing here is implemented yet. See
+important enough to become part of the architectural core. The
+`canary-state` subsystem is not implemented; ECS identity/schema
+primitives and a minimal asset loader exist, while rendering and physics
+have narrow implemented slices. See
 [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md)
 for the founding decision record and
 [ADR 0013](../decisions/architecture-decision-records/0013-live-collaboration-server-authoritative-topology.md)
@@ -38,11 +39,10 @@ because it isn't really about any one subsystem — it constrains the ECS,
 the asset system, the plugin system, and networking all at once, and is
 much cheaper to hold as a constraint from the start than to retrofit.
 
-## Two identities that must not be conflated
+## Runtime, schema, authored, and content identities
 
-The single most important technical distinction this document adds to
-what motivated it: **runtime entity identity and persistent/authored
-identity are different concerns, and conflating them would be a mistake.**
+The important distinction is that **runtime identity, schema identity,
+authored identity, and content identity answer different questions.**
 
 - **Runtime identity** — `canary_ecs::Entity`'s `(index, generation)` pair
   (see [`core-runtime.md`](core-runtime.md#ecs-architecture)) — is fast,
@@ -52,16 +52,25 @@ identity are different concerns, and conflating them would be a mistake.**
   compromise the ECS's actual job to serve a concern (persistence) that
   isn't the ECS's to own.
 - **Persistent (authored) identity** — a stable identifier (a UUID or
-  similar) assigned when an entity, asset, or other authored object is
-  *created* in a project, surviving renames, saves, reloads, edits, and
-  merges — is what version control, collaboration, and the marketplace all
-  actually need, and does not exist anywhere in Canary today.
+  similar) assigned when an entity or other authored object is *created*
+  in a project, surviving renames, saves, reloads, edits, and merges — is
+  what version control, collaboration, and the marketplace need. The
+  stable authored asset identity is `LogicalAssetId`; it is distinct from
+  the current provisional `AssetId` content identifier. Neither registry
+  is implemented yet.
 
 A saved scene maps persistent identities to authored state; loading it
 into a running `World` allocates fresh runtime `Entity` handles and
 associates them with their persistent identity for the duration of that
 session. This mapping — not a redesign of `Entity` itself — is where a
 future `canary-state` crate's responsibility begins.
+
+The simulation snapshot boundary is separate from authored project state.
+Per ADR 0021, a simulation snapshot covers deterministic ECS data,
+resources, RNG streams, simulation clocks, and schema versions; it
+excludes presentation handles, audio devices, editor state, and temporary
+caches. Both products may use versioned codecs, but they do not serialize
+the same undifferentiated `World`.
 
 ## Layered scope: near-term, medium-term, long-term
 
@@ -83,20 +92,21 @@ This document deliberately separates them:
 - Every authored object that might be referenced from elsewhere (an
   entity a script targets, an asset a material references) gets a
   persistent identity assigned at creation time, stored alongside its
-  data — cheap to require now, before any scene format or asset
-  pipeline exists to retrofit it into later.
+  data — before scene formats or persisted asset references make the
+  identity expensive to retrofit.
 
-### Medium-term (a real `canary-state` crate; depends on the archetype ECS migration and the asset pipeline both existing)
+### Medium-term (a real `canary-state` crate; built on current ECS and asset primitives)
 
 - A persistent-identity registry mapping stable IDs to runtime `Entity`
   handles for the duration of a session, as described above.
 - Change tracking at the *authored* level (not to be confused with the
-  ECS's own future change-detection query filters, which serve
-  networking replication and hot reload at the *runtime* level, per
+  ECS's existing `World::query_changed_since` filter, which reports
+  component mutation at the *runtime* level, per
   [`core-runtime.md`](core-runtime.md#known-limitations) — these are
   related but distinct mechanisms operating at different layers, and
   should not be assumed to be "the same feature" just because both
-  involve detecting what changed).
+  involve detecting what changed. Runtime mutation detection still needs
+  durable removal and destruction records for replication.)
 - Unknown-schema preservation: an object whose component/data schema a
   given engine build or plugin set doesn't recognize (see
   [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
@@ -155,10 +165,10 @@ This document deliberately separates them:
   and permission-model specifics — real design work for whenever
   `canary-state` implementation actually starts, not decided here.
 
-## Why this belongs in `v0.0.1`'s documentation even though nothing here is built
+## Why this belongs in the architecture set before the subsystem is built
 
-Every other major subsystem doc in this project (rendering, physics,
-networking) exists for the same reason: design the hard, cross-cutting
+The subsystem documents for rendering, physics, and networking exist for
+the same reason: design the hard, cross-cutting
 parts once, deliberately, before code accumulates on top of an
 unexamined assumption. `canary-state` is arguably higher-leverage than
 any single one of those three, because — as the discussion that produced
@@ -172,7 +182,9 @@ CRDT-vs-authoritative choice) have real design attention.
 
 ## Status in this foundation
 
-Entirely architectural. No `canary-state` crate exists. Depends on the
-archetype ECS migration and the asset pipeline (both `v0.0.2`+) before
-medium-term scope becomes buildable — see
+The identity, authoring, and snapshot contracts are architectural; no
+`canary-state` crate exists. The archetype ECS and minimal typed asset
+loaders are available as foundations, but logical identity allocation,
+authored codecs, migration, and simulation snapshot APIs remain future
+work. See
 [`docs/roadmap/future-roadmap.md`](../roadmap/future-roadmap.md).

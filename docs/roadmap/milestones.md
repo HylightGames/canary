@@ -191,7 +191,7 @@ Full detail: [`v0.0.2.md`](../release-notes/v0.0.2.md).
 
 ## Beyond `v0.0.2`
 
-`v0.0.3` through `v0.0.8` have since all been implemented — this section
+`v0.0.3` through `v0.0.12` have since all been implemented — this section
 originally said `v0.0.3` was "not started"; it wasn't updated as each
 one shipped, which is exactly the kind of staleness this document
 exists to avoid, so it's corrected here rather than left to mislead the
@@ -237,6 +237,12 @@ duplicated here:
   system ordered ahead of propagation), game-plus-pixel proof, Box2D
   measured and not shipped. See
   [`v0.0.11-roadmap.md`](v0.0.11-roadmap.md).
+- **`v0.0.12`** — audio bootstrap: `canary-audio` with the Canary-owned
+  `AudioBackend` trait, private rodio backend, source/listener
+  components, scheduler trigger system, and WAV/Vorbis sound loading.
+  Headless playback and game-state transitions are tested; the runtime
+  harness still needs explicit device-backend initialization for audible
+  output. See [`v0.0.12-roadmap.md`](v0.0.12-roadmap.md) and ADR 0023.
 
 [`docs/roadmap/status.md`](status.md) is the single source of truth for
 current implementation status; treat any version claim here as

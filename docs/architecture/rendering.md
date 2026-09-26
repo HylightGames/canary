@@ -1,9 +1,10 @@
 # Rendering
 
-No rendering code exists in v0.0.1 — this is architecture for Era 3 (see
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)),
-written now so the decision is reasoned about once rather than improvised
-under deadline pressure later. The RHI/render-graph split is recorded in
+The first native Vulkan/offscreen rendering slice landed in `v0.0.6`,
+with ECS extraction and file-loaded mesh/texture paths added in `v0.0.9`
+and `v0.0.10`. This document records the implemented boundary and the
+remaining presentation, render-graph, and material design. The
+RHI/render-graph split is recorded in
 [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md);
 the concrete backend-implementation decision is in
 [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md).
@@ -13,9 +14,9 @@ This document covers the fuller design.
 (the trait itself) and `canary-render-vulkan` (the first backend, via
 `ash`), proven with a real offscreen hello-triangle test — see
 [`v0.0.6-roadmap.md`](../roadmap/v0.0.6-roadmap.md) for exactly what's
-built versus still deferred (the render graph, materials, textures,
-multiple draw calls, and every backend beyond Vulkan all remain real,
-intended future work, not yet started).
+built versus still deferred (the render graph, materials, multiple draw
+calls, window surfaces, and every backend beyond Vulkan remain future
+work).
 
 **`v0.0.9` wired real ECS state to that RHI** without changing it: a new
 `canary-render-ecs` bridge crate extracts `GlobalTransform` + a flat
@@ -419,6 +420,14 @@ and every bake — see
 swapchain, no depth, no materials — single-texture sampling only, no
 async loading, no cooking, no cache, no hot reload, no importers, and
 no second mesh or texture format.
+
+Window presentation also needs two foundations before the v0.0.13 UI
+milestone: a minimal adapter/limits capability query and a backend-neutral
+`Window`-to-surface seam, as locked by ADRs 0020 and 0022. That surface
+contract must define format selection, resize/recreation, and recoverable
+acquire/present errors. It remains deliberately absent from the current
+offscreen RHI; this is a prerequisite for the next presentation slice,
+not a request to build a render graph or a second backend early.
 
 ## Two layers: RHI and render graph
 

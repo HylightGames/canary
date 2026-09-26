@@ -18,8 +18,11 @@ use std::collections::HashSet;
 /// unusual case in practice, but not one this type should get wrong).
 /// This is the literal "declares what it reads and writes *before* it
 /// runs" from `docs/architecture/execution-model.md`'s Access
-/// invariant -- [`Schedule`](crate::Schedule) uses exactly this
-/// declaration, and nothing else, to decide what can run concurrently.
+/// invariant. [`Schedule`](crate::Schedule) currently uses whether this
+/// declaration includes writes to select its conservative read-stage or
+/// solo-writer policy. The per-type access sets are recorded as the
+/// dependency contract for future finer-grained scheduling; the current
+/// schedule does not use them to run disjoint writers concurrently.
 ///
 /// Built with the same "small, chainable builder" shape as
 /// `canary_ecs`'s own APIs rather than a derive macro inferring access
@@ -27,8 +30,9 @@ use std::collections::HashSet;
 /// automatically (the way a fuller `SystemParam`-style framework would)
 /// is real, useful future work, but doing it correctly for arbitrary
 /// query shapes is a substantially bigger undertaking than this crate's
-/// first release; declaring it explicitly is honest about that, not a
-/// placeholder for it.
+/// first release. Today the declarations are not checked against the
+/// system body's actual `World` accesses; see the execution-model known
+/// limitations before using them to expand concurrency.
 #[derive(Debug, Default, Clone)]
 pub struct SystemAccess {
     component_reads: HashSet<TypeId>,

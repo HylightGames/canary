@@ -50,21 +50,28 @@ or through explicit, documented interfaces — never through ad hoc globals.
 | Core runtime (App, logging, error conventions) | `canary-core` | [core-runtime.md](core-runtime.md) |
 | ECS | `canary-ecs` | [core-runtime.md](core-runtime.md) |
 | Scheduler (stage-based system execution) | `canary-scheduler` | [execution-model.md](execution-model.md) |
+| Input and simulation boundary | *(planned: platform/runtime/gameplay contract)* | [input-and-simulation.md](input-and-simulation.md) |
 | Transform & hierarchy | `canary-transform` | [transform.md](transform.md) |
 | Plugin trait & loader | `canary-plugin-api` | [plugin-system.md](plugin-system.md) |
 | Scripting / language-agnostic runtime | *(planned: `canary-script`)* | [scripting-system.md](scripting-system.md) |
 | Rendering (RHI + Vulkan backend + ECS bridge) | `canary-render`, `canary-render-vulkan`, `canary-render-ecs` | [rendering.md](rendering.md) |
-| Physics | *(planned: `canary-physics`)* | [physics.md](physics.md) |
+| Physics | `canary-physics` (2D slice) | [physics.md](physics.md) |
 | Networking | *(planned: `canary-net`)* | [networking.md](networking.md) |
-| Asset pipeline | *(planned: `canary-assets`)* | [asset-system.md](asset-system.md) |
+| Asset pipeline | `canary-assets` (minimal synchronous loaders) | [asset-system.md](asset-system.md) |
 | UI toolkit (`CanaryUI`) | *(planned: `canary-ui-core`)* | [ui-toolkit.md](ui-toolkit.md) |
-| Audio (`CanaryAudio`) | *(planned: `canary-audio`)* | [audio.md](audio.md) |
+| Audio (`CanaryAudio`) | `canary-audio` (bootstrap) | [audio.md](audio.md) |
 | Localization (`CanaryLoc`) | `canary-loc` | [localization.md](localization.md) |
 | Project state & versioning | *(planned: `canary-state`)* | [state-and-versioning.md](state-and-versioning.md) |
 
-"Planned" crates are architected in this document set but not implemented in
-this foundation — see [`docs/roadmap/status.md`](../roadmap/status.md)
-for exactly what exists today versus what's designed-but-not-built.
+"Planned" crates are architected in this document set but not implemented
+yet. Some implemented crates provide only a narrow bootstrap slice; see
+[`docs/roadmap/status.md`](../roadmap/status.md) for current scope.
+
+The input and simulation document records the accepted RawInput →
+InputMapping → InputAction → PlayerInput → SimulationInput boundary and
+separates it from the current platform input stubs. That flow is an
+acceptance prerequisite for shared UI/gameplay input and deterministic
+simulation work; it is not yet an end-to-end implementation.
 
 ## The two structural bets this engine makes
 
@@ -81,7 +88,7 @@ load-bearing enough that the rest of the architecture assumes them:
    physics, and asset importers are defined as interfaces in Layer 3 with a
    default implementation, so a different implementation is a new crate, not
    a fork. See [ADR 0004](../decisions/architecture-decision-records/0004-rendering-abstraction-strategy.md)
-   for the concrete example (RHI vs. wgpu).
+   for the concrete example (RHI with native per-API backends).
 
 ## Threading model, in one paragraph
 

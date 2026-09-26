@@ -374,6 +374,9 @@ colors, moved-entity redraw, empty-scene clear), with
 `examples/spinning-cube` rewritten on the bridge (root + six face
 entities, quaternion spin, GIF output kept). Full design record in
 [`docs/architecture/rendering.md`](../architecture/rendering.md#v009-the-ecs-to-render-bridge-canary-render-ecs).
+The `canary-runtime` harness advances its `World` tick once before each
+scheduled simulation run, matching ADR 0021's runner-owned tick rule and
+allowing transform propagation to skip quiet runs.
 Still open past `v0.0.9`: the RHI upgrades the bridge deliberately
 defers (push constants/uniforms, depth/culling, buffer updates,
 materials past the texture-only slice, swapchain/presentation), the
@@ -567,21 +570,22 @@ about working code in `engine/`.
 |---|---|---|---|
 | Repository/governance | ✅ | ✅ | `v0.0.1` |
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
+| Consumer runtime composition | ✅ | ⚠️ | `canary-runtime` is a private headless binary harness with a private `EcsSubsystem`; there is no reusable game-runtime library/API yet. Close this gap for the `v0.1.0` consumer proof |
 | Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
 | Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
 | Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented on `dev`, not yet tagged |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
-| Rendering | ✅ | ✅ | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's `wgpu` bootstrap); Vulkan first, hello-triangle proven; `v0.0.6`. ECS-driven rendering via the `canary-render-ecs` bridge (CPU-bake, propagation-then-bake schedule, pixel-tested, spinning-cube rewritten on it); `v0.0.9`. File-loaded meshes through the unchanged RHI plus a single-texture sampling slice (additive trait methods, UVs on `Float32x2`), spinning-cube off `box.glb`; `v0.0.10` |
+| Rendering | ✅ | ✅ (offscreen slice) | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's original backend); Vulkan first, hello-triangle proven; `v0.0.6`. ECS-driven CPU bake and file-loaded mesh/texture sampling are proven; `v0.0.9`/`.10`. Window surface, capability query, swapchain presentation, depth, and general materials remain open |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ✅ (2D slice) | `PhysicsBackend` trait + private rapier2d 0.35.3 backend, fixed-step system with spiral guard, first-position registration, game-plus-pixel proof; determinism is single-machine repeatability; `v0.0.11`. 3D (Jolt canonical, Rapier3D alternative) still direction, post-`v0.1.0` |
-| Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |
+| Networking | ✅ | ❌ | Planned for `v0.0.15` (server-authoritative, QUIC); transport, replication, and removal history are not implemented |
 | Scripting system | ✅ | ❌ | Depends on Tier A |
-| Asset system | ✅ | ✅ | Minimal loading primitive (`AssetId`/`AssetHandle<T>`/`AssetStore<T>`/`AssetError`, sync GLB + PNG loaders, checked-in fixtures); cooking, cache, hot reload, importers-as-plugins, materials, and further formats all deferred; `v0.0.10`. WAV + Ogg Vorbis `Sound` loader (bit-exact fixtures, budgets, confinement); `v0.0.12` |
-| Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, no-device typed degradation), `AudioSource`/`AudioListener` + trigger system with stub-backend game proof; custom in-house engine stays the long-term default per ADR 0023; `v0.0.12` |
+| Asset system | ✅ | ✅ (minimal) | `AssetId`/`AssetHandle<T>`/`AssetStore<T>` with sync GLB/PNG/WAV/Vorbis loaders; `AssetId` is provisional content identity. Stable `LogicalAssetId`, cooking, cache, hot reload, importers-as-plugins, and broader formats remain future work; `v0.0.10`/`.12` |
+| Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, headless default), `AudioSource`/`AudioListener` + trigger system using propagated `GlobalTransform` poses; host must insert a device backend for audible output. Custom engine stays the long-term default per ADR 0023; `v0.0.12` |
 | `CanaryUI` (UI toolkit) | ✅ | ❌ | ADR 0011; abstraction layer could start independent of a backend |
-| Project state & versioning (`canary-state`) | ✅ | ❌ | ADR 0012 (`Proposed` for identity/package format) |
+| Project state & versioning (`canary-state`) | ✅ | ❌ | Authored identity and simulation snapshot contracts in ADRs 0021–0022; stable-ID registries, codecs, migration, and snapshots are not implemented |
 | Live collaboration | ✅ | ❌ | ADR 0013 (`Accepted` — topology only; protocol/permissions unresolved) |
 | Editor | ⚠️ Partial (vision-level) | ❌ | Era 5; blocked on plugin system + rendering + `CanaryUI` |
 | CLI/headless operation (editor) | ✅ (principle recorded) | N/A yet | No editor exists to apply it to; proven in spirit by `canary-runtime`/`xtask` today |

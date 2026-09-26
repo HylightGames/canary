@@ -15,7 +15,7 @@ loader, and a real windowing backend as the concrete near-term
 candidates that were scoped *out* of `v0.0.1`. All three have since
 shipped (`v0.0.2`, `v0.0.3`, `v0.0.4` respectively — see
 [`milestones.md`](milestones.md#beyond-v002) for the full sequence
-through `v0.0.8`); this paragraph is kept as history of how they were
+through `v0.0.12`); this paragraph is kept as history of how they were
 originally sequenced, not as a claim that they're still upcoming.
 
 ## Blocked on the ECS reaching its target (archetype) design
@@ -25,18 +25,18 @@ This blocking condition is now satisfied — archetype storage
 the scheduler itself (`v0.0.8`, `canary-scheduler`) all exist. What's
 left in this dependency group:
 
-- Networking replication (`docs/architecture/networking.md`) — not
-  blocked by the ECS (change detection has existed since `v0.0.2`; see
-  [ADR 0014](../decisions/architecture-decision-records/0014-change-detection-as-shared-primitive.md)
-  for how it's meant to consume `World::query_changed_since` once
-  built). What's actually blocking it is simply that Era 4 hasn't
-  started.
+- Networking replication (`docs/architecture/networking.md`) — change
+  detection exists, and the runtime harness now advances the ECS tick,
+  but replication still needs durable removal/destruction records,
+  canonical snapshots, deterministic simulation input, and authority
+  semantics before it can consume those primitives safely. ADRs 0020–0022
+  lock these foundations; implementation is planned for `v0.0.15`, after
+  the project-state milestone.
 - Rollback-netcode support — depends on networking above.
-- Concurrent *disjoint* writes in `canary-scheduler` itself, and wiring
-  `Schedule` into `canary-core`'s `App`/`Subsystem` tick loop — both
-  named as deliberately out of `v0.0.8`'s scope in
-  [`v0.0.8-roadmap.md`](v0.0.8-roadmap.md), not blocked on anything
-  else architecturally, just not yet needed by a real consumer.
+- Concurrent *disjoint* writes in `canary-scheduler` itself and a
+  reusable runtime composition API remain open. The private
+  `canary-runtime` harness owns an `EcsSubsystem` and a `Schedule`, but
+  that is not yet the supported game-consumer surface.
 
 ## Blocked on the Tier A (WASM) plugin loader existing
 
@@ -75,13 +75,16 @@ not an open item. What's left in this dependency group:
   plugin system (satisfied, `v0.0.3`) and on `CanaryUI` having a real
   backend (not yet)
 
-## Blocked on the asset pipeline existing
+## Blocked on authored asset identity and the mature asset pipeline
+
+The minimal asset crate and synchronous GLB/PNG/WAV/Vorbis loaders exist.
+The remaining state/editor work depends on stable `LogicalAssetId` values,
+authored formats, and the mature pipeline contracts:
 
 - Hot-reloadable content in editor/dev builds
-- Any real example game beyond programmer-authored test scenes
-- The medium-term scope of `canary-state`
-  (`docs/architecture/state-and-versioning.md`) — persistent identity and
-  authored change tracking need real asset formats to attach to
+- Cooking, cache keys, dependency tracking, and importer extensions
+- Authored project state and scene/prefab references in `canary-state`
+- Asset browser and editor workflows
 
 ## Not blocked on anything specific — genuinely open questions
 
@@ -123,9 +126,10 @@ not an open item. What's left in this dependency group:
   the wire protocol, the operation schema, and permission-model
   specifics — deliberately left unresolved until there's a `canary-state`
   implementation to ground the choice in. Blocked on the medium-term
-  scope of `canary-state` itself, which is in turn blocked on the
-  archetype ECS migration (done, `v0.0.2`) and the asset pipeline (see
-  the dependency sections above).
+  scope of `canary-state` itself. The archetype ECS and minimal typed asset
+  loading now exist; stable logical asset IDs, authored formats, versioned
+  migrations, and the separate simulation-state contract remain
+  prerequisites before collaboration protocol work starts.
 - **First-party MCP (Model Context Protocol) access to a running engine
   instance**, distinct from the existing `canary-ai` in-game/in-editor
   inference bullet above: exposing ECS state, the scene graph, and

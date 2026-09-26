@@ -1,8 +1,9 @@
 # Asset System
 
-Architecture for Era 3 (see
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)). No
-asset pipeline code exists in v0.0.1.
+Architecture for the asset subsystem. A minimal synchronous loader and
+typed asset store exist today; cooking, caching, hot reload, and editor
+integration remain future work. The roadmap places the asset pipeline in
+Era 3 (see [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)).
 
 ## Source assets vs. cooked assets
 
@@ -27,9 +28,17 @@ This split exists so that:
 
 ## Content addressing and caching
 
-Cooked assets are identified and cached by a content hash of (source asset
-bytes + importer version + import settings), not by file path alone. This
-means:
+Canary keeps four asset identities separate, per ADRs 0021 and 0022:
+
+- `LogicalAssetId` identifies the authored asset across edits, renames,
+  and moves. Scenes and other authored data will reference this ID.
+- `ContentHash` identifies exact source or derived bytes.
+- `CookKey` identifies the derived artifact to produce from content,
+  importer version, dependency hashes, platform, and settings.
+- An artifact storage key identifies where a cooked artifact is stored.
+
+Paths are hints used to locate sources; they are not persistent identity
+or part of a cook key. This means:
 
 - Re-running the cook step is a no-op for anything unchanged — a large
   project's iteration loop stays fast as it grows, rather than degrading
@@ -73,10 +82,11 @@ that might run inside a shipped game.
 `v0.0.10` landed the loading primitive's first slice (see
 [`v0.0.10-roadmap.md`](../roadmap/v0.0.10-roadmap.md) and [ADR
 0018](../decisions/architecture-decision-records/0018-asset-handles-and-synchronous-loading.md)).
-`engine/canary-assets` now holds `AssetId` (an opaque SHA-256 over file
-bytes plus a loader-version string, with a layout documented as
-provisional), `AssetHandle<T>` (a generational index-plus-generation key
-mirroring `Entity`'s proven shape), `AssetStore<T>` (generational slots
+`engine/canary-assets` now holds `AssetId` (a provisional content identity
+computed from file bytes and loader-version data; it must not be persisted
+as an authored reference or assumed to be the final exact-byte
+`ContentHash`), `AssetHandle<T>` (a generational index-plus-generation
+key mirroring `Entity`'s proven shape), `AssetStore<T>` (generational slots
 kept as an ECS resource, where stale handles resolve to `None` instead of
 panicking), and `AssetError` (typed failures carrying path context) — plus
 exactly two synchronous, path-based loaders. The GLB mesh loader turns
@@ -95,6 +105,13 @@ file-loaded meshes and textures reach the screen through the
 `canary-render-ecs` bridge (see [`rendering.md`](rendering.md)), and
 `examples/spinning-cube` loads its cube faces from `box.glb` instead of
 hardcoded arrays.
+
+`LogicalAssetId` allocation and the authored-identity registry are not
+implemented yet. They are required in the project-state milestone before
+scenes, prefabs, or editor selections persist asset references. Within
+the current loader version, `AssetId` still groups byte-identical inputs;
+its version-sensitive encoding and exact relationship to `ContentHash`
+remain provisional.
 
 Deliberately still deferred, none of it partially implemented: async or
 background loading, filesystem watching and hot reload, a cache directory,

@@ -358,6 +358,10 @@ fn main() {
         .expect("failed to set GIF repeat mode");
 
     for frame_index in 0..FRAME_COUNT {
+        // This loop owns one simulation run per rendered frame. Advance
+        // before mutating components so change detection and propagation
+        // see this frame's writes under a new logical tick.
+        world.advance_tick();
         let spin_radians =
             INITIAL_YAW_RADIANS + (frame_index as f32 / FRAME_COUNT as f32) * std::f32::consts::TAU;
         // Tilt composed outside the spin: `qx * qy` applies the yaw first,

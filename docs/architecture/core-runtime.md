@@ -9,25 +9,25 @@ before there's a window, a renderer, or a network connection.
 server, editor, or test harness) shares:
 
 ```rust
-// Illustrative target shape — see engine/canary-core/src/lib.rs for the
-// current, deliberately minimal v0.0.1-pre1 implementation. (The
-// subsystem here is a placeholder name: real subsystems live in their
-// own crates — e.g. hierarchy propagation and the render bake are
-// registered on a `canary-scheduler` `Schedule` owned by
-// `canary-runtime`'s `EcsSubsystem`; see
-// docs/architecture/rendering.md#schedule-ordering-propagation-first-via-solo-write-staging.)
+// Illustrative composition. `canary-runtime` currently demonstrates
+// this with a private headless EcsSubsystem; it is not yet a reusable
+// game-runtime library. A game subsystem owns and runs its Schedule.
 let mut app = canary_core::App::new();
 app.add_subsystem(some_crate::SomeSubsystem::default());
-app.add_plugin_dir("plugins/");
-app.run();
+app.run(|| {
+    // Poll the platform here and return false when the app should stop.
+    false
+})?;
 ```
 
 `App` owns the top-level lifecycle (init → main loop → shutdown) and a
 registry of **subsystems** — the Layer 3 pieces from
 [engine-overview.md](engine-overview.md). A subsystem is deliberately a small
-trait (`Subsystem::init`, `Subsystem::shutdown`, plus scheduling hooks), so
-adding "physics" or "networking" to a program is opt-in and explicit, never
-implied by which crates happen to be linked.
+trait with `init`, `tick(dt)`, and `shutdown` hooks. Schedule construction
+and system ordering belong to the subsystem or a higher-level runtime
+composition crate; `canary-core` does not own a scheduler. Adding a subsystem
+is opt-in and explicit, never implied by which crates happen to be linked.
+`App::add_plugin_dir` currently records a path only; it does not load plugins.
 
 Shutdown is panic-safe: a panicking `shutdown` does not skip the
 remaining subsystems (each is shut down under `catch_unwind` in reverse
@@ -183,16 +183,14 @@ same pool rather than spawning ad hoc OS threads, so the engine has one
 place to reason about CPU utilization instead of N subsystems each guessing
 how many threads they're "allowed."
 
-`canary-runtime`'s own tick loop has no job system wired in yet —
-everything `App`/`Subsystem` runs still executes on the main thread. The
-job system itself, though, exists as of `v0.0.8`: `canary-scheduler`'s
-`Schedule` implements exactly the "systems declare access, the scheduler
-runs non-conflicting ones concurrently" model this section describes,
-for the ECS specifically — see
+`App` calls each subsystem's tick sequentially on the main thread. The
+headless `canary-runtime` harness wraps its `World` and `Schedule` in a
+private `EcsSubsystem`; the scheduler runs compatible read-only stages
+concurrently inside that subsystem. See
 [`docs/architecture/execution-model.md#the-scheduler`](execution-model.md#the-scheduler)
-for what it does and its two named gaps (no concurrent disjoint writes
-yet; not wired into `App`/`Subsystem` yet). What's still deferred is the
-broader "one pool for everything" version of this target design —
+for its current limits (write systems run solo, threads are scoped per
+stage). A reusable game composition API and a shared "one pool for
+everything" design remain future work —
 longer-running, coarse-grained work (asset cooking, physics
 broad-phase) submitting to the *same* pool `Schedule` uses, once either
 of those has real jobs worth submitting.
@@ -216,20 +214,13 @@ for the enforced version of these conventions.
 ## Known limitations
 
 No open known limitations for `canary-ecs`'s ECS design as of `v0.0.7` —
-see [`execution-model.md`](execution-model.md#known-limitations) for
-what's still deliberately deferred (the scheduler itself chief among
-them) rather than an open gap, and the two resolution notes below for
-what the August 2026 review and the `v0.0.2` archetype migration each
+the scheduler now exists as its own crate, and no known storage or
+identity invariant from the v0.0.7 ECS slice is open. See
+[`execution-model.md`](execution-model.md#known-limitations) for current
+scheduler and runtime-composition gaps, and the resolution notes below
+for what the August 2026 review and the `v0.0.2` archetype migration
 closed out.
 
-Resolved since the August 2026 review, for `v0.0.1`: component storage
-now requires `T: Send + Sync` (was previously unbounded, contradicting
-the threading design above — see [`World::insert`](../../engine/canary-ecs/src/world.rs)
-and its `world_is_send_and_sync` compile-time guard test), and
-`Entity::generation` was widened from `u32` to `u64`, moving the
-generation-wraparound risk on a long-lived, hot-recycled slot from
-"plausible over years of real uptime" to "not reachable by any realistic
-runtime."
 
 Resolved by the `v0.0.2` archetype migration: change detection is now
 implemented (`World::query_changed_since`, ticked per column-row — see

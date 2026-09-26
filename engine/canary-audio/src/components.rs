@@ -48,9 +48,11 @@ pub enum SourceState {
 /// looping or one-shot.
 ///
 /// Attach alongside a [`Transform`](canary_transform::Transform) for
-/// positional playback (the system attenuates by the source–listener
-/// distance) or standalone for a non-positional voice (full gain, no
-/// attenuation). The asset handle resolves against the world's
+/// positional playback after transform propagation has produced a
+/// [`GlobalTransform`](canary_transform::GlobalTransform) (the system
+/// attenuates by world-space source–listener distance), or standalone
+/// for a non-positional voice (full gain, no attenuation). The asset
+/// handle resolves against the world's
 /// [`AssetStore<Sound>`](canary_assets::AssetStore) each tick a voice
 /// is needed — a handle that is not (yet) in the store simply yields
 /// no voice until it is, which is the streaming-friendly retry the
@@ -105,12 +107,13 @@ impl AudioSource {
     }
 }
 
-/// The ears of the scene: the pose attenuation is measured from.
+/// The ears of the scene: the propagated world pose attenuation is
+/// measured from.
 ///
 /// A unit struct on purpose — the pose itself comes from the entity's
-/// [`Transform`](canary_transform::Transform) (position) and rotation
-/// (forward), so the component is only the marker that elects *which*
-/// entity listens. The scene's first listener wins; a scene with no
+/// [`GlobalTransform`](canary_transform::GlobalTransform), so the
+/// component is only the marker that elects *which* entity listens. The
+/// scene's first listener with a propagated pose wins; a scene with no
 /// listener attenuates from the default pose (origin, facing −Z — see
 /// [`AudioListener::default_pose`]), so headless scenes without a
 /// listener entity still behave deterministically.
@@ -129,7 +132,7 @@ impl AudioListener {
     }
 }
 
-/// Which backend implementation plays the scene's voices.
+/// Which backend implementation the host configures for the scene's voices.
 ///
 /// Only [`AudioBackendName::Rodio`] exists today, for the same reason
 /// physics' backend enum has one variant: the custom engine arrives
@@ -159,7 +162,10 @@ impl AudioBackendName {
 ///
 /// A plain `Send + Sync + 'static` struct — the only three things
 /// `canary-ecs` resources require — holding the master gain plus the
-/// ADR 0023 backend selection. Systems read it via
+/// ADR 0023 backend identity. The trigger is registered for a concrete
+/// backend type, so the host must keep this value aligned with that
+/// registration; the resource does not construct or replace the backend.
+/// Systems read it via
 /// `World::resource::<AudioConfig>()`; there is at most one per
 /// `World`, matching the "one mix for the game" reality. The master
 /// gain lives here (not per-scene, not per-backend-constructor) so
@@ -172,8 +178,9 @@ pub struct AudioConfig {
     /// non-negative; a bad value degrades per-voice to "keep last
     /// good gain" at the backend boundary rather than failing ticks.
     pub master_volume: f32,
-    /// Which backend implementation to use. Only rodio exists yet; see
-    /// [`AudioBackendName`].
+    /// Backend identity the host configured. Only rodio exists yet; see
+    /// [`AudioBackendName`]. The audio system does not construct a device
+    /// from this field.
     pub backend: AudioBackendName,
 }
 

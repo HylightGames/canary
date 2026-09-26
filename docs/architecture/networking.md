@@ -1,9 +1,9 @@
 # Networking & Multiplayer
 
-Architecture for Era 4 (see
+Architecture for the planned networking subsystem (see
 [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md)). No
-networking code exists in v0.0.1. This is one of the areas where
-[`docs/research/engine-comparisons.md`](../research/engine-comparisons.md)
+`canary-net` or transport implementation exists yet. This is one of the
+areas where [`docs/research/engine-comparisons.md`](../research/engine-comparisons.md)
 most directly informed the design: retrofitting multiplayer onto an engine
 whose ECS and simulation loop weren't designed with replication in mind is
 one of the most consistently painful experiences in game development, so
@@ -16,10 +16,11 @@ for the decision record.
 ## Authority model: server-authoritative by default
 
 The default model is server-authoritative: the server owns the true
-simulation state; clients send inputs/intents, not state changes, and render
-a locally-predicted approximation of the outcome pending server
-confirmation. This is the standard model for competitive and
-cheat-resistant multiplayer (and the model most existing engines' official
+simulation state; clients send inputs and intents, and may write their own
+predicted replica, but cannot commit authoritative state without authority.
+They render that local prediction pending server confirmation. This is the
+standard model for competitive and cheat-resistant multiplayer (and the
+model most existing engines' official
 networking add-ons converge on), and it composes cleanly with a
 fixed-timestep, ECS-driven simulation (see [physics.md](physics.md)).
 
@@ -60,13 +61,16 @@ that doesn't.
 ## Replication is an ECS concept, not a side channel
 
 Components intended for network replication are marked as such
-(conceptually, a `Replicated` marker or trait bound); the networking
-subsystem's job is to observe *changes* to replicated components (via the
-ECS's change-detection query filters — see
-[core-runtime.md](core-runtime.md#ecs-architecture)) and serialize deltas,
-not full state, over the wire. This keeps "what gets replicated" a property
-declared where the component is defined, not a parallel data model
-maintained by hand in a separate networking layer.
+(conceptually, a `Replicated` marker or trait bound). The networking
+subsystem can use ECS mutation change detection (see
+[core-runtime.md](core-runtime.md#ecs-architecture)), but that alone is
+not a replication log: component removal and entity destruction need
+durable records, while snapshots and wire output need canonical ordering.
+The authority model also distinguishes server-owned truth from client
+predicted state; a client may simulate a local prediction but cannot commit
+authoritative state without authority (ADR 0021 Amendment 3). These
+contracts shape future delta/full-state transport without prescribing the
+wire mechanism here.
 
 ## Transport: QUIC as the default
 
@@ -107,6 +111,6 @@ in [rendering.md](rendering.md) for the RHI.
 ## Status in this foundation
 
 Entirely architectural. No `canary-net` crate, no `quinn` dependency, and no
-replication marker types exist in v0.0.1's code — tracked explicitly in
+replication marker types exist yet — tracked explicitly in
 [`docs/roadmap/v0.0.1-roadmap.md`](../roadmap/v0.0.1-roadmap.md) as later-era
 work, seeded by ECS design decisions made now.
