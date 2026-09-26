@@ -513,6 +513,50 @@ refused — the subsystem self-steps); input-driven control (the
 platform is pose-scripted, no input system yet) — see the roadmap
 doc for the reasoning behind each.
 
+## `v0.0.12` — Implemented, not yet tagged
+
+Full detail: [`v0.0.12-roadmap.md`](v0.0.12-roadmap.md) and
+[ADR 0023](../decisions/architecture-decision-records/0023-audio-bootstrap-rodio-behind-custom-trait.md).
+Single focus: audio playback — a game-state change makes a sound,
+through Canary's own trait with a rodio bootstrap behind it.
+
+- [x] New crate `canary-audio`, depending on `canary-ecs`,
+      `canary-scheduler`, `canary-transform`, and `canary-assets`
+      (`Sound`) plus `thiserror` and `rodio` (composition upward
+      through `canary-runtime`; nothing render-side knows about it)
+- [x] Object-safe, leak-free `AudioBackend` trait (play/stop/
+      pause/resume/volume on source handles, listener pose, per-tick
+      pump): no `rodio`/`cpal`/`symphonia` type in any public
+      signature, checked via `cargo doc` plus grep; unknown handles
+      retry, pump/volume failures never fail the tick
+- [x] Minimal components: `AudioSource` (game-owned trigger intent),
+      `AudioListener`, system-owned voice table (no field written
+      from both sides), and the `AudioConfig` resource (master
+      volume plus `#[non_exhaustive]` backend selection)
+- [x] Private rodio backend (`"=0.22.2"`, exact pin; decode-only
+      `hound` + `lewton` features, Symphonia/MPL-2.0 absent from the
+      graph, verified): Canary-owned distance attenuation (rodio's
+      `SpatialPlayer` avoided per its open upstream bug); no-device
+      construction/pump degrades typed, never panics (headless-proven)
+- [x] Trigger system (game-state transitions drive the backend,
+      removal/despawn reaps voices with zero orphans), pinned both
+      directions plus a stub-backend game proof asserting exact call
+      order
+- [x] Sound-asset prerequisite: `Sound` + WAV/Ogg Vorbis loaders in
+      `canary-assets` (bit-exact fixtures, budgets, confinement)
+- [x] 33 `canary-audio` tests green, `cargo build`/`fmt
+      --check`/`test`/`doc` clean; `clippy` clean (`-D warnings`,
+      matching CI exactly) across the full workspace, with and
+      without `winit-backend`, plus the `wasm32-wasip2` check where
+      applicable
+
+**Explicitly not in `v0.0.12`**: DSP graph, buses, HRTF/Doppler,
+gapless-music guarantees, streaming sources, FMOD/Wwise bindings,
+WASM output proof, and the custom in-house engine (retained as the
+long-term default per ADR 0023 — it replaces the private backend,
+never the trait) — see the roadmap doc for the reasoning behind
+each.
+
 ## Full architecture-to-implementation map
 
 Every documented subsystem, and where it actually stands. "Documented"
@@ -534,7 +578,8 @@ about working code in `engine/`.
 | Physics | ✅ | ✅ (2D slice) | `PhysicsBackend` trait + private rapier2d 0.35.3 backend, fixed-step system with spiral guard, first-position registration, game-plus-pixel proof; determinism is single-machine repeatability; `v0.0.11`. 3D (Jolt canonical, Rapier3D alternative) still direction, post-`v0.1.0` |
 | Networking | ✅ | ❌ | Designed (server-authoritative, QUIC); not yet scheduled |
 | Scripting system | ✅ | ❌ | Depends on Tier A |
-| Asset system | ✅ | ✅ | Minimal loading primitive (`AssetId`/`AssetHandle<T>`/`AssetStore<T>`/`AssetError`, sync GLB + PNG loaders, checked-in fixtures); cooking, cache, hot reload, importers-as-plugins, materials, and further formats all deferred; `v0.0.10` |
+| Asset system | ✅ | ✅ | Minimal loading primitive (`AssetId`/`AssetHandle<T>`/`AssetStore<T>`/`AssetError`, sync GLB + PNG loaders, checked-in fixtures); cooking, cache, hot reload, importers-as-plugins, materials, and further formats all deferred; `v0.0.10`. WAV + Ogg Vorbis `Sound` loader (bit-exact fixtures, budgets, confinement); `v0.0.12` |
+| Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, no-device typed degradation), `AudioSource`/`AudioListener` + trigger system with stub-backend game proof; custom in-house engine stays the long-term default per ADR 0023; `v0.0.12` |
 | `CanaryUI` (UI toolkit) | ✅ | ❌ | ADR 0011; abstraction layer could start independent of a backend |
 | Project state & versioning (`canary-state`) | ✅ | ❌ | ADR 0012 (`Proposed` for identity/package format) |
 | Live collaboration | ✅ | ❌ | ADR 0013 (`Accepted` — topology only; protocol/permissions unresolved) |

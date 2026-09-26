@@ -68,9 +68,11 @@ every other subsystem doc in this project:
 
 ## Status in this foundation
 
-`canary-audio` is assigned to `v0.0.12`: the `AudioBackend` trait plus
-a **rodio bootstrap backend** (see [ADR
+`canary-audio` is implemented on `dev` for `v0.0.12` (not yet tagged):
+the `AudioBackend` trait plus a **rodio bootstrap backend** (see [ADR
 0023](../decisions/architecture-decision-records/0023-audio-bootstrap-rodio-behind-custom-trait.md)),
 not the custom engine — the trait boundary this document demands comes
 first, exactly as designed, and the custom default remains the
-long-term direction. No audio code exists yet.
+long-term direction. `AudioSource`/`AudioListener` components, an
+`AudioConfig` resource, and a scheduler-registered trigger system
+complete the milestone's game-facing surface.
