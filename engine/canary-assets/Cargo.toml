@@ -51,6 +51,22 @@ gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 # already the minimal set.
 png = "0.18.1"
 
+# Sound source decoding (v0.0.12 audio milestone: WAV + Ogg Vorbis,
+# feeding a future `canary-audio` crate through `AssetHandle<Sound>`).
+# `hound` (WAV) and `lewton` (Vorbis) were chosen over Symphonia after a
+# license check on this toolchain (2026-09-25, via `cargo info`):
+# `hound 3.5.1` is Apache-2.0, `lewton 0.10.2` is MIT OR Apache-2.0 —
+# both inside the workspace's MIT/Apache-2.0-only policy for decoder
+# dependencies — while Symphonia is MPL-2.0 and is therefore declined
+# here regardless of its wider format reach. Both are pure Rust with no
+# build scripts and no C compiler needed. Exact `=` pins (per the
+# `unic-langid-macros = "=0.9.5"` precedent in
+# `docs/development/build-system.md`): the Ogg fixture assertions pin
+# lossy-decoder output values, so even a patch bump must arrive as an
+# intentional change with re-verified expectations, not silent drift.
+hound = "=3.5.1"
+lewton = "=0.10.2"
+
 [dev-dependencies]
 divan = { version = "5", package = "codspeed-divan-compat" }
 # Property tests for the store's generational-aliasing behavior, the

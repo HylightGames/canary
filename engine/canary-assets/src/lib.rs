@@ -38,6 +38,11 @@
 //! - [`Texture`] + [`load_texture`] / [`load_texture_with_budget`]:
 //!   PNG decoded and normalized to RGBA8 (>8-bit samples documentedly
 //!   downsampled) under an enforced decode budget.
+//! - [`Sound`] + [`load_sound`] / [`load_sound_with_budget`]:
+//!   WAV (8/16/24/32-bit integer PCM, 32-bit float) and Ogg Vorbis
+//!   decoded and normalized to interleaved `f32` PCM in `[-1, 1]`
+//!   (mono/stereo only) under an enforced decode budget, with the same
+//!   root confinement as every other loader.
 //!
 //! [`AssetId::for_file`] hashes raw file bytes without interpreting them,
 //! so loaders reuse it for identity rather than re-implementing file
@@ -64,11 +69,14 @@
 //! private behind hex rendering), `gltf` without default features plus
 //! only `utils` (for [`load_mesh`]'s primitive reader — the `import`
 //! feature's `image` subtree is deliberately declined; see `Cargo.toml`),
-//! and `png` (for [`load_texture`]'s decoder). It knows nothing about
+//! `png` (for [`load_texture`]'s decoder), and `hound` + `lewton`
+//! (for [`load_sound`]'s WAV and Ogg Vorbis decoders — pure Rust,
+//! MIT/Apache-2.0 only; Symphonia's MPL-2.0 is deliberately declined,
+//! see `Cargo.toml`). It knows nothing about
 //! `canary-render` or any backend; composition flows upward, keeping
 //! `canary-render`'s zero-dependency invariant intact.
 //!
-//! Third-party loader types (`gltf`, `png`) appear only in function
+//! Third-party loader types (`gltf`, `png`, `hound`, `lewton`) appear only in function
 //! bodies and private helpers of `mesh` and `texture` — never in a
 //! public signature (backend-trait hygiene extended to the asset
 //! boundary, checked via `cargo doc`).
@@ -78,6 +86,7 @@ mod handle;
 mod id;
 mod io;
 mod mesh;
+mod sound;
 mod store;
 mod texture;
 
@@ -88,6 +97,10 @@ pub use io::{resolve_in_root, MAX_ASSET_FILE_BYTES};
 pub use mesh::{
     load_mesh, load_mesh_within_root, Mesh, MAX_MESH_INDICES_PER_PRIMITIVE,
     MAX_MESH_VERTICES_PER_PRIMITIVE,
+};
+pub use sound::{
+    load_sound, load_sound_with_budget, load_sound_with_budget_within_root, load_sound_within_root,
+    Sound, DEFAULT_MAX_SOUND_SAMPLES,
 };
 pub use store::AssetStore;
 pub use texture::{
