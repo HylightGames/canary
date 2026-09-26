@@ -4,8 +4,10 @@ This page is the entry point for continuing Canary. It does not duplicate
 release detail: [`status.md`](status.md) is the live inventory,
 [`v0.1.0-plan.md`](v0.1.0-plan.md) is the committed near-term sequence, and
 [`future-roadmap.md`](future-roadmap.md) is the dependency-ordered direction
-after that target. The historical milestone record is
-[`milestones.md`](milestones.md).
+after that target. The near-term plan now gives each remaining milestone
+through `v0.1.0` ordered work packages and exit evidence; use those gates
+before starting the next implementation stage. The historical milestone
+record is [`milestones.md`](milestones.md).
 
 ## Where to continue now
 

@@ -72,14 +72,22 @@ excludes presentation handles, audio devices, editor state, and temporary
 caches. Both products may use versioned codecs, but they do not serialize
 the same undifferentiated `World`.
 
-## Layered scope: near-term, medium-term, long-term
+## Scope and sequence
 
 Collapsing "make the project version-control-friendly" and "build
 Google-Docs-style real-time collaborative editing" into one effort is a
-mistake — they have very different costs and very different urgency.
-This document deliberately separates them:
+mistake — they have very different costs and very different urgency. The
+`v0.0.14` milestone establishes the project-state foundation; the first
+shared-edit proof follows in `.16`, and editor/ecosystem features build on
+that evidence later.
 
-### Near-term (informs data-format decisions for whenever `canary-state` is scoped, doesn't require a new crate yet)
+### `v0.0.14`: project-state and snapshot foundation
+
+The work packages in the
+[`v0.1.0 plan`](../roadmap/v0.1.0-plan.md#v0014--project-state) turn these
+contracts into the first `canary-state` crate, built on the current ECS and
+asset primitives. They also define a simulation snapshot separately from
+authored project files, as described above.
 
 - Author-facing formats (scenes, project manifests) should prefer
   structured, diffable, mergeable text (e.g. a stable-key-ordered
@@ -94,9 +102,6 @@ This document deliberately separates them:
   persistent identity assigned at creation time, stored alongside its
   data — before scene formats or persisted asset references make the
   identity expensive to retrofit.
-
-### Medium-term (a real `canary-state` crate; built on current ECS and asset primitives)
-
 - A persistent-identity registry mapping stable IDs to runtime `Entity`
   handles for the duration of a session, as described above.
 - Change tracking at the *authored* level (not to be confused with the
@@ -114,6 +119,12 @@ This document deliberately separates them:
   exactly as the motivating discussion for this document described —
   this only becomes tractable once schema identity is itself stable and
   language-agnostic, which is why this depends on ADR 0010's resolution.
+
+### Collaboration and ecosystem work
+
+- Undo/redo and "time-travel debugging" as consequences of an operation
+  log, once one exists for the reasons above — valuable, but a
+  consequence of the architecture rather than a reason to build it first.
 - A real package format for marketplace/plugin content, extending the
   gap already flagged in
   [`docs/reviews/risk-register.md`](../reviews/risk-register.md) (R-08):
@@ -122,18 +133,17 @@ This document deliberately separates them:
   notably, **migration rules** for evolving a package's schema across
   versions without breaking projects that already depend on an older one
   — the same problem database schema migrations solve, applied to game
-  content.
-
-### Long-term (genuinely later; depends on the medium-term layer existing and proving itself first)
-
-- Undo/redo and "time-travel debugging" as consequences of an operation
-  log, once one exists for the reasons above — valuable, but a
-  consequence of the architecture rather than a reason to build it first.
-- Real-time collaborative editing ("live share"). Explicitly **not**
-  scoped to any near or medium-term milestone — this is about the
-  *architecture*, decided ahead of the implementation, the same posture
-  taken toward rendering, physics, and networking throughout this
-  project. The topology and authority model are resolved
+  content. This is not required by `.14` or by the first `.16` shared-edit
+  proof; the project-state and schema foundations should make it possible
+  later.
+- The first, deliberately narrow live-collaboration slice is planned for
+  [`v0.0.16`](../roadmap/v0.1.0-plan.md#v0016--live-collaboration), after
+  authored project state (`v0.0.14`) and gameplay networking (`v0.0.15`).
+  That milestone proves a shared authored edit through an authoritative
+  session; it does not include the editor UI or a complete collaboration
+  product. This is a planned implementation of the architecture, not a
+  change to its authority model. The topology and authority model are
+  resolved
   ([ADR 0013](../decisions/architecture-decision-records/0013-live-collaboration-server-authoritative-topology.md)):
   **server-authoritative, client–server–client** — not peer-to-peer, and
   not CRDT-based leaderless merge as the top-level architecture. This
@@ -161,9 +171,11 @@ This document deliberately separates them:
   conflicting operations internally — demoted from top-level architecture
   to implementation technique, not discarded.
 
-  What remains genuinely open: the wire protocol, the operation schema,
-  and permission-model specifics — real design work for whenever
-  `canary-state` implementation actually starts, not decided here.
+  The broader collaboration product remains later work. Before `.15`
+  implements wire behavior and before `.16` accepts shared edits, the
+  respective protocol, operation, history, and permission details must be
+  specified in the architecture and recorded in an ADR; ADR 0013 does not
+  decide them.
 
 ## Why this belongs in the architecture set before the subsystem is built
 
@@ -177,14 +189,18 @@ multiplayer editing, marketplace packages, and modding stop being
 separate features to build and become natural consequences of one
 architecture instead. That's exactly the kind of leverage worth writing
 down early, and exactly the kind of subsystem worth *not* rushing into
-code before its hardest questions (identity, merge semantics, the
-CRDT-vs-authoritative choice) have real design attention.
+code before its hardest questions (identity, schema/migration behavior,
+and the operation and permission semantics ADR 0013 leaves open) have
+real design attention.
 
 ## Status in this foundation
 
 The identity, authoring, and snapshot contracts are architectural; no
 `canary-state` crate exists. The archetype ECS and minimal typed asset
 loaders are available as foundations, but logical identity allocation,
-authored codecs, migration, and simulation snapshot APIs remain future
-work. See
-[`docs/roadmap/future-roadmap.md`](../roadmap/future-roadmap.md).
+authored codecs, migration, and simulation snapshot APIs remain planned
+work for `.14`; networking and the first shared-edit slice follow in `.15`
+and `.16`. See the
+[`v0.1.0 plan`](../roadmap/v0.1.0-plan.md) for their work packages and
+exit evidence, and [`future-roadmap.md`](../roadmap/future-roadmap.md) for
+work after the first collaboration proof.

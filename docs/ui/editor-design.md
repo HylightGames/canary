@@ -96,14 +96,19 @@ GUI-first tool later and ends up incomplete or fragile.
 ## Collaboration tools
 
 Real-time multi-user editing (Figma-style concurrent scene editing) is
-aspirational and explicitly not scoped for any near-term era. This
-section originally recorded one near-term implication in passing (prefer
-diffable, mergeable scene/asset formats); that idea has since grown into
-a full architectural principle and design of its own — see
+broader than the first shared-edit proof and remains aspirational as an
+editor feature. A narrow server-authoritative shared-authored-state slice
+is now planned for `v0.0.16`, after project state and gameplay networking;
+it does not include editor UI. This section originally recorded one
+near-term implication in passing (prefer diffable, mergeable scene/asset
+formats); that idea has since grown into a full architectural principle
+and design of its own — see
 [`docs/architecture/state-and-versioning.md`](../architecture/state-and-versioning.md)
 and [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md),
-which supersede this section for anything beyond "the editor should keep
-this in mind."
+with the initial collaboration milestone defined in
+[`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md#v0016--live-collaboration).
+Those documents supersede this section for collaboration protocol and
+state-format decisions; this section only records the editor implications.
 
 ## UI toolkit: decided at the architecture level, not yet built
 
