@@ -31,19 +31,32 @@ portable simulation protocol.
    digital actions with `down`, `pressed`, and `released` semantics. Multiple
    physical bindings to one action are aggregated before edge state is
    derived; a repeated OS key-press while already down does not create a new
-   `pressed` edge. Game-owned action identities are stable within that game's
-   declared action schema. Their concrete Rust representation remains open
-   for API review; replay/network representations must be explicitly encoded
-   and versioned.
+   `pressed` edge. `pressed`/`released` edges appear only on the aggregate
+   transition pass, never on steady-held passes. Actions sort in game-declared
+   action-schema declaration order, which is the canonical order for
+   replay and wire encodings. Game-owned action identities are stable
+   within that game's declared action schema. Their concrete Rust
+   representation remains open for API review; replay/network
+   representations must be explicitly encoded under the data/schema
+   version universe (ADR 0022 Clarification 6), never timestamps, raw
+   events, or capture state.
 3. **Give UI routing first refusal on raw events.** The UI adapter receives
    normalized raw events and reports the keyboard/pointer events captured by
-   its current focus and interaction state. Gameplay mapping receives only
-   events not captured by UI, except where the game explicitly declares a
-   pass-through binding. This is a behavior contract; UI capture is not
-   exposed as an `egui`-specific flag.
+   its current focus and interaction state. The mapper receives the full
+   ordered event stream annotated with order-preserving per-event capture
+   flags, and drops consumed events — unless a game-declared pass-through
+   binding covers that event, evaluated per binding inside the mapper
+   (capture can only be judged against bindings at mapping time, so the
+   filter lives there, not in a pre-filter). This is a behavior contract;
+   UI capture is not exposed as an `egui`-specific flag. Mapping contexts
+   are not a separate layer: capture plus named pass-through is the
+   context switch, and a future contexts design extends — never replaces
+   — this rule.
 4. **Never retain a stuck input across focus or capture changes.** Window
    focus loss clears all held controls and produces logical release/cancel
-   edges for actions that were down. If UI begins capturing an already-held
+   edges for actions that were down. Pointer-leave-while-held is treated
+   the same way (synthesized release), unless pointer capture is held for
+   the drag — a captured pointer cannot "leave" mid-gesture. If UI begins capturing an already-held
    physical control, gameplay receives a release before the mapper forgets
    it. Duplicate and repeat events cannot synthesize extra press edges.
 5. **Keep simulation input separate from UI intent.** UI callbacks return
@@ -53,13 +66,24 @@ portable simulation protocol.
 6. **Bound the first slice to one local player and digital actions.** The
    platform contract for `.13` adds normalized pointer position/button and
    focus-loss events needed for a real UI, alongside existing keyboard
-   transitions. Controller/analog actions, text/IME editing, remapping UI,
+   transitions. Pointer positions are reported in logical pixels (physical
+   `surface_extent` stays a separate, documented seam — never conflate the
+   two). Player identity is a small `Copy` slot id with `0` reserved for
+   the local player; per-slot profile instances (split-screen) and direct
+   snapshot injection (AI agents, headless tests) ride on the same type
+   later without reshaping it. Controller/analog actions, text/IME editing, remapping UI,
    persisted control profiles, multiplayer player assignment, and zero-or-
    multiple simulation passes per outer frame remain later work.
 
 The runtime records and transmits `SimulationInput`, never physical
-`RawInput`, input timestamps, or the UI capture result. `.13` uses one
-simulation pass per outer frame; a later fixed-step runner must define how
+`RawInput`, input timestamps, or the UI capture result. Tick identity is
+stamped by the runtime immediately before the scheduled pass (the mapper
+stamps `frame_index` at route time, which precedes the tick advance);
+tests assert the observed pair, never an assumed one. `SimulationInput`
+travels as a per-frame-overwritten ECS resource — like `RunContext`,
+read by consumers and written only by the runtime/input phase — so it
+never trips the quiet-tick probe the way component data would. `.13`
+uses one simulation pass per outer frame; a later fixed-step runner must define how
 queued events and held action state map to zero or multiple simulation steps
 before that behavior is added.
 
