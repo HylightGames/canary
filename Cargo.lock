@@ -382,6 +382,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "canary-input"
+version = "0.0.12"
+dependencies = [
+ "canary-ecs",
+ "canary-platform",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "canary-loc"
 version = "0.0.12"
 dependencies = [

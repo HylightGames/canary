@@ -1,0 +1,15 @@
+[package]
+name = "canary-input"
+description = "Canary Engine deterministic gameplay input: action identities, bindings, UI-capture routing, and per-frame SimulationInput snapshots."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-ecs = { path = "../canary-ecs" }
+canary-platform = { path = "../canary-platform" }
+thiserror = "2.0.19"
