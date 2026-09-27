@@ -22,10 +22,18 @@ mod color_target;
 mod device;
 mod encoder;
 mod pipeline;
+#[cfg(feature = "presentation")]
+mod presenter;
+#[cfg(feature = "presentation")]
+mod surface;
+#[cfg(feature = "presentation")]
+mod swapchain;
 mod texture;
 
 pub use buffer::VulkanBuffer;
 pub use color_target::VulkanColorTarget;
 pub use device::{VulkanDevice, VulkanInitError};
 pub use pipeline::VulkanPipeline;
+#[cfg(feature = "presentation")]
+pub use presenter::VulkanPresenter;
 pub use texture::VulkanTexture;

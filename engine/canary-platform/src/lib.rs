@@ -26,6 +26,7 @@
 
 mod headless;
 mod input;
+pub mod surface;
 mod window;
 #[cfg(feature = "winit-backend")]
 pub mod winit_backend;

@@ -47,4 +47,35 @@ pub trait Window {
     /// Poll for platform events. A real backend pumps the OS event loop
     /// here; [`crate::HeadlessWindow`]'s implementation is a no-op.
     fn poll_events(&mut self);
+
+    /// Whether this window can back a presentation swapchain.
+    ///
+    /// Additive (default `false`) so existing implementors — including
+    /// [`crate::HeadlessWindow`] — compile unchanged: only a real,
+    /// surface-capable backend overrides this. Presenters treat `false`
+    /// as "never ask for handles", not as an error.
+    fn supports_presentation(&self) -> bool {
+        false
+    }
+
+    /// The current surface extent in physical pixels, or `None` when
+    /// this window has none to report. A `Some` with a zero axis means
+    /// minimized: presenters suspend rather than error.
+    ///
+    /// Additive (default `None`): headless windows report nothing.
+    fn surface_extent(&self) -> Option<(u32, u32)> {
+        None
+    }
+
+    /// Counts resizes this window has observed since creation.
+    /// Presenters compare it frame-to-frame as a recreate signal,
+    /// alongside the extent itself: a change means "recreate the
+    /// swapchain", even when the extent already matches (e.g. a resize
+    /// back to the same size still invalidates the surface on some
+    /// drivers).
+    ///
+    /// Additive (default `0`): windows that never resize stay silent.
+    fn resize_generation(&self) -> u64 {
+        0
+    }
 }

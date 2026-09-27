@@ -58,6 +58,7 @@ use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window as WinitOsWindow, WindowId};
 
 use crate::input::{InputEvent, InputSource, Key};
+use crate::surface::{DisplayHandle, SurfaceHandlesProvider, WindowHandle, WindowHandles};
 use crate::window::{Window, WindowDescriptor};
 
 /// Everything a live `winit` window needs, shared between [`WinitWindow`]
@@ -67,6 +68,9 @@ struct SharedState {
     os_window: Option<WinitOsWindow>,
     close_requested: bool,
     pending_input: Vec<InputEvent>,
+    /// How many resizes this window has observed — the presenter's
+    /// recreate signal (see [`SurfaceHandlesProvider::resize_generation`]).
+    resize_generation: u64,
 }
 
 /// The actual [`winit::application::ApplicationHandler`] implementation.
@@ -112,6 +116,9 @@ impl ApplicationHandler for AppHandler<'_> {
         let mut shared = self.shared.borrow_mut();
         match event {
             WindowEvent::CloseRequested => shared.close_requested = true,
+            WindowEvent::Resized(_) => {
+                shared.resize_generation = shared.resize_generation.saturating_add(1);
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 // Key-repeat produces additional "pressed" events while a
                 // key is held; `InputEvent::KeyPressed` models a
@@ -330,6 +337,7 @@ impl WinitWindow {
             os_window: None,
             close_requested: false,
             pending_input: Vec::new(),
+            resize_generation: 0,
         }));
 
         let mut handler = AppHandler {
@@ -375,6 +383,82 @@ impl Window for WinitWindow {
         self.event_loop
             .pump_app_events(Some(Duration::ZERO), &mut handler);
     }
+
+    fn supports_presentation(&self) -> bool {
+        self.shared.borrow().os_window.is_some()
+    }
+
+    fn surface_extent(&self) -> Option<(u32, u32)> {
+        let shared = self.shared.borrow();
+        let os_window = shared.os_window.as_ref()?;
+        let size = os_window.inner_size();
+        Some((size.width, size.height))
+    }
+
+    fn resize_generation(&self) -> u64 {
+        self.shared.borrow().resize_generation
+    }
+}
+
+impl SurfaceHandlesProvider for WinitWindow {
+    fn window_handles(&self) -> Option<WindowHandles> {
+        let shared = self.shared.borrow();
+        let os_window = shared.os_window.as_ref()?;
+        extract_window_handles(os_window)
+    }
+}
+
+/// Converts a live `winit` window into Canary-owned handles.
+///
+/// The only `raw-window-handle` contact in this crate, via `winit`'s
+/// own `rwh_06` re-export (no direct dependency, no `rwh_04`/`rwh_05`
+/// features anywhere): `winit` 0.30 implements the 0.6 traits, so the
+/// version always matches by construction. Returns `None` for
+/// platforms this seam does not cover yet (anything outside the
+/// desktop Xlib/Xcb/Wayland/Win32/AppKit set).
+fn extract_window_handles(os_window: &WinitOsWindow) -> Option<WindowHandles> {
+    use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+
+    let display = os_window.display_handle().ok()?;
+    let window = os_window.window_handle().ok()?;
+    let display = match display.as_ref() {
+        winit::raw_window_handle::RawDisplayHandle::Xlib(handle) => DisplayHandle::Xlib {
+            display: handle.display,
+            screen: handle.screen,
+        },
+        winit::raw_window_handle::RawDisplayHandle::Xcb(handle) => DisplayHandle::Xcb {
+            connection: handle.connection,
+            screen: handle.screen,
+        },
+        winit::raw_window_handle::RawDisplayHandle::Wayland(handle) => DisplayHandle::Wayland {
+            display: handle.display,
+        },
+        winit::raw_window_handle::RawDisplayHandle::Windows(_) => DisplayHandle::Windows,
+        winit::raw_window_handle::RawDisplayHandle::AppKit(_) => DisplayHandle::AppKit,
+        _ => return None,
+    };
+    let window = match window.as_ref() {
+        winit::raw_window_handle::RawWindowHandle::Xlib(handle) => WindowHandle::Xlib {
+            window: handle.window,
+            visual_id: handle.visual_id,
+        },
+        winit::raw_window_handle::RawWindowHandle::Xcb(handle) => WindowHandle::Xcb {
+            window: handle.window,
+            visual_id: handle.visual_id,
+        },
+        winit::raw_window_handle::RawWindowHandle::Wayland(handle) => WindowHandle::Wayland {
+            surface: handle.surface,
+        },
+        winit::raw_window_handle::RawWindowHandle::Win32(handle) => WindowHandle::Win32 {
+            hwnd: handle.hwnd,
+            hinstance: handle.hinstance,
+        },
+        winit::raw_window_handle::RawWindowHandle::AppKit(handle) => WindowHandle::AppKit {
+            view: handle.ns_view,
+        },
+        _ => return None,
+    };
+    Some(WindowHandles::new(display, window))
 }
 
 /// A real `winit`-backed input source, sharing state with the

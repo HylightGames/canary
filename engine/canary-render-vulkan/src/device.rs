@@ -22,6 +22,11 @@ use crate::encoder::VulkanCommandEncoder;
 use crate::pipeline::VulkanPipeline;
 use crate::texture::VulkanTexture;
 
+#[cfg(feature = "presentation")]
+use canary_platform::surface::WindowHandles;
+#[cfg(feature = "presentation")]
+use canary_render::presentation::PresentationError;
+
 /// The single color format this backend supports for `v0.0.6`'s scope.
 /// Fixed (not a per-target choice) so a single shared render pass,
 /// created once by [`VulkanDevice::new`], is compatible with every
@@ -61,6 +66,13 @@ pub(crate) const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 pub struct VulkanDevice {
     _entry: ash::Entry,
     pub(crate) instance: ash::Instance,
+    /// The selected physical device, kept for surface queries (surface
+    /// capabilities, formats, present modes) that presentation performs
+    /// long after construction. Never destroyed explicitly — physical
+    /// devices are owned by the instance, not by us. Present only with
+    /// the presentation feature (its only reader).
+    #[cfg(feature = "presentation")]
+    pub(crate) physical_device: vk::PhysicalDevice,
     pub(crate) device: Rc<ash::Device>,
     pub(crate) queue: vk::Queue,
     pub(crate) command_pool: vk::CommandPool,
@@ -194,6 +206,17 @@ struct ValidationStrings {
     extension_names: Vec<CString>,
 }
 
+/// The shared tail both constructors assemble: everything after the
+/// logical device exists. Split out so [`VulkanDevice::new`] and the
+/// presentation constructor build it identically.
+struct DeviceTail {
+    queue: vk::Queue,
+    command_pool: vk::CommandPool,
+    render_pass: vk::RenderPass,
+    memory_properties: vk::PhysicalDeviceMemoryProperties,
+    texture_set_layout: vk::DescriptorSetLayout,
+}
+
 impl VulkanDevice {
     /// Creates the Vulkan backend: instance, physical/logical device,
     /// graphics queue, command pool, and the single shared render pass
@@ -216,23 +239,68 @@ impl VulkanDevice {
         // call returns `Err` (propagated with `?` into `VulkanInitError`)
         // rather than a null handle on failure. Per-call notes below
         // cover only what differs per call.
-        let entry =
-            unsafe { ash::Entry::load() }.map_err(|e| VulkanInitError::EntryLoad(e.to_string()))?;
+        let entry = Self::load_entry()?;
+        let (instance, validation_enabled) = Self::create_instance(&entry, &[])?;
+        let debug_messenger =
+            Self::create_messenger_if_enabled(&entry, &instance, validation_enabled);
+        let (physical_device, queue_family_index) = Self::pick_first_graphics_device(&instance)?;
+        let device =
+            Self::create_logical_device(&instance, physical_device, queue_family_index, &[])?;
+        let tail = Self::assemble_tail(&instance, &device, physical_device, queue_family_index)?;
+        Ok(Self {
+            _entry: entry,
+            instance,
+            #[cfg(feature = "presentation")]
+            physical_device,
+            device,
+            queue: tail.queue,
+            command_pool: tail.command_pool,
+            render_pass: tail.render_pass,
+            memory_properties: tail.memory_properties,
+            texture_set_layout: tail.texture_set_layout,
+            debug_messenger,
+        })
+    }
 
+    /// The crate-visible loader, for building extension loaders (surface,
+    /// swapchain, debug) against this device's instance without
+    /// re-loading. Extension loaders are free to construct — this just
+    /// avoids a second `Entry::load`.
+    #[cfg(feature = "presentation")]
+    pub(crate) fn entry(&self) -> &ash::Entry {
+        &self._entry
+    }
+
+    /// Loads the Vulkan loader. Split out so the presentation
+    /// constructor shares the exact same entry point (and error) as
+    /// [`VulkanDevice::new`].
+    fn load_entry() -> Result<ash::Entry, VulkanInitError> {
+        // SAFETY: loads the Vulkan loader library; no handles involved,
+        // error-or-entry return.
+        unsafe { ash::Entry::load() }.map_err(|e| VulkanInitError::EntryLoad(e.to_string()))
+    }
+
+    /// Creates the instance, enabling the debug-only validation layers
+    /// (see [`VulkanDevice::maybe_install_validation`] for the contract)
+    /// plus `extra_extensions` — empty for [`VulkanDevice::new`], the
+    /// surface extensions for presentation. Returns whether validation
+    /// was actually enabled, so the caller can decide about the debug
+    /// messenger. The owned `CString`s live only for this call (Vulkan
+    /// copies what it needs during `create_instance`).
+    fn create_instance(
+        entry: &ash::Entry,
+        extra_extensions: &[*const std::os::raw::c_char],
+    ) -> Result<(ash::Instance, bool), VulkanInitError> {
         let app_name = CString::new("canary").expect("static string has no interior NUL");
         let app_info = vk::ApplicationInfo::default()
             .application_name(&app_name)
             .api_version(vk::API_VERSION_1_1);
-        // Debug-only validation layers (see `maybe_install_validation`
-        // for the contract): release builds never pay for them and never
-        // change behavior based on their presence. The owned `CString`s
-        // must outlive `instance_ci` below, hence the bindings.
-        let validation = Self::maybe_install_validation(&entry);
+        let validation = Self::maybe_install_validation(entry);
         let validation_layer_ptrs: Vec<*const std::os::raw::c_char> = validation
             .as_ref()
             .map(|owned| owned.layer_names.iter().map(|name| name.as_ptr()).collect())
             .unwrap_or_default();
-        let validation_extension_ptrs: Vec<*const std::os::raw::c_char> = validation
+        let mut extension_ptrs: Vec<*const std::os::raw::c_char> = validation
             .as_ref()
             .map(|owned| {
                 owned
@@ -242,83 +310,284 @@ impl VulkanDevice {
                     .collect()
             })
             .unwrap_or_default();
+        extension_ptrs.extend_from_slice(extra_extensions);
+        let validation_enabled = validation.is_some();
         let instance_ci = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_layer_names(&validation_layer_ptrs)
-            .enabled_extension_names(&validation_extension_ptrs);
+            .enabled_extension_names(&extension_ptrs);
+        // SAFETY: fully specified create-info with live string backing;
+        // error-or-handle return.
         let instance = unsafe { entry.create_instance(&instance_ci, None) }
             .map_err(VulkanInitError::from_vk)?;
+        Ok((instance, validation_enabled))
+    }
 
-        // Debug messenger for the validation layers above, if any were
-        // enabled (`None` in release and whenever the layers are
-        // absent — mesa/llvmpipe CI included). Torn down with the
-        // device in `Drop`, before the instance. Gated on the layers
-        // themselves, not just `cfg(debug)`: creating a messenger
-        // without its extension enabled calls a null function pointer.
+    /// Installs the validation debug messenger when `enabled` (debug
+    /// builds with layers present), `None` otherwise. Shared by both
+    /// constructors so the presentation path gets the same fail-loud
+    /// validation as the offscreen one.
+    fn create_messenger_if_enabled(
+        entry: &ash::Entry,
+        instance: &ash::Instance,
+        enabled: bool,
+    ) -> Option<(ash::ext::debug_utils::Instance, vk::DebugUtilsMessengerEXT)> {
         #[cfg(debug_assertions)]
-        let debug_messenger = if validation.is_some() {
-            Self::create_debug_messenger(&entry, &instance)
-        } else {
-            None
-        };
+        {
+            if enabled {
+                Self::create_debug_messenger(entry, instance)
+            } else {
+                None
+            }
+        }
         #[cfg(not(debug_assertions))]
-        let debug_messenger: Option<(
-            ash::ext::debug_utils::Instance,
-            vk::DebugUtilsMessengerEXT,
-        )> = None;
+        {
+            let _ = (entry, instance, enabled);
+            None
+        }
+    }
 
+    /// Destroys a messenger created by
+    /// [`VulkanDevice::create_messenger_if_enabled`]. Used on error
+    /// paths where the owning device was never assembled (the assembled
+    /// device's `Drop` handles the success path instead).
+    #[cfg(feature = "presentation")]
+    fn destroy_messenger(
+        messenger: &Option<(ash::ext::debug_utils::Instance, vk::DebugUtilsMessengerEXT)>,
+    ) {
+        if let Some((ref debug_utils, handle)) = messenger {
+            // SAFETY: live loader/messenger pair created together above,
+            // destroyed exactly once here.
+            unsafe {
+                debug_utils.destroy_debug_utils_messenger(*handle, None);
+            }
+        }
+    }
+
+    /// Picks the first enumerable physical device and its first
+    /// graphics-capable queue family — exactly [`VulkanDevice::new`]'s
+    /// long-standing behavior, split out so the presentation
+    /// constructor (which selects differently) shares the tail below.
+    fn pick_first_graphics_device(
+        instance: &ash::Instance,
+    ) -> Result<(vk::PhysicalDevice, u32), VulkanInitError> {
+        // SAFETY: read-only enumeration against a live instance; the
+        // family index is proven below before use.
         let physical_device = unsafe { instance.enumerate_physical_devices() }
             .map_err(VulkanInitError::from_vk)?
             .into_iter()
             .next()
             .ok_or(VulkanInitError::NoPhysicalDevice)?;
 
-        let queue_family_index =
+        let queue_family_position =
             unsafe { instance.get_physical_device_queue_family_properties(physical_device) }
                 .iter()
                 .position(|props| props.queue_flags.contains(vk::QueueFlags::GRAPHICS))
-                .ok_or(VulkanInitError::NoGraphicsQueueFamily)? as u32;
+                .ok_or(VulkanInitError::NoGraphicsQueueFamily)?;
+        // `position` is an index into a just-enumerated `Vec` — far below
+        // `u32::MAX` on any real device; the error below is unreachable
+        // in practice but keeps a (lossy) `as` cast out of the codebase.
+        let queue_family_index = u32::try_from(queue_family_position)
+            .map_err(|_| VulkanInitError::NoGraphicsQueueFamily)?;
 
+        Ok((physical_device, queue_family_index))
+    }
+
+    /// Creates the logical device with one queue from `queue_family_index`,
+    /// enabling `device_extensions` (empty for [`VulkanDevice::new`],
+    /// the swapchain extension for presentation).
+    fn create_logical_device(
+        instance: &ash::Instance,
+        physical_device: vk::PhysicalDevice,
+        queue_family_index: u32,
+        device_extensions: &[*const std::os::raw::c_char],
+    ) -> Result<Rc<ash::Device>, VulkanInitError> {
         let queue_priorities = [1.0f32];
         let queue_ci = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(queue_family_index)
             .queue_priorities(&queue_priorities);
         let queue_cis = [queue_ci];
-        let device_ci = vk::DeviceCreateInfo::default().queue_create_infos(&queue_cis);
-        let device = Rc::new(
-            unsafe { instance.create_device(physical_device, &device_ci, None) }
-                .map_err(VulkanInitError::from_vk)?,
-        );
-        // SAFETY: `queue_family_index` was just proven to exist (the
-        // `position` above errored otherwise) and queue 0 of any family
-        // always exists; the device is live.
+        let device_ci = vk::DeviceCreateInfo::default()
+            .queue_create_infos(&queue_cis)
+            .enabled_extension_names(device_extensions);
+        // SAFETY: `queue_family_index` was proven by the caller (either
+        // picker above errors otherwise) and queue 0 of any family
+        // always exists; fully specified create-info otherwise.
+        let device = unsafe { instance.create_device(physical_device, &device_ci, None) }
+            .map_err(VulkanInitError::from_vk)?;
+        Ok(Rc::new(device))
+    }
+
+    /// The shared tail of both constructors: graphics queue, memory
+    /// properties, command pool, shared offscreen render pass, and
+    /// shared texture-set layout.
+    fn assemble_tail(
+        instance: &ash::Instance,
+        device: &Rc<ash::Device>,
+        physical_device: vk::PhysicalDevice,
+        queue_family_index: u32,
+    ) -> Result<DeviceTail, VulkanInitError> {
+        // SAFETY: `queue_family_index` was proven by the caller and
+        // queue 0 always exists; the device is live.
         let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
 
+        // SAFETY: read-only query against a live instance/device pair.
         let memory_properties =
             unsafe { instance.get_physical_device_memory_properties(physical_device) };
 
         let command_pool_ci = vk::CommandPoolCreateInfo::default()
             .queue_family_index(queue_family_index)
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+        // SAFETY: fully specified create-info against a live device;
+        // error-or-handle return.
         let command_pool = unsafe { device.create_command_pool(&command_pool_ci, None) }
             .map_err(VulkanInitError::from_vk)?;
 
-        let render_pass = create_render_pass(&device).map_err(VulkanInitError::from_vk)?;
+        let render_pass = create_render_pass(device).map_err(VulkanInitError::from_vk)?;
 
         let texture_set_layout =
-            create_texture_set_layout(&device).map_err(VulkanInitError::from_vk)?;
+            create_texture_set_layout(device).map_err(VulkanInitError::from_vk)?;
 
-        Ok(Self {
-            _entry: entry,
-            instance,
-            device,
+        Ok(DeviceTail {
             queue,
             command_pool,
             render_pass,
             memory_properties,
             texture_set_layout,
-            debug_messenger,
         })
+    }
+
+    /// Creates the Vulkan backend for windowed presentation: instance
+    /// with the window's required surface extensions, a window surface,
+    /// and the best graphics-*and*-present-capable adapter with the
+    /// swapchain device extension enabled.
+    ///
+    /// Returns the device plus the created surface. The surface is
+    /// *not* owned by the device (its `Drop` would not know when to
+    /// destroy it relative to the presenter's swapchain): the caller —
+    /// the presenter — takes ownership and destroys it before the
+    /// device. On any error, everything created so far (surface,
+    /// messenger, instance) is destroyed before returning, so no
+    /// half-built chain leaks.
+    ///
+    /// Window-handle extraction happened before this call (in
+    /// `canary-platform`): `handles` is Canary-owned data, so no
+    /// third-party type appears here.
+    #[cfg(feature = "presentation")]
+    pub(crate) fn new_for_presentation(
+        handles: &WindowHandles,
+    ) -> Result<(Self, vk::SurfaceKHR), PresentationError> {
+        let entry =
+            Self::load_entry().map_err(|e| PresentationError::Initialization(e.to_string()))?;
+        let display = crate::surface::rebuild_display(handles)?;
+        let required = crate::surface::required_extensions(display)?;
+        let (instance, validation_enabled) = Self::create_instance(&entry, required)
+            .map_err(|e| PresentationError::Initialization(e.to_string()))?;
+        Self::new_for_presentation_inner(entry, instance, validation_enabled, handles)
+    }
+
+    /// The fallible middle of [`VulkanDevice::new_for_presentation`]:
+    /// messenger, surface, adapter selection, logical device, tail.
+    /// Owns `entry`/`instance` while running (moving them into the
+    /// returned `Self` on success); every error path destroys what it
+    /// created — messenger, surface where built, then the instance —
+    /// before returning.
+    #[cfg(feature = "presentation")]
+    fn new_for_presentation_inner(
+        entry: ash::Entry,
+        instance: ash::Instance,
+        validation_enabled: bool,
+        handles: &WindowHandles,
+    ) -> Result<(Self, vk::SurfaceKHR), PresentationError> {
+        let debug_messenger =
+            Self::create_messenger_if_enabled(&entry, &instance, validation_enabled);
+        let surface = match crate::surface::create_surface(&entry, &instance, handles) {
+            Ok(surface) => surface,
+            Err(error) => {
+                Self::destroy_messenger(&debug_messenger);
+                Self::destroy_instance(&instance);
+                return Err(error);
+            }
+        };
+        let surface_loader = ash::khr::surface::Instance::new(&entry, &instance);
+        let (physical_device, queue_family_index) =
+            match crate::surface::pick_presentable_device(&instance, &surface_loader, surface) {
+                Ok(selected) => selected,
+                Err(error) => {
+                    Self::destroy_surface(&surface_loader, surface);
+                    Self::destroy_messenger(&debug_messenger);
+                    Self::destroy_instance(&instance);
+                    return Err(error);
+                }
+            };
+        let swapchain_extension = [ash::khr::swapchain::NAME.as_ptr()];
+        let device = match Self::create_logical_device(
+            &instance,
+            physical_device,
+            queue_family_index,
+            &swapchain_extension,
+        ) {
+            Ok(device) => device,
+            Err(error) => {
+                Self::destroy_surface(&surface_loader, surface);
+                Self::destroy_messenger(&debug_messenger);
+                Self::destroy_instance(&instance);
+                return Err(PresentationError::Initialization(error.to_string()));
+            }
+        };
+        let tail =
+            match Self::assemble_tail(&instance, &device, physical_device, queue_family_index) {
+                Ok(tail) => tail,
+                Err(error) => {
+                    Self::destroy_surface(&surface_loader, surface);
+                    Self::destroy_messenger(&debug_messenger);
+                    // SAFETY: `device` is the sole `Rc` owner here (no
+                    // resource holds a clone yet); destroying the handle
+                    // directly is exact-once, and the `Rc` itself drops
+                    // unreferenced after.
+                    unsafe {
+                        device.destroy_device(None);
+                    }
+                    Self::destroy_instance(&instance);
+                    return Err(PresentationError::Initialization(error.to_string()));
+                }
+            };
+        Ok((
+            Self {
+                _entry: entry,
+                instance,
+                physical_device,
+                device,
+                queue: tail.queue,
+                command_pool: tail.command_pool,
+                render_pass: tail.render_pass,
+                memory_properties: tail.memory_properties,
+                texture_set_layout: tail.texture_set_layout,
+                debug_messenger,
+            },
+            surface,
+        ))
+    }
+
+    /// Destroys an owned instance on a constructor error path (the
+    /// assembled device's `Drop` handles the success path instead).
+    #[cfg(feature = "presentation")]
+    fn destroy_instance(instance: &ash::Instance) {
+        // SAFETY: instance owned here, never moved into a `Self` on this
+        // path, destroyed exactly once.
+        unsafe {
+            instance.destroy_instance(None);
+        }
+    }
+
+    /// Destroys an owned surface on a constructor error path.
+    #[cfg(feature = "presentation")]
+    fn destroy_surface(loader: &ash::khr::surface::Instance, surface: vk::SurfaceKHR) {
+        // SAFETY: surface owned here, loader live, destroyed exactly
+        // once; the instance outlives this call (destroyed after, above).
+        unsafe {
+            loader.destroy_surface(surface, None);
+        }
     }
 
     /// Attempts `VK_LAYER_KHRONOS_validation` in debug builds; always

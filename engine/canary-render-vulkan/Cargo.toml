@@ -9,6 +9,14 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Windowed presentation (the Window -> surface -> swapchain -> present
+# seam): surface creation, the handle-interop crate, and the platform
+# window types. Off by default so offscreen/headless builds never
+# compile them -- the same opt-in shape as canary-platform's
+# `winit-backend` feature.
+presentation = ["dep:ash-window", "dep:raw-window-handle", "dep:canary-platform"]
+
 [dependencies]
 canary-render = { path = "../canary-render" }
 thiserror = "2.0.19"
@@ -17,6 +25,19 @@ thiserror = "2.0.19"
 # dependency check of any subsystem in this project so far (see
 # docs/development/build-system.md History section).
 ash = "0.38"
+
+# Surface creation from native window handles (instance-extension query
+# + per-platform surface dispatch), behind `presentation` -- see the
+# [features] note above. MIT/Apache-2.0, no copyleft.
+ash-window = { version = "0.13", optional = true }
+# Window-handle interop, on the 0.6 line `winit` 0.30 enables by default
+# (its `rwh_06` default feature): one handle version across the tree, no
+# rwh_04/rwh_05 anywhere. MIT/Apache-2.0 (with a Zlib option), no copyleft.
+raw-window-handle = { version = "0.6", optional = true }
+# Window types for the presentation seam (handles, extent, resize
+# signal), with the real windowing backend enabled: an upper crate
+# depending on the platform leaf, the direction composition always flows.
+canary-platform = { path = "../canary-platform", optional = true, features = ["winit-backend"] }
 
 [dev-dependencies]
 # WGSL -> SPIR-V, for this crate's own hello-triangle integration test
@@ -28,3 +49,11 @@ ash = "0.38"
 # are retired; see docs/development/build-system.md).
 naga = { version = "30", features = ["wgsl-in", "spv-out"] }
 indexmap = "2"
+
+# A real platform window for the presentation proof test only (the
+# library itself takes `&dyn SurfaceHandlesProvider`, never this
+# concrete type). Linux-only like the `winit` test-only constructor it
+# uses (`WinitWindow::new_for_testing`); the test file is empty
+# everywhere else, so other platforms never pay for this dependency.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+canary-platform = { path = "../canary-platform", features = ["winit-backend"] }

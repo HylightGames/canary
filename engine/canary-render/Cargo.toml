@@ -10,3 +10,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+# Typed presentation errors (see src/presentation.rs): the RHI stays
+# backend-agnostic, so the error carries owned code/message pairs rather
+# than any backend's native error type.
+thiserror = "2.0.19"

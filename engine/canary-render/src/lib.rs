@@ -33,8 +33,14 @@
 //! sampling, depth/stencil, multiple draw calls, descriptor sets, ...) is
 //! expected, not a sign this first cut was wrong.
 
+pub mod presentation;
 mod types;
 
+pub use presentation::{
+    AcquireStatus, AcquiredImage, AdapterCapabilities, DeviceKind, FrameOutcome,
+    PresentModePreference, PresentStatus, PresentationError, PresentedFrame, SurfaceDescriptor,
+    SurfaceFormat,
+};
 pub use types::{
     BufferDescriptor, ColorTargetDescriptor, PipelineDescriptor, RenderPassDescriptor,
     TextureDescriptor, VertexAttribute, VertexFormat,
