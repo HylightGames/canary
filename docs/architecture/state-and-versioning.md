@@ -10,6 +10,9 @@ for the founding decision record and
 [ADR 0013](../decisions/architecture-decision-records/0013-live-collaboration-server-authoritative-topology.md)
 for the live-collaboration topology decision that refines it; this
 document is the fuller design behind both.
+The proposed `.14` data contracts are expanded below and in
+[ADR 0026](../decisions/architecture-decision-records/0026-authored-state-and-simulation-snapshot-contract.md);
+review them before implementation.
 
 ## The problem
 
@@ -120,6 +123,90 @@ authored project files, as described above.
   this only becomes tractable once schema identity is itself stable and
   language-agnostic, which is why this depends on ADR 0010's resolution.
 
+### Proposed `v0.0.14` data contract
+
+The first `canary-state` crate exposes two intentionally distinct products:
+
+| Product | What it preserves | What it excludes |
+|---|---|---|
+| Authored project state | Project/document identity; authored entities and assets; stable references; schemas and versions; prefab instances and overrides; unknown schema/field payloads | Runtime `Entity` handles, frame/tick counters, transient resources, devices, caches |
+| Simulation snapshot | Declared deterministic entity/component/resource state; subsystem state registered for snapshots; simulation clock/tick; owned RNG streams; schema/version manifest | Authored editor metadata, UI state, render/audio handles, OS/window state, job-pool internals, transient caches |
+
+They may use the same component codecs, but they have separate roots,
+identity rules, profiles, and compatibility checks. A generic “serialize the
+whole `World`” operation is not the contract. The snapshot API remains
+`snapshot` / `restore` / `checksum` / `step(SimulationInput)` per ADR 0021.
+
+#### Authored project files
+
+- Authored entities and assets use stable project IDs. Runtime entity handles
+  are allocated afresh on load and resolved through a per-session registry;
+  neither names, row order, runtime indices, nor content hashes are identity.
+- A project document carries a document/encoding version. Every typed payload
+  carries a stable schema ID and schema version. Engine release version,
+  plugin ABI version, schema version, and encoding version remain distinct
+  version domains (ADR 0022).
+- Author-facing files are structured, diffable text with canonical ordering
+  by stable ID and schema ID. The exact encoding is intentionally not chosen
+  without a short comparative spike against nested component data, unknown
+  payload round-trip, stable formatting, and merge behavior. Record that
+  comparison and its result in ADR 0012/0026 before committing the first
+  on-disk format; it does not require another architecture document.
+- Unknown schemas are retained as opaque, version-tagged payloads. Unknown
+  fields on a recognized schema must also survive load/edit/save. Missing,
+  explicitly null, defaulted, and unknown fields have separate semantics;
+  decoding a partial known schema must not erase unknown data.
+- Migrations are explicit per-schema transformations from a declared source
+  version to a declared target version. The selected path is deterministic,
+  validates each result, and fails with a typed error if a required step is
+  absent or rejects the data. A migration runs on staged data; a failed load
+  or save never replaces the last good project file.
+- Saves write a complete canonical replacement to a sibling temporary file,
+  flush it, and atomically replace the previous file where the platform
+  supports that operation. Errors retain the prior file and name the failed
+  operation/path. Durability details that vary by filesystem are reported,
+  not silently promised as universal.
+- Prefab instances retain a stable prefab reference and stable-keyed
+  overrides. Explicit instance overrides win over prefab defaults; baking
+  resolves the chain into runtime components without destroying the authored
+  instance/override representation. The `.14` slice needs one level of
+  prefab inheritance only; nested inheritance and arbitrary graph editing
+  are not implied.
+- Authored change tracking belongs to `canary-state` and is driven by its
+  authored edit/save boundary. ECS mutation ticks remain runtime change
+  detection. The `.14` change set is not the accepted-operation history
+  introduced by collaboration in `.16`.
+
+#### Simulation snapshots
+
+- Snapshot participation is explicit. Each deterministic subsystem/resource
+  supplies a versioned snapshot codec or is declared excluded; the state
+  layer does not inspect arbitrary Rust values or guess which resources are
+  authoritative.
+- Snapshot entities use a canonical snapshot-local identity and a remapping
+  table for internal entity references. `Entity(index, generation)` is never
+  treated as a persistent cross-process ID. Restore allocates runtime
+  entities and rewrites registered entity-reference fields through that
+  table; an unregistered opaque entity reference is an error, not a dangling
+  handle.
+- Snapshot ordering is canonical by snapshot identity, schema ID, and
+  versioned field key. `checksum` hashes this canonical simulation payload;
+  it does not hash UI/render/audio state or promise compatibility between
+  incompatible schema manifests.
+- Run/frame identity and wall-clock frame duration are not simulation state.
+  Logical simulation tick/time, deterministic resources, subsystem state,
+  and owned RNG state participate when declared. `SimulationInput` is supplied
+  to `step`; input history is a separate replay/network log, not duplicated
+  inside every snapshot.
+- A snapshot is valid only for the declared profile/schema manifest. Missing
+  required snapshot codecs fail before mutating the destination world; restore
+  is staged so a partial failure cannot leave half-restored simulation state.
+
+The first implementation must prove both products independently, including
+unknown-data preservation, fresh runtime-ID allocation, prefab override
+resolution, authored-change tracking, migration rollback, and deterministic
+snapshot/restore/checksum on a declared small simulation profile.
+
 ### Collaboration and ecosystem work
 
 - Undo/redo and "time-travel debugging" as consequences of an operation
@@ -171,11 +258,12 @@ authored project files, as described above.
   conflicting operations internally — demoted from top-level architecture
   to implementation technique, not discarded.
 
-  The broader collaboration product remains later work. Before `.15`
-  implements wire behavior and before `.16` accepts shared edits, the
-  respective protocol, operation, history, and permission details must be
-  specified in the architecture and recorded in an ADR; ADR 0013 does not
-  decide them.
+  The broader collaboration product remains later work. Proposed protocol,
+  operation, history, and permission contracts are now recorded in
+  [`networking.md`](networking.md),
+  [`live-collaboration.md`](live-collaboration.md), and ADRs 0027–0028.
+  Review them before implementation; ADR 0013 still decides topology and
+  authority only.
 
 ## Why this belongs in the architecture set before the subsystem is built
 
@@ -189,18 +277,17 @@ multiplayer editing, marketplace packages, and modding stop being
 separate features to build and become natural consequences of one
 architecture instead. That's exactly the kind of leverage worth writing
 down early, and exactly the kind of subsystem worth *not* rushing into
-code before its hardest questions (identity, schema/migration behavior,
-and the operation and permission semantics ADR 0013 leaves open) have
-real design attention.
+code before its hardest questions (identity and schema/migration behavior,
+plus the operation/permission proposal in ADR 0028 extending ADR 0013) have
+been reviewed against `.14`/`.15` implementation evidence.
 
 ## Status in this foundation
 
 The identity, authoring, and snapshot contracts are architectural; no
-`canary-state` crate exists. The archetype ECS and minimal typed asset
-loaders are available as foundations, but logical identity allocation,
-authored codecs, migration, and simulation snapshot APIs remain planned
-work for `.14`; networking and the first shared-edit slice follow in `.15`
-and `.16`. See the
+`canary-state` crate exists. The `.14` proposal is ready for review in this
+document and ADR 0026. Logical identity allocation, authored codecs,
+migration, prefab baking, and simulation snapshot APIs remain planned work;
+networking and the first shared-edit slice follow in `.15` and `.16`. See the
 [`v0.1.0 plan`](../roadmap/v0.1.0-plan.md) for their work packages and
 exit evidence, and [`future-roadmap.md`](../roadmap/future-roadmap.md) for
 work after the first collaboration proof.

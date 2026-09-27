@@ -2,7 +2,7 @@
 
 This page is the entry point for continuing Canary. It does not duplicate
 release detail: [`status.md`](status.md) is the live inventory,
-[`v0.1.0-plan.md`](v0.1.0-plan.md) is the committed near-term sequence, and
+[`v0.1.0-plan.md`](v0.1.0-plan.md) is the canonical near-term sequence, and
 [`future-roadmap.md`](future-roadmap.md) is the dependency-ordered direction
 after that target. The near-term plan now gives each remaining milestone
 through `v0.1.0` ordered work packages and exit evidence; use those gates
@@ -12,44 +12,35 @@ record is [`milestones.md`](milestones.md).
 ## Where to continue now
 
 `v0.0.12` (audio bootstrap) is implemented on `dev`, not yet tagged. The next
-planned milestone is **`v0.0.13`: CanaryUI and interactive windowed
-presentation**. Start with the current status and the complete milestone
-definition in [`v0.1.0-plan.md`](v0.1.0-plan.md#v0013-canaryui--windowed-presentation).
+milestone is **`v0.0.13`: CanaryUI and interactive windowed presentation**.
+The detailed handoff is [`v0.0.13-roadmap.md`](v0.0.13-roadmap.md); the
+dependency-ordered release plan through `.1.0` is
+[`v0.1.0-plan.md`](v0.1.0-plan.md).
 
 Work through these prerequisites in order:
 
-1. **Review and settle reusable runtime composition.** A concrete proposal
-   for a public `canary-runtime` composition layer, `RunContext`/tick
-   ownership, phase order, errors/shutdown, lifecycle scope, and invocation-
-   scoped Tier A access to the live game `World` is in
-   [`runtime-composition.md`](../architecture/runtime-composition.md) and
-   [ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md).
-   Review or amend it before implementing. R-34/R-36 remain open until the
-   live-world boundary and lifecycle are implemented and proven.
-2. **Complete the window-to-renderer seam.** Follow ADRs 0020–0022: query
-   renderer capabilities through Canary-owned types; create a surface from a
-   platform `Window` without leaking backend types; handle format selection,
-   resize, acquisition, and recoverable presentation errors.
-3. **Implement shared input intent.** Carry raw platform input through
-   mappings and actions to `PlayerInput` and deterministic `SimulationInput`.
-   UI navigation and gameplay must consume one coherent input path, with an
-   explicit focus/capture rule and a testable action-to-simulation boundary.
-4. **Build the UI vertical slice on the shared runtime.** Implement the
-   `CanaryUI` contract with the decided bootstrap backend and draw a HUD in a
-   real window through the existing renderer path. The same sample must read
-   gameplay actions, move a game entity, and show state derived from the live
-   `World`; define when UI focus captures inputs and when pass-through is
-   deliberate. Keep offscreen pixel tests as supporting coverage.
-5. **Close the milestone with evidence and synced docs.** Add the smallest
-   runnable consumer example and automated tests for the new seams, perform a
-   live interactive run, update architecture/status/milestone docs, and record
-   any newly discovered risk before beginning project-state implementation.
-
-The exact API shape in step 1 is deliberately not prescribed here: the point
-of the first task is to decide and document that boundary from the current
-`App`, scheduler, platform, and plugin constraints, not to bless a guessed
-crate or API in advance. Do not bypass `canary-runtime`'s eventual supported
-consumer surface with another private example harness.
+1. **Keep the completed R-34 foundation distinct from full composition.**
+   The `e256a61` commit implements the reusable runtime library's active-World
+   ownership, `RunContext`, and scoped Tier A lifecycle calls. ADR 0024 still
+   needs review for the complete composition contract; the runtime does not
+   yet run the schedule or platform/presentation frame phases. Resolve R-38's
+   `RunContext.tick`/`sim_time` boundary as part of that driver.
+2. **Finish and review window presentation.** Surface/swapchain code is in
+   the current working tree. Owner-reported evidence is 5/5 presented frames;
+   document platform/device conditions and close error, resize, minimize, and
+   destruction checks before treating the seam as landed.
+3. **Implement shared input intent.** Review proposed
+   [ADR 0025](../decisions/architecture-decision-records/0025-deterministic-input-actions-and-ui-capture.md),
+   then carry normalized raw events through mappings/actions to deterministic
+   `SimulationInput`, with an explicit capture and focus-loss release rule.
+4. **Build the UI vertical slice.** Use the accepted ADR 0011 backend-neutral
+   boundary and egui bootstrap; render a HUD in the same game window and RHI
+   path, with UI intent entering at a defined simulation boundary.
+5. **Complete the public consumer loop and close out.** Migrate the headless
+   proof and add a small interactive consumer using the same supported
+   `canary-runtime` library for schedule, input, UI, render, and shutdown.
+   Record live run conditions, update status/risk/changelog/release notes, and
+   meet the exact gates in [`v0.0.13-roadmap.md`](v0.0.13-roadmap.md).
 
 ## Near-term order after the current milestone
 

@@ -1,30 +1,37 @@
 # 0024. Reusable game-runtime composition and scoped plugin access
 
-**Status:** Proposed for `v0.0.13`; review before implementation.
+**Status:** Proposed for the full `v0.0.13` game frame driver. The scoped
+R-34 runtime/library slice is implemented in `e256a61`; its narrower API
+contract is accepted in
+[`2026-09-r34-api-review.md`](../../reviews/2026-09-r34-api-review.md).
 
 ## Context
 
 Canary has working subsystem traits, a scheduler, platform abstractions,
-rendering and physics slices, and a headless runtime binary. It does not yet
-have a reusable game-facing composition API. `canary-core::App` owns a
-simple `init`/`tick`/`shutdown` loop over subsystems, while the private
-`canary-runtime` binary owns a `World` and `Schedule` in its private
-`EcsSubsystem`. The binary demonstrates one integration; a game cannot yet
-use it as a supported runtime.
+rendering and physics slices, a headless runtime binary, and a reusable
+`canary-runtime` library foundation. The library owns one active `World`,
+`RunContext`, scoped Tier A lifecycle calls, and teardown, but its current
+`run` method does not execute the schedule or compose platform, input, UI,
+audio, and rendering phases. The headless binary still owns a `World` and
+`Schedule` in its private `EcsSubsystem`; a game cannot yet use the complete
+phase driver as a supported runtime.
 
 The runtime must own simulation time advancement and phase ordering without
 making lower-level crates depend on the platform, renderer, audio, UI, or
 plugin loader. It must also provide Tier A plugins scoped access to the
-active game world. The current `HostState` owns a separate `World`, and the
-scheduler's manual `SystemAccess` declarations cannot prove concurrent
-access safe (R-24, R-34). `Subsystem` currently offers only `init`, `tick`,
-and `shutdown`; a richer lifecycle is a separate risk (R-36).
+active game world. The R-34 implementation now scopes Tier A access to that
+world at serialized `on_load`/`on_unload` boundaries; the scheduler's manual
+`SystemAccess` declarations still cannot prove concurrent access safe (R-24).
+`Subsystem` still offers only `init`, `tick`, and `shutdown`; richer lifecycle
+transitions are a separate risk (R-36).
 
 ADRs 0021–0022 already lock runner-owned ticks, the input/simulation
 boundary, command/message semantics, and the simulation/presentation split.
 This ADR defines the composition direction that applies those foundations
-to the first consumer runtime. It does not choose the exact public Rust API
-or implementation mechanism for guest-memory borrowing.
+to the first consumer runtime. The R-34 API and ownership-loan mechanism are
+settled by the linked implementation review. Exact public service and frame
+driver APIs for the remaining platform/simulation/UI/render phases remain
+open until the consumer loop is reviewed.
 
 ## Proposed decision
 
@@ -71,15 +78,15 @@ or implementation mechanism for guest-memory borrowing.
    failures and does not hide the primary failure; panics remain panics after
    cleanup is attempted. Pause/resume, hot reload, replacement, and restart
    in place are not part of this first lifecycle. These guarantees apply to
-   errors surfaced by the runtime service contract. Current plugin hooks are
-   infallible, and Tier A guest traps are logged; before plugin loading can
-   be a required service, define a fallible loader boundary that can report
-   such failures to the runtime.
+   errors surfaced by the runtime service contract. The legacy `Plugin`
+   trait hooks remain infallible; the R-34 scoped Tier A runtime path has a
+   fallible loader result for required failures and optional-plugin skips.
 
 The phase order, time semantics, scoped-access invariant, and lifecycle
-failure behavior are binding if this ADR is accepted. Exact type names,
-builder shape, service registration syntax, context delivery mechanism, and
-the safe Wasmtime host-state mechanism remain open for review before code.
+failure behavior are proposed for the complete runtime. R-34's ownership
+loan, `RunContext` resource delivery, and scoped plugin APIs have been
+implemented and reviewed. Remaining type names, builder shape, service
+registration syntax, and phase-driver API still need consumer-shaped review.
 
 ## Alternatives considered
 
@@ -98,9 +105,10 @@ create a second public layer before a second consumer has shown what should
 live there. The existing `canary-runtime` package already occupies the
 upward composition position and can expose its behavior as a library.
 
-**Give each Tier A instance its own copied or moved `World`.** Rejected.
-That cannot mutate or observe the active game state, which is the purpose of
-R-34.
+**Give each Tier A instance a separately owned or copied persistent
+`World`.** Rejected. That cannot mutate or observe the active game state,
+which is the purpose of R-34. The implementation's temporary ownership loan
+is the same active world, reclaimed after each synchronous guest call.
 
 **Run a plugin concurrently with schedule systems using declared
 `SystemAccess`.** Rejected for the first runtime. The declarations are
@@ -116,9 +124,9 @@ guest traps before it can ship.
 
 ## Consequences
 
-- The existing `canary-runtime` package gains a library role while
+- The existing `canary-runtime` package now has a library role while
   `canary-core::App` remains usable for simple subsystem-driven programs and
-  tests.
+  tests. The full schedule/platform/presentation frame driver remains pending.
 - Game, server, and test consumers share lifecycle and tick ownership. Their
   selected backends and optional presentation phases remain explicit.
 - The runtime takes responsibility for cross-subsystem ordering and

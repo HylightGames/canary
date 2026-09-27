@@ -2,10 +2,11 @@
 
 Covers `canary-core` and `canary-ecs`: the application lifecycle, ECS data
 model, and boundaries between the engine core and the subsystems composed
-above it. Windowing and rendering exist in other crates. Reusable consumer
-composition is proposed in
-[`runtime-composition.md`](runtime-composition.md) and ADR 0024; it is not
-implemented. Networking remains separate work.
+above it. Windowing and rendering exist in other crates. The R-34
+scoped-access foundation is implemented in the `canary-runtime` library;
+the complete game frame driver remains proposed work for `.13` in
+[`runtime-composition.md`](runtime-composition.md) and ADR 0024. Networking
+remains separate work.
 
 ## The `App`/`Engine` bootstrap
 
@@ -13,9 +14,9 @@ implemented. Networking remains separate work.
 server, editor, or test harness) shares:
 
 ```rust
-// Current low-level App usage, not the proposed reusable game-runtime API.
-// `canary-runtime` currently demonstrates composition with a private
-// headless EcsSubsystem; see runtime-composition.md and ADR 0024.
+// Low-level core App usage. Game consumers should use the higher-level
+// canary-runtime library once its full frame driver lands; see
+// runtime-composition.md and ADR 0024.
 let mut app = canary_core::App::new();
 app.add_subsystem(some_crate::SomeSubsystem::default());
 app.run(|| {
@@ -194,12 +195,14 @@ place to reason about CPU utilization instead of N subsystems each guessing
 how many threads they're "allowed."
 
 `App` calls each subsystem's tick sequentially on the main thread. The
-headless `canary-runtime` harness wraps its `World` and `Schedule` in a
-private `EcsSubsystem`; the scheduler runs compatible read-only stages
-concurrently inside that subsystem. See
+headless binary still wraps its `World` and `Schedule` in a private
+`EcsSubsystem`; the scheduler runs compatible read-only stages concurrently
+inside that subsystem. Separately, the `canary-runtime` library now owns the
+R-34 active-world/plugin boundary, but it does not yet run this schedule or
+compose the platform/presentation phases. See
 [`docs/architecture/execution-model.md#the-scheduler`](execution-model.md#the-scheduler)
 for its current limits (write systems run solo, threads are scoped per
-stage). A reusable game composition API and a shared "one pool for
+stage). A complete game frame driver and a shared "one pool for
 everything" design remain future work —
 longer-running, coarse-grained work (asset cooking, physics
 broad-phase) submitting to the *same* pool `Schedule` uses, once either

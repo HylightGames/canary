@@ -10,18 +10,20 @@ a point-in-time record — the same convention as
 
 ## Current handoff — `v0.0.13` is next
 
-`v0.0.12` audio is implemented on `dev`, not yet tagged. The next planned
-milestone is `v0.0.13` (`CanaryUI` + windowed presentation). The concrete
-starting sequence and acceptance proof are in
-[`v0.1.0-plan.md`](v0.1.0-plan.md#v0013-canaryui--windowed-presentation),
-with a shorter contributor checklist in [`README.md`](README.md). A concrete
-runtime-composition proposal and ADR 0024 now document the first design task;
-they remain proposed and must be reviewed and resolved before implementation.
-Then implement renderer capabilities and the window surface seam, connect raw
-input through deterministic game actions, and prove UI and gameplay together
-in a live window. R-34 and R-36 remain open until their relevant runtime
-contracts are implemented and proven. Do not begin `.14` until the supported
-consumer path and `.13` proof are usable.
+`v0.0.12` audio is implemented on `dev`, not yet tagged. The next milestone
+is `v0.0.13` (`CanaryUI` + windowed presentation). Continue from the exact
+checkpoint and acceptance gates in
+[`v0.0.13-roadmap.md`](v0.0.13-roadmap.md), then use
+[`v0.1.0-plan.md`](v0.1.0-plan.md) for the dependency-ordered `.14`–`.1.0`
+sequence. R-34's scoped active-World foundation is implemented in `e256a61`
+and mitigated; the full runtime frame driver is not. R-38 tracks the
+`RunContext.tick`/`sim_time` boundary that the frame driver must settle.
+Window presentation is
+in the current uncommitted working tree, with an owner-reported 5/5 live
+present proof. Input/UI and public consumer close-out are not started.
+R-36 remains open for richer lifecycle needs such as pause/reload/replacement;
+those are not a `.13` gate. Do not begin `.14` until the interactive consumer
+and common runtime path meet `.13` acceptance.
 
 The next milestones are `.14` authored project state and simulation snapshots,
 `.15` minimal server-authoritative networking, `.16` the first collaboration
@@ -592,25 +594,25 @@ about working code in `engine/`.
 |---|---|---|---|
 | Repository/governance | ✅ | ✅ | `v0.0.1` |
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
-| Consumer runtime composition | ✅ | ⚠️ | [Proposal](../architecture/runtime-composition.md) and [ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md) are under review; `canary-runtime` is still a private headless binary harness with no reusable game-runtime library/API. R-34/R-36 remain open pending implementation and proof |
+| Consumer runtime composition | ✅ | ⚠️ Partial | `canary-runtime` library owns the active `World`, `RunContext`, and scoped Tier A `on_load`/`on_unload` calls (commit `e256a61`; R-34 mitigated). It does not yet run schedule/platform/UI/render frame phases; the old headless binary remains on its private harness. ADR 0024 and full `.13` consumer loop remain in progress; resolve R-38's context tick/simulation-time semantics in the frame driver. R-36 is open for future pause/reload/replacement semantics |
 | Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
-| Input and simulation boundary | ✅ | ⚠️ Partial | Platform raw input exists; `InputMapping`/`InputAction`/`PlayerInput`/frame-tagged `SimulationInput` and UI focus/capture are not implemented. Required in `v0.0.13`; see [`input-and-simulation.md`](../architecture/input-and-simulation.md) |
+| Input and simulation boundary | ✅ | ⚠️ Partial | Platform currently normalizes keyboard press/release; proposed action mapping and UI capture are documented in [`input-and-simulation.md`](../architecture/input-and-simulation.md) and ADR 0025. Pointer/focus, `SimulationInput`, and runtime integration are not implemented |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
 | Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
 | Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented on `dev`, not yet tagged |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
-| Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Scoped-`World`-access still open (R-34) |
-| Rendering | ✅ | ✅ (offscreen slice) | RHI trait + native per-API backends (ADR 0016, superseding ADR 0004's original backend); Vulkan first, hello-triangle proven; `v0.0.6`. ECS-driven CPU bake and file-loaded mesh/texture sampling are proven; `v0.0.9`/`.10`. Window surface, capability query, swapchain presentation, depth, and general materials remain open |
+| Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Active-World scoped lifecycle access is implemented for `on_load`/`on_unload` (R-34 mitigated); no per-frame hook |
+| Rendering | ✅ | ⚠️ (offscreen proven; window seam in working tree) | RHI trait + native Vulkan backend; ECS-driven CPU bake and file-loaded mesh/texture sampling are proven. Current uncommitted code adds a window surface, swapchain, and clear-only presentation proof; common-RHI scene/UI window rendering remains unproven. Depth/general materials also remain open |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ✅ (2D slice) | `PhysicsBackend` trait + private rapier2d 0.35.3 backend, fixed-step system with spiral guard, first-position registration, game-plus-pixel proof; determinism is single-machine repeatability; `v0.0.11`. 3D (Jolt canonical, Rapier3D alternative) still direction, post-`v0.1.0` |
-| Networking | ✅ | ❌ | Planned for `v0.0.15` (server-authoritative, QUIC); transport, replication, and removal history are not implemented |
+| Networking | ✅ | ❌ | Proposed first profile in ADR 0027 and [`networking.md`](../architecture/networking.md); no transport, replication, or removal-history code yet. Planned for `.15` |
 | Scripting system | ✅ | ❌ | Depends on Tier A |
 | Asset system | ✅ | ✅ (minimal) | `AssetId`/`AssetHandle<T>`/`AssetStore<T>` with sync GLB/PNG/WAV/Vorbis loaders; `AssetId` is provisional content identity. Stable `LogicalAssetId`, cooking, cache, hot reload, importers-as-plugins, and broader formats remain future work; `v0.0.10`/`.12` |
 | Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, headless default), `AudioSource`/`AudioListener` + trigger system using propagated `GlobalTransform` poses; host must insert a device backend for audible output. Custom engine stays the long-term default per ADR 0023; `v0.0.12` |
-| `CanaryUI` (UI toolkit) | ✅ | ❌ | ADR 0011; planned for `v0.0.13` as game-facing UI using the shared runtime, input, window surface, and renderer path |
-| Project state & versioning (`canary-state`) | ✅ | ❌ | Authored identity and simulation snapshot contracts in ADRs 0021–0022; stable-ID registries, codecs, migration, and snapshots are not implemented |
-| Live collaboration | ✅ | ❌ | ADR 0013 (`Accepted` — topology only; protocol/permissions unresolved) |
-| Editor | ⚠️ Partial (vision-level) | ❌ | Post-`v0.1.0`; build on the proven consumer runtime, project-state formats, `CanaryUI`, plugin lifecycle, and windowed rendering. See [`future-roadmap.md`](future-roadmap.md) |
+| `CanaryUI` (UI toolkit) | ✅ | ❌ | ADR 0011 plus proposed first-game contract in [`ui-toolkit.md`](../architecture/ui-toolkit.md); no UI code yet. `.13` requires same-window, same-RHI game HUD and shared input capture |
+| Project state & versioning (`canary-state`) | ✅ | ❌ | Proposed product boundary and migration/snapshot rules are in [`state-and-versioning.md`](../architecture/state-and-versioning.md) and ADR 0026; no stable-ID registry, persistence codec, migration engine, or snapshots yet |
+| Live collaboration | ✅ | ❌ | ADR 0013 accepts topology only. Proposed operation, permission, conflict, history, and recovery contract is in [`live-collaboration.md`](../architecture/live-collaboration.md) and ADR 0028; no protocol code |
+| Editor | ⚠️ Partial (vision-level) | ❌ | Post-`v0.1.0`; build on the validated consumer runtime, project-state formats, `CanaryUI`, plugin lifecycle, and windowed rendering. See [`future-roadmap.md`](future-roadmap.md) |
 | CLI/headless operation (editor) | ✅ (principle recorded) | N/A yet | No editor exists to apply it to; proven in spirit by `canary-runtime`/`xtask` today |
 | 2D/3D & non-game applicability | ✅ (vision + physics + rendering) | N/A | Positioning + architectural constraint, not a standalone feature |
 

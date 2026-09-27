@@ -192,8 +192,9 @@ Full detail: [`v0.0.2.md`](../release-notes/v0.0.2.md).
 ## Current handoff
 
 `v0.0.12` is implemented on `dev`, not yet tagged. `v0.0.13` is the next
-planned milestone; see the live [`status`](status.md), the
-[`roadmap handoff`](README.md), and the detailed
+milestone; see the live [`status`](status.md), the
+[`roadmap handoff`](README.md), the detailed
+[`v0.0.13 roadmap`](v0.0.13-roadmap.md), and the full
 [`v0.1.0 plan`](v0.1.0-plan.md). This file remains a concise historical
 milestone record; it is not the source of truth for what is next.
 

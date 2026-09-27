@@ -182,19 +182,17 @@ frustrated modder.
 - **No engine/plugin compatibility-range declaration mechanism** exists
   beyond the ABI version check below. See the review, Finding 3.4, and
   risk register R-19.
-- **Tier A's `HostState` owns the `World` it exposes by value**, rather
-  than safely lending access to one some other code is concurrently
-  using. Giving a WASM host call temporary, scoped access to an
-  already-running `World` is a real design question that belongs with the
-  current scheduler and its system-access model, not something Tier A should
-  solve ad hoc for itself. `canary-scheduler` exists, but its declarations are
-  manual metadata and are not checked against closure access (R-24). A
-  proposed exclusive, invocation-scoped boundary is recorded for review in
-  [`runtime-composition.md`](runtime-composition.md) and ADR 0024. R-34 stays
-  open until an accepted design is implemented and proven in `v0.0.13`. See
-  the [contributor handoff](../roadmap/README.md) and
-  `docs/architecture/core-runtime.md#threading--the-job-system`. See
-  `engine/canary-plugin-api/src/tier_a.rs`'s `HostState` doc comment.
+- **R-34 scoped active-world access is implemented for Tier A lifecycle
+  callbacks.** The `canary-runtime` library serializes `on_load` and
+  `on_unload` access at exclusive phase boundaries. It loans the owned
+  `World` into a host-state slot for the guest call and reclaims it on both
+  return and trap; capability interfaces remain structurally gated. The
+  accepted proof and limits are in
+  [`2026-09-r34-api-review.md`](../reviews/2026-09-r34-api-review.md) and
+  [ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md).
+  This does not add a per-frame callback, concurrent plugin access, or a
+  complete game frame driver. R-24 remains open because scheduler access
+  declarations are still manual and unverified.
 
 Resolved since the August 2026 review, for `v0.0.1`: the Tier B vtable
 now carries an explicit `abi_version` and a `get_extension` hook for
@@ -224,5 +222,6 @@ imply the other), and a resource budget (memory limit, fuel execution
 budget) applied to every instance by default. See
 `docs/roadmap/v0.0.3-roadmap.md` for the exact, deliberately-scoped
 boundary of what this covers (a capped value-type set, not arbitrary
-Rust reflection) and what it doesn't (the scoped-`World`-access question
-above).
+Rust reflection). At that milestone it did not provide active-runtime-world
+access; the later R-34 implementation adds scoped `on_load`/`on_unload`
+access through `canary-runtime` (see the current limitation above).

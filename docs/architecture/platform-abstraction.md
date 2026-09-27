@@ -132,3 +132,13 @@ Vulkan surface would additionally need the `Xvfb` setup already
 confirmed above and real `WinitWindow` surface presentation, which
 `v0.0.6`'s own scope explicitly defers — see that roadmap's "Not
 blocked on `v0.0.4`" section.
+
+**Current checkout update (September 2026):** the working tree now contains
+an initial `Window`-to-Vulkan surface, swapchain, and presenter seam. The
+owner reports a live clear-only run presenting 5/5 frames through a real
+window; the Linux proof is intentionally ignored in ordinary headless test
+runs. This is implementation in progress, not yet a landed/support claim.
+It proves the platform surface can be acquired and presented, not that ECS
+scene output or `CanaryUI` paint data reaches the same common RHI frame. The
+`.13` roadmap tracks remaining capability, resize/minimize, error recovery,
+destruction-order, and consumer integration evidence.

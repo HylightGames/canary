@@ -34,8 +34,14 @@ status; check the record before relying on a decision.
 | [0022](0022-constitution-clarifications-and-red-team.md) | Architectural constitution clarifications and review |
 | [0023](0023-audio-bootstrap-rodio-behind-custom-trait.md) | Audio bootstrap behind a Canary-owned trait |
 | [0024](0024-reusable-runtime-composition.md) | Proposed reusable runtime composition and scoped plugin access |
+| [0025](0025-deterministic-input-actions-and-ui-capture.md) | Proposed deterministic action input and UI capture boundary |
+| [0026](0026-authored-state-and-simulation-snapshot-contract.md) | Proposed authored state and simulation snapshot contract |
+| [0027](0027-minimal-server-authoritative-replication.md) | Proposed first server-authoritative replication profile |
+| [0028](0028-authoritative-live-collaboration-operations.md) | Proposed authoritative live-collaboration operation and history contract |
 
-Planned decisions are listed as triggers in
-[`docs/roadmap/future-roadmap.md`](../../roadmap/future-roadmap.md). They are
-not pre-decided ADRs: write them when the milestone reaches the design work and
-the alternatives can be evaluated against current code and evidence.
+Proposed ADRs are design inputs, not accepted implementation contracts.
+Review them at the milestone gates in
+[`docs/roadmap/v0.1.0-plan.md`](../../roadmap/v0.1.0-plan.md), then update the
+record's status and the related architecture/roadmap text when evidence from
+code and consumers resolves the proposal. Post-`.1.0` decisions are listed as
+triggers in [`future-roadmap.md`](../../roadmap/future-roadmap.md).

@@ -19,11 +19,11 @@ can build on without re-litigating the basics. It shipped as `v0.0.1`; see
 
 The archetype ECS, typed resources, stage scheduler, real window backend,
 versioned native plugin ABI, and sandboxed WASM component loader have all
-landed in `v0.0.2`–`v0.0.8`. The foundation is real; it is not a claim that a
-game developer already has a complete reusable runtime or action-input API.
-The runtime composition surface, live-world plugin access, and shared
-`RawInput → InputAction → SimulationInput` path are current dependencies of
-`v0.0.13`. See [`status.md`](../roadmap/status.md) and the
+landed in `v0.0.2`–`v0.0.8`. The R-34 `canary-runtime` library and scoped
+Tier A access to the active world are now implemented for lifecycle calls.
+The full frame driver, window-to-RHI game path, and shared
+`RawInput → InputAction → SimulationInput` flow remain `.13` dependencies;
+this is not yet a complete game runtime. See [`status.md`](../roadmap/status.md) and the
 [`v0.1.0 plan`](../roadmap/v0.1.0-plan.md).
 
 ## Release cadence and the `v0.1.0` target
@@ -53,8 +53,10 @@ full asset cooking/hot reload, 3D physics, and prediction/rollback beyond
 
 The native RHI and first Vulkan backend shipped in `v0.0.6`; ECS extraction,
 file-loaded meshes/textures, and sound assets followed in `v0.0.9`–`.12`.
-The near-term target is a windowed presentation path and an integrated small
-game, not a complete AAA renderer. Render graph, broad material/shader
+An initial clear-only window surface/presenter is in the current working
+tree; `.13` still needs common-RHI scene and UI output presented through it.
+The near-term target is an integrated small game, not a complete AAA
+renderer. Render graph, broad material/shader
 support, second graphics backends, cooking/cache/streaming, and hot reload
 remain later work with explicit consumer triggers. The RHI uses native
 per-graphics-API backends per
@@ -63,8 +65,10 @@ which superseded the original `wgpu` backend choice in ADR 0004.
 
 ## Era 4 — State, networking, and live systems (first slices before `v0.1.0`)
 
-The foundations are recorded, but the state, networking, and collaboration
-subsystems do not yet exist in code. The `.14`–`.16` milestones deliberately
+The state, networking, and collaboration subsystems do not yet exist in code.
+Their proposed first-slice contracts are recorded in architecture docs and
+ADRs 0026–0028, but remain subject to milestone review and evidence. The
+`.14`–`.16` milestones deliberately
 pull minimal versions of these capabilities forward so `v0.1.0` proves
 integration. They do not attempt to deliver mature rollback netcode or a
 complete multi-user production workflow. Stable authored identity and
@@ -77,8 +81,8 @@ their exact acceptance criteria are in the
 
 The editor is a first-party consumer of Canary's game/runtime APIs and a
 dogfood plugin host, not a parallel game runtime. Start only after supported
-runtime composition, project save/reload, windowed `CanaryUI`, and safe access
-to the active game world are proven. The first useful editor slice should open
+the full game runtime, project save/reload, windowed `CanaryUI`, and a
+supported active-world plugin lifecycle are proven. The first useful editor slice should open
 a project, inspect and edit a scene, show a live viewport, save/reload, and
 build/run through a headless command-line path.
 

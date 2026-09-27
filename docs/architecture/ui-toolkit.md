@@ -9,10 +9,10 @@ past this pattern — see
 [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)).
 See
 [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md)
-for the decision record; this document is the fuller design. Neither the
-`canary-ui-core` abstraction nor an `egui` backend is implemented as of
-`v0.0.12`. The first game-facing UI slice is planned for `v0.0.13`; this
-design is not evidence that code already exists.
+for the decision record; this document is the fuller design. The
+backend-neutral architecture is accepted; the first game-facing API and
+capture contract below are the `.13` implementation target. No UI crate or
+`egui` backend is implemented in the current working tree.
 
 ## The mistake this is designed to avoid
 
@@ -49,6 +49,48 @@ canary-ui-egui            <- the concrete backend (v0.0.13 per the v0.1.0
       |                       plan -- a game's UI, not the editor, is its
     egui                      first real consumer; see ADR 0011)
 ```
+
+## First game-facing slice (`v0.0.13`)
+
+The first consumer is a game HUD, not an editor panel. Implement two optional
+crates: `canary-ui-core` for backend-neutral UI events, capture results,
+user intent, and renderer-independent paint output; `canary-ui-egui` for the
+`egui` adapter and conversion to Canary-owned render data. The core crate
+does not depend on `canary-render`; the adapter depends on the core and
+submits its output through the selected Canary rendering backend. Neither
+public surface exposes `egui`, `winit`, `ash`, Vulkan, or
+`raw-window-handle` types.
+
+The runtime gives normalized raw input to UI routing before gameplay action
+mapping. The backend reports captured keyboard/pointer input through a
+Canary-owned result. The input mapper applies that result according to
+[ADR 0025](../decisions/architecture-decision-records/0025-deterministic-input-actions-and-ui-capture.md);
+gameplay never reads an `egui` capture flag directly. The UI receives an
+immutable game view/snapshot for display and returns intent for the next
+declared simulation boundary. It does not hold a live `World` borrow or
+mutate ECS state from a widget callback.
+
+The minimum vertical slice is one HUD with text and a button, over a small
+game scene in a real window. It displays data extracted from the game state;
+activating the button returns intent that the runtime applies at a simulation
+boundary. Keyboard/pointer focus and capture are exercised alongside a
+mapped gameplay action so the same event cannot trigger both paths unless
+pass-through is explicitly selected.
+
+The `.13` clear-only swapchain proof is not yet a UI render proof. Acceptance
+requires the UI paint output to be submitted through the same Canary-owned
+RHI/device and presented frame as the game scene. A standalone `egui` demo
+window or a second UI-only graphics path does not satisfy the shared-backend
+contract. Exact widget trait signatures and paint-batch representation are
+left to the first consumer/API review; the separation and behavior above are
+the architectural constraints.
+
+**Initial exclusions:** text editing and IME, docking, editor panels,
+gamepad navigation, animations, a full styling system, and custom/native UI
+rendering. The first slice does not claim complete accessibility support;
+the editor toolkit must still be designed against the accessibility
+requirements in [`ux-principles.md`](../ui/ux-principles.md) before editor
+work begins.
 
 A later, fully custom backend replaces only the bottom of this stack:
 
@@ -149,11 +191,12 @@ to accept.
 
 ## Status in this foundation
 
-Entirely architectural — no `canary-ui-core` crate exists yet. The
-implementation is planned for `v0.0.13` as game-facing UI before the editor;
-it depends on reusable runtime composition, live window presentation, and the
-shared input path in the [`v0.1.0 plan`](../roadmap/v0.1.0-plan.md). Editor
-work follows after `v0.1.0` per the
+The abstraction and `egui` bootstrap are accepted by ADR 0011. The first
+game-facing contract is now specified for review; no `canary-ui-core` crate
+or backend is implemented. It depends on the R-34 runtime foundation, the
+window-presentation seam, and the shared input path. See the detailed
+[`v0.0.13 roadmap`](../roadmap/v0.0.13-roadmap.md). Editor work follows
+after `v0.1.0` per the
 [`future roadmap`](../roadmap/future-roadmap.md). See
 [`docs/ui/editor-design.md`](../ui/editor-design.md), which this document
 supersedes for the specific "which toolkit" question that doc had left

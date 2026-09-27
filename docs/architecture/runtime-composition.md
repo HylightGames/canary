@@ -1,11 +1,12 @@
 # Runtime Composition and Consumer Lifecycle
 
-**Status:** Proposed for `v0.0.13`; no reusable consumer runtime API has
-been implemented. The proposed boundary is recorded in
-[ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md).
-This document describes the contract for review. It intentionally leaves
-public type and method names open until the contract is accepted and a
-consumer-shaped API review is complete.
+**Status:** The R-34 scoped-access foundation is implemented in
+`canary-runtime` (commit `e256a61`) and its API review is accepted for that
+scope. The full game frame driver and subsystem composition described here
+remain proposed work for `v0.0.13`. [ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md)
+remains Proposed for the broader composition contract; the narrower R-34
+implementation contract is in
+[`2026-09-r34-api-review.md`](../reviews/2026-09-r34-api-review.md).
 
 ## Purpose
 
@@ -29,22 +30,28 @@ composition package, `canary-runtime`.
   duration; `run` measures wall-clock duration and accepts a caller-provided
   stop condition. It does not define phases within a frame or own an ECS
   tick.
-- `canary-runtime` is currently a binary-only headless harness. Its private
-  `EcsSubsystem` owns one `World` and `Schedule`; the subsystem advances the
-  `World` tick once before each `Schedule::run`. Physics, transform
-  propagation, and render baking have explicit registration order. GPU
-  drawing is performed by the binary after the schedule returns.
+- `canary-runtime` now also exposes a reusable library. Its `Runtime` owns
+  one active `World`, a `RunContext` resource, Tier A plugin registrations,
+  scoped lifecycle calls, and teardown. `run` currently loads plugins,
+  advances outer-frame context for a requested frame count, then unloads
+  plugins. It does **not** run a `Schedule`, pump a window, route input, or
+  render. The pre-existing headless binary still owns its private
+  `EcsSubsystem` and has not yet migrated to the library. That migration and
+  the complete consumer frame driver are `.13` close-out work.
 - `canary-scheduler::SystemAccess` is manual metadata. The current scheduler
   serializes writers and allows compatible read-only stages to run
   concurrently, but it cannot verify what a closure accesses (R-24).
-- Tier A's current `HostState` owns a separate `World`. This proves capability
-  checks and codecs against a real world; it does not let a plugin operate on
-  the active game world (R-34).
-- The existing `Plugin::on_load` and `Plugin::on_unload` hooks return `()`.
-  Tier A guest traps in those hooks are logged, not returned to the caller.
-  The proposed runtime's required-service error contract cannot treat those
-  plugin traps as startup failures unless a fallible loader boundary is
-  designed and adopted.
+- Tier A scoped calls can now operate on the active runtime `World` through
+  the accepted ownership-loan boundary. The world is moved into a store slot
+  for one synchronous guest call and moved back on success or trap; no Rust
+  reference or pointer crosses the call. The first implementation covers
+  `on_load`/`on_unload` only. It adds no per-frame hook and permits no overlap
+  with schedule execution. See the API review for trap cleanup and
+  reentrancy details.
+- The runtime's Tier A registration path now uses a fallible scoped-loader
+  result: required failures abort with typed errors and optional failures
+  are recorded as skipped. This does not imply that all future platform,
+  renderer, audio, UI, and schedule services have been composed or tested.
 - `Window::poll_events` is synchronous. The current `winit` integration pumps
   events from that call, and its event loop has main-thread constraints. The
   runtime contract must allow the platform backend to be pumped on its
@@ -115,9 +122,21 @@ the runtime contract does not imply a world tick per physics substep. A
 general fixed-step game runner is a separate design and is not required to
 compose the first interactive consumer.
 
-The exact representation and delivery mechanism for this context remain
-open. Resolve those API details against real consumers while preserving the
-ownership and time semantics above and ADR 0021 Amendment 7.
+`RunContext` is currently an ECS resource owned and updated by
+`canary-runtime`. `begin_frame` increments the outer-frame index and updates
+frame/simulation durations without advancing the ECS tick;
+`advance_tick_for_pass` advances exactly once for a scheduled pass. The full
+game frame driver that calls these at the correct phase boundaries remains
+unimplemented. The current library slice uses a fixed requested frame count
+and a caller-provided frame duration; it is not yet a wall-clock window loop.
+In the current scaffold, `begin_frame` also accumulates `sim_time` before a
+scheduled pass and snapshots the current world tick into the resource before
+`advance_tick_for_pass` is called. The accepted R-34 API review describes the
+context tick as the current or most recent pass and places this resource
+update before advancement. The full frame driver must preserve and document
+that meaning, or record an explicit review/ADR amendment before changing it.
+Outer-frame metadata may advance without simulation, but simulation time and
+ECS `Tick` must not (R-38).
 
 ## Proposed phase order
 
@@ -184,12 +203,14 @@ phase that reads the world. A later design may relax this only with an
 enforceable access model; current manual `SystemAccess` declarations are
 not sufficient evidence for concurrent plugin/world access.
 
-The mechanism that provides a per-invocation host view must be safe Rust at
-the host boundary and must preserve Wasmtime's memory/fuel limits and
-structural capability enforcement. No mutex, raw-pointer, or unsafe aliasing
-scheme is selected by this architecture document. Any proposed mechanism
-must explain borrow lifetime, reentrancy, trap cleanup, and how the runtime
-prevents a schedule from starting during a plugin call.
+The accepted implementation uses an ownership loan rather than a borrowed
+view: the active `World` is temporarily moved into a host-state slot before
+`Func::call` and moved back after normal return or trap cleanup. The slot
+prevents nested loans; exclusive `&mut Runtime` phase calls prevent overlap
+with schedule execution. No raw pointer or unsafe aliasing scheme is used.
+The implementation contract and proofs are recorded in the linked API
+review; this design does not generalize that mechanism into concurrent plugin
+or system access.
 
 This first runtime contract covers scoped access during callbacks the
 plugin interface already defines. It does not create a new per-frame plugin
@@ -218,15 +239,16 @@ decision.
 - Panics are not converted into success. The existing `App` behavior—attempt
   shutdown of all initialized subsystems before resuming a panic—remains the
   minimum panic-safety guarantee.
-- These guarantees apply to failures surfaced by the runtime service
-  contract. Existing plugin load/unload hooks are infallible; a Tier A guest
-  trap is logged and does not currently fail startup or shutdown. Before
-  registering plugin loading as a required runtime service, decide how a
-  loader-level error reaches the runtime and how optional plugins are
-  reported.
+- The R-34 runtime library surfaces scoped Tier A load/unload failures as
+  typed results and records optional-plugin skips. The broader service
+  contract for platform, schedule, audio, UI, and renderer initialization is
+  still proposed and must preserve the primary-error/cleanup-error rules
+  above.
 
-The exact error type and hook signatures are API details for implementation
-review. The contract above must hold regardless of those signatures.
+The R-34 plugin-load path has typed errors and optional-plugin outcomes.
+Exact service/error hook shapes for the full platform, schedule, input, audio,
+UI, and rendering frame driver remain implementation-review details; they
+must preserve the primary-failure and cleanup guarantees above.
 
 ## Lifecycle scope and explicit deferrals
 
@@ -244,9 +266,9 @@ schedule. Each needs its own consumer evidence and design.
 
 ## `v0.0.13` review and acceptance evidence
 
-Before implementation, review and resolve this proposal and ADR 0024. Keep
-public Rust signatures open until a consumer-shaped API review selects the
-smallest usable surface. The implementation that follows must demonstrate:
+The R-34 portion has been reviewed and implemented. Before the full `.13`
+frame driver is treated as accepted, review or amend the broader proposal and
+demonstrate:
 
 - a game consumer and the headless harness use the same public composition
   library;

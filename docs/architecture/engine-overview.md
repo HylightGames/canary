@@ -48,10 +48,10 @@ or through explicit, documented interfaces — never through ad hoc globals.
 |---|---|---|
 | Platform abstraction | `canary-platform` | [platform-abstraction.md](platform-abstraction.md) |
 | Core runtime (App, logging, error conventions) | `canary-core` | [core-runtime.md](core-runtime.md) |
-| Game runtime composition | `canary-runtime` is currently a private headless harness; reusable consumer API proposed, not implemented | [runtime-composition.md](runtime-composition.md) |
+| Game runtime composition | `canary-runtime` library owns the active `World`, `RunContext`, and scoped Tier A lifecycle calls; full game frame driver and harness migration remain pending | [runtime-composition.md](runtime-composition.md) |
 | ECS | `canary-ecs` | [core-runtime.md](core-runtime.md) |
 | Scheduler (stage-based system execution) | `canary-scheduler` | [execution-model.md](execution-model.md) |
-| Input and simulation boundary | `canary-platform` raw input exists; runtime/gameplay action flow is planned | [input-and-simulation.md](input-and-simulation.md) |
+| Input and simulation boundary | `canary-platform` currently normalizes keyboard transitions; proposed action flow lives in a future `canary-input` crate | [input-and-simulation.md](input-and-simulation.md) |
 | Transform & hierarchy | `canary-transform` | [transform.md](transform.md) |
 | Plugin trait & loader | `canary-plugin-api` | [plugin-system.md](plugin-system.md) |
 | Scripting / language-agnostic runtime | *(planned: `canary-script`)* | [scripting-system.md](scripting-system.md) |
@@ -100,16 +100,18 @@ since `v0.0.8`): compatible read-only systems can run concurrently, and
 every writer runs alone in registration order. Access declarations are manual
 metadata and are not checked against closure access; keep the solo-writer
 policy until access can be enforced (R-24). A persistent job-stealing pool,
-concurrent disjoint writes, and reusable `App`-level game composition remain
+concurrent disjoint writes, and the full `canary-runtime` frame driver remain
 future work; measure game-shaped workloads before selecting a pool design.
 See [ADR discussion in core-runtime.md](core-runtime.md#threading--the-job-system).
 
 ## Target frame flow
 
-The input/action path, window presentation, and reusable consumer composition
-are not implemented yet; `.13` is planned to prove them. Network and UI stages
-are optional until their corresponding subsystems are built. The sequence
-below describes the target integration order, not the current runtime.
+The R-34 runtime foundation is implemented, and window-to-Vulkan presentation
+work is present in the current working tree. The full input/action path,
+game-runtime frame driver, and UI integration are not yet complete. Network
+and UI stages are optional until their corresponding subsystems are built.
+The sequence below describes the target integration order, not the current
+runtime.
 
 ```mermaid
 sequenceDiagram

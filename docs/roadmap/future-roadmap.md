@@ -15,9 +15,10 @@ here.
 
 ## The committed path comes first
 
-The repository is at `v0.0.12` on `dev`; `v0.0.13` is next. Finish the live
-handoff and acceptance proof in [`docs/roadmap/README.md`](README.md), then
-continue in this order:
+The current release target is `v0.0.13`; the checkout has the R-34 runtime
+foundation committed and the window-presentation seam in progress. Finish the
+live handoff and acceptance proof in
+[`v0.0.13-roadmap.md`](v0.0.13-roadmap.md), then continue in this order:
 
 1. `v0.0.13`: supported game-runtime composition, window presentation,
    shared input actions, and `CanaryUI`.
@@ -93,9 +94,12 @@ contracts. Add resilient history, reconnect/replay, permission administration,
 conflict presentation, and optional local merge techniques as supported
 workflows require. The session remains self-hostable. The server-authoritative
 topology in ADR 0013 is the accepted direction; its operation format and
-product-level permission rules remain design work until the first slice.
+product-level permission rules are proposed in ADR 0028 and remain subject
+to review until the first slice.
 
-Undo/redo and time-travel debugging should reuse a deliberate operation or
+The first operation, history, permission, conflict, and recovery contract is
+proposed in ADR 0028; accept or amend it after `.14`/`.15` evidence. Later
+undo/redo and time-travel debugging should reuse deliberate operation or
 snapshot history rather than grow separate mutation logs in each tool.
 Cross-platform deterministic lockstep and rollback are separate, evidence-led
 projects, not synonyms for basic replication.
@@ -135,31 +139,47 @@ These are risks and design questions, not a new release queue. See the
   until typed parameters or another enforceable access mechanism exists.
   Measure real game-shaped workloads before adopting a persistent work-stealing
   pool or disjoint-write execution.
-- **Plugin/runtime lifecycle (R-34, R-36):** a Tier A host currently owns its
-  `World`; safe access to a live runtime world, reload, pause/resume, and
-  replacement need one shared lifecycle/access design before editor dogfooding.
+- **Runtime boundaries (R-34, R-36, R-38):** R-34's scoped active-World
+  lifecycle boundary is implemented for Tier A `on_load`/`on_unload` and
+  mitigated. R-38 tracks the `.13` `RunContext.tick`/`sim_time` boundary and
+  must be closed by the first frame driver. R-36 remains open for
+  pause/resume, reload, and replacement; define those transitions before
+  editor play-mode, hot reload, or a richer plugin SDK depends on them.
 - **Removal history and causality (R-32, R-33):** mutation ticks do not report
   despawns, and local ticks are not a distributed causal clock. Implement and
   test durable removal plus canonical snapshots before replication.
-- **Stable state and input:** project formats must preserve unknown schema
-  data, and networking must receive deterministic, frame-tagged input rather
-  than platform events. ADRs 0020–0022 lock the direction; the `.14`/`.15`
-  milestones must prove the mechanisms.
+- **Stable state and input (R-37):** project formats must preserve unknown
+  schema data, and networking must receive deterministic, frame-tagged input
+  rather than platform events. ADRs 0020–0022 lock the identity/snapshot
+  direction; proposed ADR 0025 details the first action/capture path. `.13`
+  must prove the input boundary before `.14` persists authored data and `.15`
+  sends that input over the network.
 - **Asset identity:** current `AssetId` is content-derived and provisional.
   Authored `LogicalAssetId` and source-hash/importer-version/dependency keyed
   derived artifacts are separate identities and have separate lifecycle.
 
-## Documents and ADRs to create when the work reaches them
+## Design package prepared through `v0.1.0`
 
-These records are deliberately not written as speculative decisions. Start
-them at the relevant milestone, then append the next ADR number in the index.
+The prerequisite architecture briefs and proposed ADRs for each remaining
+milestone are now written. The next contributor should review them against
+the state and evidence at that gate, amend the proposal where needed, then
+implement and update the same docs. “Prepared” means design work has a
+reviewable starting point; it does not mean the proposal has been accepted or
+that implementation may bypass the milestone's acceptance evidence.
 
-| Trigger | Document or ADR | It needs to settle or explain |
+| Milestone | Design package to review | What the implementation must settle/prove |
 |---|---|---|
-| Before `v0.0.13` runtime/UI implementation | Review and resolve the proposal in [`runtime-composition.md`](../architecture/runtime-composition.md) and [ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md); add follow-up decisions only if review identifies a separate cross-cutting choice | Public game entry point; platform/window ownership; event, simulation, UI, render and audio phase order; `RunContext`/tick advancement; shutdown and errors; safe scoped plugin access to the active `World`. Defer pause, reload, and replacement semantics until editor/plugin SDK or hot-reload work requires them. |
-| Before `v0.0.14` formats are implemented | Expand `state-and-versioning.md` or add `state-format-and-migrations.md`, plus an ADR if the encoding/compatibility choice is cross-cutting | Stable IDs, codec and encoding version, migration graph/failure, unknown-schema round trip, missing vs. unknown fields, atomic persistence, canonical order, and the distinct authored-state/simulation-snapshot products. Resolve the open status of ADR 0012 deliberately. |
-| Before `v0.0.15` wire behavior is implemented | Networking architecture update and an ADR | Replication unit, state/removal ordering, full snapshot vs. delta, `Tick` vs. causality, frame-tagged input, authority and trust boundaries, transport failure/reconnect behavior, and compatibility. Build on ADR 0007 rather than re-deciding QUIC without evidence. |
-| Before collaborative edits are accepted | An ADR amending/extending ADR 0013 and a collaboration protocol section in `state-and-versioning.md` | Operation identity and history, server ordering, authorization, conflict/rejection semantics, stale-client recovery, version ancestry, and what can be undone. |
+| `.13` runtime, input, UI, and window | [`runtime-composition.md`](../architecture/runtime-composition.md), ADR 0024 and [R-34 API review](../reviews/2026-09-r34-api-review.md); [`input-and-simulation.md`](../architecture/input-and-simulation.md) and proposed ADR 0025; [`ui-toolkit.md`](../architecture/ui-toolkit.md) with accepted ADR 0011; [`v0.0.13-roadmap.md`](v0.0.13-roadmap.md) | Full runtime phase driver, public headless+windowed consumer path, common-RHI scene/UI presentation, deterministic mapped input, capture/focus-loss rule, typed startup/stop/cleanup evidence, live interactive run |
+| `.14` project state | [`state-and-versioning.md`](../architecture/state-and-versioning.md), ADR 0012 and proposed ADR 0026; `.14` work packages in [`v0.1.0-plan.md`](v0.1.0-plan.md) | Separate authored-state and simulation-snapshot products; stable identity; encoding/version; unknown-field preservation; migrations; atomic persistence; prefab override/bake behavior; canonical `snapshot`/`restore`/`checksum`/`step` |
+| `.15` networking | [`networking.md`](../architecture/networking.md), accepted ADR 0007 and proposed ADR 0027; `.15` work packages in [`v0.1.0-plan.md`](v0.1.0-plan.md) | Separate-process server/client; handshake/compatibility; authority; canonical full snapshot and ordered deltas; tombstones; bounded transport; frame-tagged input; disconnect/reconnect recovery; no prediction/rollback |
+| `.16` live collaboration | [`live-collaboration.md`](../architecture/live-collaboration.md), accepted ADR 0013 and proposed ADR 0028; `.16` work packages in [`v0.1.0-plan.md`](v0.1.0-plan.md) | Authenticated roles, stable operation IDs, target revision conflicts, durable ordered history, idempotency, recovery/checkpoint, and a two-client authored-edit convergence proof independent of editor UI |
+| `.1.0` integration | [`v0.1.0-plan.md`](v0.1.0-plan.md#v010-integration-proof) and the `.13`–`.16` exit records | A small, public-API-only game exercises the subsystems together; fresh-checkout setup, automated/headless gates, explicit live-device evidence, and docs/status/release notes agree |
+
+The editor, visual scripting, external plugin distribution, and post-`.1.0`
+ecosystem still need their own design records when their triggers arrive:
+
+| Trigger | Document or ADR to add then | Scope |
+|---|---|---|
 | Before the public editor panel API | Expand `docs/ui/editor-design.md` and add a lifecycle/extension ADR | Panel ownership and isolation, workspace persistence, plugin failure/reload/replacement, game-vs-editor process boundaries, and headless CLI behavior. Address R-36. |
 | Before visual scripting implementation | `docs/architecture/visual-scripting.md` and an ADR | Graph file/version format, mapping from nodes to the shared WASM component ABI, incremental/interpreted feedback path, debug/source mapping, hot-reload state, and deterministic simulation constraints. Address R-17. |
 | Before external plugin distribution | Plugin package/security architecture doc and an ADR | Manifest, compatibility ranges, dependency resolution, capability declarations/review, signing/provenance, safe unload, authored-content migrations, and replacement conflicts. Address R-08/R-09/R-19/R-35. |

@@ -48,12 +48,13 @@ work (see "Known limitations" below).
    ([`Tick`], [`World::advance_tick`]) — not wall-clock time, frame time,
    or physics simulation time. The simulation runner owns advancement and
    advances once before the systems for a simulation run; the scheduler
-   executes work without advancing time. The current `canary-runtime`
-   harness follows this rule in its `EcsSubsystem`. The proposed
-   `RunContext` ownership and consumer lifecycle are described in
-   [runtime-composition.md](runtime-composition.md) and ADR 0024; neither
-   the public context API nor a general fixed-step/presentation loop is
-   implemented. The proposal applies ADR 0021 Amendment 7.
+   executes work without advancing time. The headless binary follows this
+   rule in its `EcsSubsystem`; the separate `canary-runtime` library now
+   also owns a `RunContext` resource and exposes `advance_tick_for_pass`.
+   The complete game frame driver, general fixed-step/presentation loop,
+   and integration with the headless binary remain unimplemented. See
+   [runtime-composition.md](runtime-composition.md) and ADR 0024. This
+   applies ADR 0021 Amendment 7.
 4. **Identity.** Structural identity (`Entity` index+generation and a
    component's `TypeId`), schema identity (`CanaryComponent::SCHEMA_ID`),
    authored identity, and content identity are distinct. Assets follow

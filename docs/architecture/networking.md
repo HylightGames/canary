@@ -3,7 +3,10 @@
 Architecture for the planned networking subsystem (see
 [`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md)). No `canary-net`
 or transport implementation exists yet. The initial networking milestone is
-planned for `v0.0.15`, after project state. This is one of the
+planned for `v0.0.15`, after project state. Its proposed first replication
+profile is recorded in
+[ADR 0027](../decisions/architecture-decision-records/0027-minimal-server-authoritative-replication.md);
+review it before exposing a wire format. This is one of the
 areas where [`docs/research/engine-comparisons.md`](../research/engine-comparisons.md)
 most directly informed the design: retrofitting multiplayer onto an engine
 whose ECS and simulation loop weren't designed with replication in mind is
@@ -71,7 +74,56 @@ The authority model also distinguishes server-owned truth from client
 predicted state; a client may simulate a local prediction but cannot commit
 authoritative state without authority (ADR 0021 Amendment 3). These
 contracts shape future delta/full-state transport without prescribing the
-wire mechanism here.
+implementation's concrete wire encoding; the first delivery/profile
+semantics are proposed in the next section and ADR 0027.
+
+## Proposed `v0.0.15` replication profile
+
+The first release is deliberately a server-authoritative state/input proof,
+not a complete multiplayer stack:
+
+- The new `canary-net` crate owns replicated-component policy, stable
+  server-scoped network entity identity, protocol messages, and connection
+  session state. It depends on Canary-owned transport interfaces; `quinn`
+  remains behind the replaceable QUIC adapter.
+- A client connection begins with a version/capability handshake, then one
+  canonical initial snapshot. Server-authored deltas carry a base sequence
+  and authoritative simulation tick. Entries are sorted by network entity
+  ID and schema ID, so arrival order cannot change their application order.
+- Component changes, component removals, and entity destruction are distinct
+  delta operations. Removal/destruction records are retained until the
+  relevant client has acknowledged them or is forced to resynchronize from a
+  new full snapshot. A gap or invalid base sequence causes resynchronization,
+  never partial application onto an unknown baseline.
+- Clients send frame/tick-tagged logical `SimulationInput` for their assigned
+  player slot. They do not send an authoritative component write. The server
+  validates slot ownership, schema/action compatibility, message bounds, and
+  accepted input window before queuing input for a simulation pass.
+- The first proof uses one reliable ordered QUIC stream for control, initial
+  state, deltas, and input. There is no unreliable datagram lane or client
+  prediction. This keeps delivery semantics simple while the schema,
+  authority, and recovery contracts are proven; add a datagram lane only
+  after a measured workload requires it.
+- Handshake compatibility checks keep protocol, schema, game-content, and
+  plugin/API versions separate. The first profile rejects unsupported
+  protocol or required schema versions before applying project/runtime state.
+  It does not promise compatibility between arbitrary engine builds.
+- QUIC encryption is not an application identity or authorization model.
+  The `.15` proof must document its connection identity policy and reject
+  malformed/untrusted messages; it must not claim public-Internet deployment
+  readiness without a separate authentication/abuse review.
+- Per-connection payload size, queued bytes/messages, and in-flight
+  resynchronization data are bounded. Network work cannot block the
+  simulation loop waiting for a peer. Overflow applies backpressure or
+  disconnects that peer with a typed reason; it never grows memory without
+  bound.
+
+The first network session exercises a server and client as separate
+processes. A reconnect starts with a fresh authoritative snapshot unless the
+server can prove an acknowledged delta baseline is still retained. The
+wire-encoding choice is evaluated before implementation against bounded
+decoding, canonical component codecs, version checks, and debuggability; it
+does not require a separate design document.
 
 ## Transport: QUIC as the default
 
@@ -116,5 +168,6 @@ No `canary-net` crate, transport, or replication marker types exist yet.
 Stable component schema identity is implemented. Snapshot APIs, durable
 removal/destruction history, canonical ordering, and frame-tagged simulation
 input are specified or required by ADRs 0020–0022 but are not implemented.
-The first end-to-end proof must use a separate server and client process;
-see [`v0.0.15`](../roadmap/v0.1.0-plan.md#v0015--networking).
+The first profile is proposed in this document and ADR 0027; its acceptance
+still requires API review and a separate-process server/client proof. See
+[`v0.0.15`](../roadmap/v0.1.0-plan.md#v0015--networking).

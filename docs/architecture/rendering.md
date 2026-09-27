@@ -409,15 +409,16 @@ updates, streaming uploads, and any texture cache (the eventual
 replacement for one fresh buffer per frame and upload-once textures);
 materials worthy of the name (multi-texture slots, per-draw material
 selection, sampler choice, mipmaps, sRGB transfer-function handling,
-blending, a shader-variant system); swapchain and window-surface
-presentation (everything here is still offscreen color targets); a
+blending, a shader-variant system); common-RHI scene/UI window presentation
+(the current checkout has a clear-only Vulkan surface/swapchain proof, but
+does not yet submit existing offscreen scene or UI output through it); a
 real camera component (view matrix, projection choice); and the
 broader App-level scheduler that would order rendering against audio
 and UI once those exist (physics ordering already landed: the physics
 step registers first in the subsystem schedule, ahead of propagation
 and every bake — see
-[`docs/architecture/physics.md`](physics.md#status-in-this-foundation)). Absences stated plainly: no
-swapchain, no depth, no materials — single-texture sampling only, no
+[`docs/architecture/physics.md`](physics.md#status-in-this-foundation)). Other
+open limits remain: no depth, no materials — single-texture sampling only, no
 async loading, no cooking, no cache, no hot reload, no importers, and
 no second mesh or texture format.
 
@@ -425,9 +426,13 @@ Window presentation also needs two foundations before the v0.0.13 UI
 milestone: a minimal adapter/limits capability query and a backend-neutral
 `Window`-to-surface seam, as locked by ADRs 0020 and 0022. That surface
 contract must define format selection, resize/recreation, and recoverable
-acquire/present errors. It remains deliberately absent from the current
-offscreen RHI; this is a prerequisite for the next presentation slice,
-not a request to build a render graph or a second backend early.
+acquire/present errors. A first surface, swapchain, and clear-only Vulkan
+presenter are present in the current uncommitted working tree, with an
+owner-reported 5/5 live-present run. Review and complete format selection,
+resize/recreation, minimized-window handling, recoverable acquire/present
+errors, resource destruction order, and route the common renderer output
+through the surface. This is a prerequisite for the UI slice, not a request
+to build a render graph or a second backend early.
 
 ## Two layers: RHI and render graph
 
