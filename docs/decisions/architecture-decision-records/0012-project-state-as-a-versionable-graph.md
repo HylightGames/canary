@@ -1,6 +1,9 @@
 # 0012. Project state as an explicit, identifiable, versionable graph
 
 **Status:** Proposed for identity, package format, and migration rules;
+the on-disk encoding gate is resolved (canonical pretty JSON for
+authored files, postcard 1.x for snapshots — comparison and decision
+recorded in ADR 0026's "Encoding selection" section, 2026-09-28);
 the real-time collaboration mechanism specifically is now **Accepted** —
 see [ADR 0013](0013-live-collaboration-server-authoritative-topology.md),
 which resolves the topology/authority question this ADR originally left

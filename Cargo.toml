@@ -16,6 +16,7 @@ members = [
     "engine/canary-render-vulkan",
     "engine/canary-render-ecs",
     "engine/canary-runtime",
+    "engine/canary-state",
     "engine/canary-ui-core",
     "engine/canary-ui-egui",
     "examples/spinning-cube",

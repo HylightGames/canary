@@ -1,7 +1,7 @@
 # 0026. Keep authored project state and simulation snapshots separate
 
-**Status:** Proposed for `v0.0.14`; review before implementing a stable file
-or snapshot format. Supplements ADRs 0012, 0021, and 0022.
+**Status:** Accepted for `v0.0.14` (2026-09-28); implemented in `canary-state`.
+Supplements ADRs 0012, 0021, and 0022.
 
 ## Context
 
@@ -116,6 +116,40 @@ the required comparison belongs in the existing architecture/ADR records.
   authority rules.
 - This does not define arbitrary nested prefab graphs, undo/redo history,
   package distribution, or a collaboration protocol.
+
+## Encoding selection (recorded 2026-09-28, closes the gate in item 3)
+
+Authored/project files use canonical pretty JSON with deterministic
+`BTreeMap` key ordering. Simulation snapshot and checksum payloads use
+postcard 1.x. Both products share one serde codec layer carrying
+`SchemaId + SchemaVersion + EncodingVersion` envelopes; unknown fields
+and schemas are preserved as version-tagged `serde_json::Value`
+payloads. Canonical checksums hash the canonical serialized snapshot
+bytes, never an in-memory representation. Engine code encodes through
+the `canary-state` codec traits; `serde_json`/postcard assumptions do
+not spread beyond that crate. The format is the `v0.1.0` decision but
+the versioned envelopes leave room for a future format/version
+migration without rewriting project state or asset systems.
+
+Comparison behind the selection: JSON is the reference implementation
+for `#[serde(flatten)]` unknown-field catch-alls, fully self-describing
+(`deserialize_any` works, so opaque payloads round-trip), and
+`BTreeMap` + pretty printing is byte-deterministic. TOML was rejected:
+table-arrays are merge-hostile for nested component lists, there is no
+null (missing vs null must be hand-encoded), and `Datetime` admits
+multiple representations. RON was rejected despite Bevy's precedent
+(`.scn.ron` chose it for terse Rust-like enums): its `#[serde(flatten)]`
+support is best-effort with a long restriction list (string-keys-only
+in flattened maps, no `RawValue` in flattened contexts), `ron::Value`
+improvement is blocked upstream, and it is not self-describing — and
+unknown-field preservation is a hard `.14` requirement, exactly RON's
+weak spot. Bevy is also the cautionary tale on identity: it keys scene
+components by runtime type paths, which this contract already rejects
+in favor of `SchemaId`. Godot/Unity's text-author/binary-runtime split
+matches this contract's two-product shape. postcard beat bincode on its
+stable documented wire format and `no_std`-clean design (relevant to
+the `wasm32-wasip2` Tier A story); canonical-ness on both sides comes
+from the same single rule (ordered maps in, deterministic bytes out).
 
 ## Revisit conditions
 

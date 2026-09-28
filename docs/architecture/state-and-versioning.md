@@ -283,11 +283,15 @@ been reviewed against `.14`/`.15` implementation evidence.
 
 ## Status in this foundation
 
-The identity, authoring, and snapshot contracts are architectural; no
-`canary-state` crate exists. The `.14` proposal is ready for review in this
-document and ADR 0026. Logical identity allocation, authored codecs,
-migration, prefab baking, and simulation snapshot APIs remain planned work;
-networking and the first shared-edit slice follow in `.15` and `.16`. See the
-[`v0.1.0 plan`](../roadmap/v0.1.0-plan.md) for their work packages and
+The identity, authoring, and snapshot contracts are implemented in the
+`canary-state` crate: canonical pretty-JSON project files with deterministic
+ordering and unknown-field preservation, one-level prefab overrides, an
+authored change log, atomic save with staged load, linear per-schema
+migration chains, and postcard snapshots with SHA-256 checksums over the
+canonical payload (encoding selection recorded in ADR 0026). Logical identity
+allocation, authored codecs, migration, prefab baking, and simulation snapshot
+APIs are done for the `.14` foundation slice; prefab baking against live
+scenes, networking, and the first shared-edit slice follow in `.15` and
+`.16`. See the [`v0.1.0 plan`](../roadmap/v0.1.0-plan.md) for their work packages and
 exit evidence, and [`future-roadmap.md`](../roadmap/future-roadmap.md) for
 work after the first collaboration proof.
