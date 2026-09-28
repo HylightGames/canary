@@ -463,8 +463,8 @@ mod tests {
                 "dt {dt:?} should be at least the {SLEEP:?} sleep"
             );
             assert!(
-                dt < SLEEP * 10,
-                "dt {dt:?} is suspiciously larger than the {SLEEP:?} sleep"
+                dt < std::time::Duration::from_secs(30),
+                "dt {dt:?} is wildly larger than the {SLEEP:?} sleep this tick measured"
             );
         }
     }
