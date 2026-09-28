@@ -8,9 +8,12 @@ This file records **meaningful changes between released versions**. It intention
 
 ## [Unreleased]
 
-`v0.0.3` through `v0.0.8` are all implemented (see
+`v0.0.3` through `v0.0.13` are all implemented (see
 [`docs/roadmap/status.md`](docs/roadmap/status.md) for current,
-authoritative status) but not yet formally tagged — each has its own
+authoritative status) and tagged — `v0.0.1`/`v0.0.2` by release cuts,
+`v0.0.12`/`v0.0.13` by release cuts, `v0.0.3`–`v0.0.11` by backfill tags
+on their implementation records (2026-09-28; see `milestones.md`). Each
+has its own
 roadmap document with full scope, verification, and definition-of-done
 detail; this section summarizes rather than duplicates them.
 

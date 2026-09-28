@@ -203,13 +203,11 @@ one shipped, which is exactly the kind of staleness this document
 exists to avoid, so it's corrected here rather than left to mislead the
 next reader. Full narrative detail for each lives in its own roadmap
 doc, matching the depth `v0.0.1`/`v0.0.2` get above, rather than
-duplicated here. Tagging gap, recorded as accepted 2026-09-28: only
-`v0.0.1`/`v0.0.2` carry git tags, and the `v0.0.12`/`v0.0.13` cuts below
-resume tagging from `.12` forward — `v0.0.3` through `v0.0.11` remain
-implemented-but-untagged (each has its roadmap doc and release note).
-Backfilling nine historical tags was judged archaeology with real
-wrong-commit risk for zero consumer benefit; no one should re-decide
-this without that context:
+duplicated here. Tagging-gap note, resolved 2026-09-28: only
+`v0.0.1`/`v0.0.2` carried git tags, so `v0.0.3`–`v0.0.11` were backfill-tagged
+on their implementation-record commits (no history rewritten — plain
+annotated tags on existing commits), and `v0.0.12`/`v0.0.13` were cut as
+real releases. All milestones `v0.0.1`–`v0.0.13` now carry tags:
 
 - **`v0.0.3`** — Tier A (sandboxed WASM/Wasmtime) plugin loading. See
   [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Scoped alongside

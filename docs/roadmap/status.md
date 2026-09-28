@@ -90,7 +90,7 @@ archetype ECS migration.
 the parallel job-stealing scheduler, Tier A WASM plugin loading, real
 windowing, rendering, physics, networking, `CanaryUI`, `canary-state`.
 
-## `v0.0.3` — Implemented, not yet tagged
+## `v0.0.3` — Implemented; tagged `v0.0.3` (backfill 2026-09-28)
 
 Full detail: [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Single focus:
 Tier A (sandboxed WASM Component Model) plugin loading.
@@ -125,7 +125,7 @@ safe hot-unloading with full resource reclamation, and safely lending a
 Tier A instance scoped access to a `World` already in use elsewhere
 (R-34) — see `v0.0.3-roadmap.md` and the risk register for each.
 
-## `v0.0.4` — Implemented, not yet tagged
+## `v0.0.4` — Implemented; tagged `v0.0.4` (backfill 2026-09-28)
 
 Full detail: [`v0.0.4-roadmap.md`](v0.0.4-roadmap.md). Single focus:
 real, `winit`-backed windowing.
@@ -173,7 +173,7 @@ see `v0.0.4-roadmap.md`), mobile/console windowing, and a macOS/Windows
 equivalent of the real windowing integration test (Linux/`Xvfb`/XTEST
 only for now).
 
-## `v0.0.5` — Implemented, not yet tagged
+## `v0.0.5` — Implemented; tagged `v0.0.5` (backfill 2026-09-28)
 
 Full detail: [`v0.0.5-roadmap.md`](v0.0.5-roadmap.md) and
 [ADR 0015](../decisions/architecture-decision-records/0015-localization-format-and-key-mechanism.md)
@@ -227,7 +227,7 @@ exists yet), compile-time validation that a key resolves against real
 `fluent-fallback`/`i18n-embed`, and any translator tooling (Weblate or
 otherwise) — see ADR 0015 for the reasoning behind each.
 
-## `v0.0.6` — Implemented, not yet tagged
+## `v0.0.6` — Implemented; tagged `v0.0.6` (backfill 2026-09-28)
 
 Full detail: [`v0.0.6-roadmap.md`](v0.0.6-roadmap.md) and
 [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md).
@@ -272,7 +272,7 @@ GPU hardware validation (this release's automated coverage is
 `llvmpipe`-only) — see ADR 0016 and the roadmap for the reasoning behind
 each.
 
-## `v0.0.7` — Implemented, not yet tagged
+## `v0.0.7` — Implemented; tagged `v0.0.7` (backfill 2026-09-28)
 
 Full detail: [`v0.0.7-roadmap.md`](v0.0.7-roadmap.md) and
 [`docs/architecture/execution-model.md`](../architecture/execution-model.md).
@@ -331,7 +331,7 @@ enforcement of the five invariants, and mixed-mutability query shapes
 beyond `query2_mut`'s one-mutable-one-shared — see the roadmap doc for
 the reasoning behind each.
 
-## `v0.0.8` — Implemented, not yet tagged
+## `v0.0.8` — Implemented; tagged `v0.0.8` (backfill 2026-09-28)
 
 Full detail: [`v0.0.8-roadmap.md`](v0.0.8-roadmap.md) and
 [`docs/architecture/execution-model.md`](../architecture/execution-model.md#the-scheduler).
@@ -384,7 +384,7 @@ rendering) → `v0.0.10` (asset loading) → `v0.0.11` (physics, 2D first)
 editor, marketplace, and beginner-friendly tooling remain explicitly
 deferred past `v0.1.0`, unchanged from this document's prior framing.
 
-**`v0.0.9` is implemented on `dev`, not yet tagged** — all three
+**`v0.0.9` is implemented on `dev`; tagged `v0.0.9` (backfill 2026-09-28)** — all three
 parts landed: real delta-time + wall-clock `App::run`;
 `canary-transform` (`Transform`/`GlobalTransform`/`Parent`/
 `Children` + scheduler-registered hierarchy propagation with a
@@ -410,7 +410,7 @@ camera component, and the App-level scheduler. Mesh assets and the
 texture-only slice have since landed in `v0.0.10` (see below); the
 rest stays open — all `v0.0.10+` scope.
 
-## `v0.0.10` — Implemented, not yet tagged
+## `v0.0.10` — Implemented; tagged `v0.0.10` (backfill 2026-09-28)
 
 Full detail: [`v0.0.10-roadmap.md`](v0.0.10-roadmap.md) and
 [ADR 0018](../decisions/architecture-decision-records/0018-asset-handles-and-synchronous-loading.md).
@@ -470,7 +470,7 @@ mesh/texture formats, mipmaps, and sRGB handling past
 normalize-to-RGBA8 — see the roadmap doc for the reasoning behind
 each.
 
-## `v0.0.11` — Implemented, not yet tagged
+## `v0.0.11` — Implemented; tagged `v0.0.11` (backfill 2026-09-28)
 
 Full detail: [`v0.0.11-roadmap.md`](v0.0.11-roadmap.md) and
 [ADR 0019](../decisions/architecture-decision-records/0019-physics-backend-lineup.md).
@@ -601,7 +601,7 @@ about working code in `engine/`.
 | Input and simulation boundary | ✅ | ✅ | Platform normalizes keyboard transitions plus pointer position/buttons, pointer-leave, and focus-loss; `canary-input` maps those to named actions and produces frame-tagged `SimulationInput` (one local player, digital only). UI-first capture routing with in-mapper per-binding pass-through and intent delivery at the next simulation boundary are implemented (`drive_input_frame`); see [`input-and-simulation.md`](../architecture/input-and-simulation.md) and ADR 0025 (Accepted) |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
 | Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
-| Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented on `dev`, not yet tagged |
+| Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented; tagged `v0.0.9` (backfill 2026-09-28) |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Active-World scoped lifecycle access is implemented for `on_load`/`on_unload` (R-34 mitigated); no per-frame hook |
 | Rendering | ✅ | ✅ | RHI trait + native Vulkan backend; ECS-driven CPU bake and file-loaded mesh/texture sampling are proven. Window presentation with live lifecycle gates (steady/minimize/restore/resize→recreate/content/destruction in `present_clear.rs`; capability-rejection and fatal-error mappings unit-gated) and same-RHI scene/UI window rendering (`ui-game`, 600/600 presented) are implemented on `dev`. Depth/general materials remain open |
