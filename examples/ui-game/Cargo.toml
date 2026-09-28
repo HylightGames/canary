@@ -1,0 +1,29 @@
+[package]
+name = "ui-game"
+description = "Example: a windowed HUD-over-scene game slice — mapped-action movement, a UI fire button, and frame-driver presentation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-core = { path = "../../engine/canary-core" }
+canary-ecs = { path = "../../engine/canary-ecs" }
+canary-scheduler = { path = "../../engine/canary-scheduler" }
+canary-platform = { path = "../../engine/canary-platform", features = ["winit-backend"] }
+canary-input = { path = "../../engine/canary-input" }
+canary-runtime = { path = "../../engine/canary-runtime" }
+canary-render = { path = "../../engine/canary-render" }
+canary-render-vulkan = { path = "../../engine/canary-render-vulkan", features = ["presentation"] }
+canary-ui-core = { path = "../../engine/canary-ui-core" }
+canary-ui-egui = { path = "../../engine/canary-ui-egui" }
+tracing = "0.1"
+
+# WGSL -> SPIR-V for the scene shader and the UI paint shader: the same
+# confirmed-minimal pin set as spinning-cube (see that example's Cargo.toml)
+# — PipelineDescriptor takes precompiled SPIR-V, not WGSL.
+naga = { version = "30", features = ["wgsl-in", "spv-out"] }
