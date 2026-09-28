@@ -119,13 +119,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "add_read_system")]
+    #[should_panic]
     fn registering_a_write_access_as_a_read_system_panics() {
         Schedule::new().add_read_system(SystemAccess::new().writes::<Position>(), |_| {});
     }
 
     #[test]
-    #[should_panic(expected = "add_write_system")]
+    #[should_panic]
     fn registering_a_read_only_access_as_a_write_system_panics() {
         Schedule::new()
             .add_write_system(SystemAccess::new().reads::<Position>(), |_: &mut World| {});

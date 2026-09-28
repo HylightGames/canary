@@ -92,7 +92,17 @@ impl<T> AssetStore<T> {
             slot.value = Some(asset);
             AssetHandle::from_raw_parts(index, slot.generation)
         } else {
-            let index = self.slots.len() as u32;
+            // `slots` only grows (freed slots are recycled via `free`,
+            // never removed), so its length is the total number of slots
+            // ever created. Past `u32::MAX` slots, two slots would share
+            // an index and corrupt handle bookkeeping — unreachable in
+            // any realistic workload (4.29B inserts), but a silent `as`
+            // truncation would hide it entirely, so this fails loudly
+            // instead, mirroring the `u32::try_from(...).expect(...)`
+            // idiom on `World::spawn` in `canary-ecs` (which faces the
+            // identical 2^32-slot limit).
+            let index = u32::try_from(self.slots.len())
+                .expect("asset slot index space exhausted (2^32 slots ever created)");
             self.slots.push(Slot {
                 generation: 0,
                 value: Some(asset),

@@ -88,6 +88,31 @@ pub enum AssetError {
         actual: u64,
     },
 
+    /// A per-vertex attribute's declared count disagrees with the
+    /// primitive's position count (e.g. 3 `NORMAL`s against 4
+    /// `POSITION`s).
+    ///
+    /// Separate from [`AssetError::InvalidFormat`] on purpose: the
+    /// file parses, but its own arrays disagree with each other — no
+    /// zipping convention (truncate? pad with zeros?) could rescue it
+    /// without inventing vertex data. The structured `name`/`count`/
+    /// `position_count` fields let callers report *which* attribute
+    /// mismatched and by how much without parsing a message string.
+    #[error(
+        "attribute '{name}' holds {count} vertices but POSITION holds {position_count} in '{}'",
+        path.display()
+    )]
+    AttributeCountMismatch {
+        /// The path whose bytes failed to parse.
+        path: PathBuf,
+        /// Which attribute disagreed (e.g. `"NORMAL"`, `"TEXCOORD_0"`).
+        name: String,
+        /// The attribute's declared vertex count.
+        count: usize,
+        /// The primitive's position count it was checked against.
+        position_count: usize,
+    },
+
     /// A hex [`crate::AssetId`] rendering failed to parse (wrong length
     /// or non-hex characters).
     ///
@@ -189,6 +214,23 @@ impl AssetError {
         }
     }
 
+    /// Constructs the [`AssetError::AttributeCountMismatch`] variant
+    /// from a path-like, the disagreeing attribute's name, its
+    /// declared count, and the position count it was checked against.
+    pub fn attribute_count_mismatch(
+        path: &Path,
+        name: &str,
+        count: usize,
+        position_count: usize,
+    ) -> Self {
+        AssetError::AttributeCountMismatch {
+            path: path.to_path_buf(),
+            name: name.to_owned(),
+            count,
+            position_count,
+        }
+    }
+
     /// Constructs the [`AssetError::InvalidId`] variant from the
     /// offending text and a short reason clause. The text is stored as
     /// data, never installed as a [`Path`].
@@ -225,6 +267,7 @@ impl AssetError {
             | AssetError::InvalidFormat { path, .. }
             | AssetError::UnsupportedFeature { path, .. }
             | AssetError::OverBudget { path, .. }
+            | AssetError::AttributeCountMismatch { path, .. }
             | AssetError::OutsideRoot { path, .. } => Some(path),
             AssetError::UnknownHandle { .. } | AssetError::InvalidId { .. } => None,
         }

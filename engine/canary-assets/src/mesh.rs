@@ -149,9 +149,13 @@ impl Mesh {
 /// - File past [`MAX_ASSET_FILE_BYTES`] → [`AssetError::OverBudget`],
 ///   refused before its contents are allocated (untrusted-file
 ///   discipline: the capped read runs before any decode).
-/// - Unparseable bytes, missing `POSITION`, empty geometry, inconsistent
-///   attribute counts, out-of-bounds indices, index count not a multiple
-///   of 3 → [`AssetError::InvalidFormat`] (the *file* is broken).
+/// - Unparseable bytes, missing `POSITION`, empty geometry,
+///   out-of-bounds indices, index count not a multiple of 3 →
+///   [`AssetError::InvalidFormat`] (the *file* is broken).
+/// - Inconsistent attribute counts (a per-vertex attribute declaring a
+///   different count than `POSITION`) →
+///   [`AssetError::AttributeCountMismatch`], carrying the attribute
+///   name and both counts.
 /// - Non-triangle primitive modes, non-indexed primitives, buffers outside
 ///   the GLB's own BIN chunk → [`AssetError::UnsupportedFeature`] (the
 ///   file is fine; this minimal loader declines it).
@@ -322,11 +326,11 @@ fn read_primitive(
 
     let normal_accessor = primitive.get(&gltf::Semantic::Normals);
     if let Some(accessor) = &normal_accessor {
-        check_attribute_count(accessor, position_count, "NORMAL").map_err(invalid)?;
+        check_attribute_count(path, accessor, position_count, "NORMAL")?;
     }
     let uv_accessor = primitive.get(&gltf::Semantic::TexCoords(0));
     if let Some(accessor) = &uv_accessor {
-        check_attribute_count(accessor, position_count, "TEXCOORD_0").map_err(invalid)?;
+        check_attribute_count(path, accessor, position_count, "TEXCOORD_0")?;
     }
 
     let reader = primitive.reader(|buffer| {
@@ -417,20 +421,24 @@ fn read_primitive(
 /// Rejects a per-vertex attribute whose declared count differs from the
 /// primitive's position count.
 ///
-/// Returns the reason clause for [`AssetError::InvalidFormat`] on
-/// mismatch, `Ok` on agreement. A mismatch means the file's own arrays
-/// disagree with each other — no zipping convention (truncate? pad with
-/// zeros?) could rescue it without inventing vertex data, so it is an
-/// error, not a warning.
+/// Returns [`AssetError::AttributeCountMismatch`] (carrying the
+/// attribute name and both counts) on mismatch, `Ok` on agreement. A
+/// mismatch means the file's own arrays disagree with each other — no
+/// zipping convention (truncate? pad with zeros?) could rescue it
+/// without inventing vertex data, so it is an error, not a warning.
 fn check_attribute_count(
+    path: &Path,
     accessor: &gltf::Accessor<'_>,
     position_count: usize,
     name: &str,
-) -> Result<(), String> {
+) -> Result<(), AssetError> {
     let count = accessor.count();
     if count != position_count {
-        return Err(format!(
-            "{name} holds {count} vertices but POSITION holds {position_count}"
+        return Err(AssetError::attribute_count_mismatch(
+            path,
+            name,
+            count,
+            position_count,
         ));
     }
     Ok(())
@@ -786,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn inconsistent_normal_count_is_invalid_format() {
+    fn inconsistent_normal_count_reports_structured_mismatch() {
         let mut bin = quad_bin_with_indices(&[0, 1, 2, 0, 2, 3]);
         for _ in 0..9 {
             bin.extend_from_slice(&0.0f32.to_le_bytes());
@@ -794,9 +802,26 @@ mod tests {
         let json = r#"{"accessors":[{"bufferView":0,"componentType":5126,"count":4,"max":[0.5,0.5,0.0],"min":[-0.5,-0.5,0.0],"type":"VEC3"},{"bufferView":1,"componentType":5126,"count":4,"type":"VEC2"},{"bufferView":2,"componentType":5123,"count":6,"type":"SCALAR"},{"bufferView":3,"componentType":5126,"count":3,"type":"VEC3"}],"asset":{"version":"2.0"},"bufferViews":[{"buffer":0,"byteLength":48,"byteOffset":0},{"buffer":0,"byteLength":32,"byteOffset":48},{"buffer":0,"byteLength":12,"byteOffset":80},{"buffer":0,"byteLength":36,"byteOffset":92}],"buffers":[{"byteLength":128}],"meshes":[{"name":"bad","primitives":[{"attributes":{"NORMAL":3,"POSITION":0,"TEXCOORD_0":1},"indices":2,"mode":4}]}],"nodes":[{"mesh":0}],"scene":0,"scenes":[{"nodes":[0]}]}"#;
         let path = write_temp("inconsistent.glb", &glb_bytes(json, &bin));
         let err = load_mesh(&path).expect_err("3 normals vs 4 positions must fail");
-        assert!(
-            matches!(err, AssetError::InvalidFormat { .. }),
-            "inconsistent counts must be InvalidFormat, got: {err:?}"
+        match &err {
+            AssetError::AttributeCountMismatch {
+                name,
+                count,
+                position_count,
+                ..
+            } => {
+                assert_eq!(name, "NORMAL", "the mismatch must name the attribute");
+                assert_eq!(*count, 3, "the mismatch must carry the attribute's count");
+                assert_eq!(
+                    *position_count, 4,
+                    "the mismatch must carry the position count it was checked against"
+                );
+            }
+            other => panic!("inconsistent counts must be AttributeCountMismatch, got: {other:?}"),
+        }
+        assert_eq!(
+            err.path(),
+            Some(path.as_path()),
+            "the error must name the offending file"
         );
     }
 
@@ -903,10 +928,24 @@ mod tests {
             &glb_bytes(&at_max, &quad_bin_with_indices(&[0, 1, 2, 0, 2, 3])),
         );
         let err = load_mesh(&path).expect_err("tiny data under a max claim must still fail");
-        assert!(
-            matches!(err, AssetError::InvalidFormat { .. }),
-            "count == MAX must pass the budget check and fail later on data, got: {err:?}"
-        );
+        match &err {
+            AssetError::AttributeCountMismatch {
+                name,
+                count,
+                position_count,
+                ..
+            } => {
+                assert_eq!(
+                    name, "TEXCOORD_0",
+                    "the 4 real UVs disagree first, got: {err:?}"
+                );
+                assert_eq!(*count, 4);
+                assert_eq!(*position_count, MAX_MESH_VERTICES_PER_PRIMITIVE);
+            }
+            other => panic!(
+                "count == MAX must pass the budget check and fail later on data, got: {other:?}"
+            ),
+        }
         let over_max = QUAD_JSON_TEMPLATE.replace("{MODE}", "4").replace(
             r#""bufferView":0,"componentType":5126,"count":4"#,
             &format!(

@@ -378,21 +378,21 @@ fn expand_to_rgba8(
     match (output.color_type, output.bit_depth) {
         (ColorType::Rgba, BitDepth::Eight) => Ok(frame.to_vec()),
         (ColorType::Rgb, BitDepth::Eight) => {
-            let mut rgba = Vec::with_capacity(pixel_count_as_usize(path, pixel_count)? * 4);
+            let mut rgba = rgba_buffer(path, pixel_count)?;
             for pixel in frame.chunks_exact(3) {
                 rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 0xFF]);
             }
             Ok(rgba)
         }
         (ColorType::Grayscale, BitDepth::Eight) => {
-            let mut rgba = Vec::with_capacity(pixel_count_as_usize(path, pixel_count)? * 4);
+            let mut rgba = rgba_buffer(path, pixel_count)?;
             for sample in frame {
                 rgba.extend_from_slice(&[*sample, *sample, *sample, 0xFF]);
             }
             Ok(rgba)
         }
         (ColorType::GrayscaleAlpha, BitDepth::Eight) => {
-            let mut rgba = Vec::with_capacity(pixel_count_as_usize(path, pixel_count)? * 4);
+            let mut rgba = rgba_buffer(path, pixel_count)?;
             for pixel in frame.chunks_exact(2) {
                 rgba.extend_from_slice(&[pixel[0], pixel[0], pixel[0], pixel[1]]);
             }
@@ -409,15 +409,28 @@ fn expand_to_rgba8(
     }
 }
 
-/// Converts a `u64` pixel count into a `usize` for allocation, refusing
-/// with [`AssetError::OverBudget`] when the count does not fit the
-/// address space.
+/// Allocates the RGBA8 expansion buffer for `pixel_count` pixels, refusing
+/// with [`AssetError::OverBudget`] instead of aborting when the byte length
+/// overflows, does not fit the address space, or the allocator says no.
 ///
-/// `u64` arithmetic above is deliberately pointer-width independent, so
-/// the narrowing back to `usize` happens here, once, with a typed error
-/// instead of a wrap or a platform-dependent `as` cast.
-fn pixel_count_as_usize(path: &Path, pixel_count: u64) -> Result<usize, AssetError> {
-    usize::try_from(pixel_count).map_err(|_| AssetError::over_budget(path, u64::MAX, pixel_count))
+/// Sibling of the `raw` frame buffer's `try_reserve` gate above: a hostile
+/// (or merely huge) caller-approved decode must surface as `Err`, never as
+/// an allocator abort, keeping the loader's total-over-inputs promise.
+/// `u64` arithmetic stays pointer-width independent; the narrowing back to
+/// `usize` happens here, once, with a typed error instead of a wrap or a
+/// platform-dependent `as` cast.
+fn rgba_buffer(path: &Path, pixel_count: u64) -> Result<Vec<u8>, AssetError> {
+    let bytes_u64 = pixel_count
+        .checked_mul(4)
+        .ok_or_else(|| AssetError::over_budget(path, u64::MAX, pixel_count))?;
+    let bytes = usize::try_from(bytes_u64)
+        .map_err(|_| AssetError::over_budget(path, u64::MAX, pixel_count))?;
+    let mut buf = Vec::new();
+    // The allocator is the budget enforcer on this arm, so the request
+    // itself is both limit and actual.
+    buf.try_reserve_exact(bytes)
+        .map_err(|_| AssetError::over_budget(path, bytes_u64, bytes_u64))?;
+    Ok(buf)
 }
 
 #[cfg(test)]
@@ -1038,5 +1051,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn giant_expansion_request_returns_over_budget_instead_of_aborting() {
+        // Given: a pixel count whose RGBA8 byte length overflows u64.
+        let path = PathBuf::from("hostile.png");
+        let hostile = u64::MAX / 4 + 1;
+
+        // When: the expansion buffer is requested.
+        let err = rgba_buffer(&path, hostile).expect_err("giant expansion must be refused");
+
+        // Then: a typed over-budget refusal — never an allocator abort
+        // (the old `with_capacity(count * 4)` sites could not say no).
+        assert!(
+            matches!(err, AssetError::OverBudget { .. }),
+            "expected OverBudget, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn small_expansion_request_allocates_exactly() {
+        // Given: an ordinary 4-pixel request.
+        let path = PathBuf::from("tiny.png");
+
+        // When/Then: exact capacity, no refusal.
+        let buf = rgba_buffer(&path, 4).expect("tiny expansion must succeed");
+        assert_eq!(buf.capacity(), 16);
     }
 }
