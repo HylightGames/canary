@@ -420,7 +420,10 @@ fn tick_advances_only_through_the_pass_entry() {
     let context = runtime.run_context().expect("frames write RunContext");
     assert_eq!(context.frame_index, 2);
     assert_eq!(context.tick, tick_at_build);
-    assert_eq!(context.sim_step, Duration::from_millis(16));
+    // R-38: event-only frames run no simulation pass, so they stamp no
+    // step and accumulate no simulation time.
+    assert_eq!(context.sim_step, Duration::ZERO);
+    assert_eq!(context.sim_time, Duration::ZERO);
 
     runtime.advance_tick_for_pass();
     assert_ne!(

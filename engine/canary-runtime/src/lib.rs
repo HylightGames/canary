@@ -50,12 +50,18 @@ use canary_plugin_api::{
 };
 use thiserror::Error;
 
+mod frame_driver;
+mod input_frame;
+
+pub use frame_driver::{DrivenFrame, FrameDriver, FrameParams};
+pub use input_frame::{drive_input_frame, InputFrame, InputFrameOutput};
+
 /// Owned and advanced by the runtime; consumed (read) by
-/// schedules/systems and scoped plugin host calls. Inserted as an ECS
-/// resource before the first pass and overwritten once per outer
-/// frame **before** any tick advance — see [`Runtime::begin_frame`].
-/// Nothing but the runtime writes it; systems read it via
-/// [`World::resource`].
+/// schedules/systems and scoped plugin host calls. Written at frame open
+/// by [`Runtime::begin_frame`] and re-stamped by
+/// [`Runtime::begin_sim_pass`] when the frame runs a simulation pass —
+/// see both methods. Nothing but the runtime writes it; systems read it
+/// via [`World::resource`].
 ///
 /// Delivered as a resource rather than thread-local state (hidden
 /// per-thread globals, untestable without running the loop) or a
@@ -423,15 +429,13 @@ impl Runtime {
 
     /// Opens one outer frame: advances `frame_index` and overwrites
     /// the [`RunContext`] resource with the current counters —
-    /// **before** any tick advance. Never advances the tick itself;
-    /// event/presentation-only frames call exactly this and nothing
-    /// else, keeping `frame_index` monotonic while the tick stands
-    /// still. In this slice the simulation step equals the frame
-    /// (`sim_step = frame_dt`, folded into `sim_time`); a future
-    /// fixed-step runner supplies substeps separately.
+    /// **before** any tick advance. Never advances the tick or
+    /// `sim_time` itself (R-38: simulation time accumulates only in
+    /// [`Runtime::begin_sim_pass`]); event/presentation-only frames call
+    /// exactly this and nothing else, keeping `frame_index` monotonic
+    /// while the tick stands still and stamping `sim_step` as zero.
     pub fn begin_frame(&mut self, frame_dt: Duration) {
         self.frame_index = self.frame_index.saturating_add(1);
-        self.sim_time = self.sim_time.checked_add(frame_dt).unwrap_or(Duration::MAX);
         if let Some(world) = self.world.as_mut() {
             world.insert_resource(RunContext {
                 run_id: self.run_id,
@@ -439,7 +443,35 @@ impl Runtime {
                 tick: world.change_tick(),
                 frame_dt,
                 sim_time: self.sim_time,
-                sim_step: frame_dt,
+                sim_step: Duration::ZERO,
+            });
+        }
+    }
+
+    /// Opens one simulation pass: folds `sim_step` into `sim_time`,
+    /// advances the ECS tick exactly once (via
+    /// [`Runtime::advance_tick_for_pass`]), and re-stamps the
+    /// [`RunContext`] resource with the new tick. Call after
+    /// [`Runtime::begin_frame`] and immediately before the schedule
+    /// runs — never for event/presentation-only frames. The
+    /// frame-open [`RunContext::frame_dt`] carries over; call after
+    /// [`Runtime::begin_frame`] so it reflects the current frame.
+    pub fn begin_sim_pass(&mut self, sim_step: Duration) {
+        self.sim_time = self.sim_time.checked_add(sim_step).unwrap_or(Duration::MAX);
+        self.advance_tick_for_pass();
+        if let Some(world) = self.world.as_mut() {
+            let frame_dt = world
+                .resource::<RunContext>()
+                .map(|context| context.frame_dt)
+                .unwrap_or_default();
+            let tick = world.change_tick();
+            world.insert_resource(RunContext {
+                run_id: self.run_id,
+                frame_index: self.frame_index,
+                tick,
+                frame_dt,
+                sim_time: self.sim_time,
+                sim_step,
             });
         }
     }

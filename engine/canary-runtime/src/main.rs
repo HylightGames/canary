@@ -8,140 +8,210 @@
 // See LICENSE in the project root for details.
 // ============================================================================
 
-//! Canary Engine headless boot-harness binary.
+//! Canary Engine headless consumer harness.
 //!
-//! Proves `canary-core`, `canary-platform`, `canary-ecs`, and
-//! `canary-plugin-api` compile, link, and run together. This is **not** a
-//! game and not a shipping runtime — it's the smallest possible program
-//! that exercises this foundation's whole vertical slice end to end. See
-//! `docs/roadmap/v0.0.1-roadmap.md`.
+//! Runs the deterministic movement/fire demo on the public runtime
+//! library ([`Runtime::drive_frame`]): one input frame drains headless
+//! platform events, routes UI-before-gameplay with a [`NullBackend`]
+//! (no widgets headless, so nothing is ever captured), publishes the
+//! [`SimulationInput`] snapshot, stamps the tick, and runs the scheduled
+//! simulation pass — exactly the §5 order the windowed game sample reuses
+//! with a real backend. The scripted injections below are fixed, so this
+//! run is deterministic: thrust held, fire edges on key and pointer,
+//! focus loss clearing a held key, then a stray post-focus release.
 
-use canary_assets::{AssetStore, Mesh, Texture};
-use canary_core::{App, Subsystem};
+use std::time::Duration;
+
 use canary_ecs::World;
-use canary_physics::{register_physics_step, FrameDelta};
-use canary_platform::{HeadlessInput, HeadlessWindow, InputSource, Window, WindowDescriptor};
-use canary_plugin_api::NativePluginLoader;
-use canary_render_ecs::{
-    register_mesh_render_bake, register_render_bake, register_textured_render_bake,
+use canary_input::{
+    ActionId, ActionSchema, Binding, InputMapper, KeyCode, PhysicalControl,
+    PointerButton as InputPointerButton, SimulationInput,
 };
-use canary_scheduler::Schedule;
-use canary_transform::register_transform_propagation;
+use canary_platform::{
+    HeadlessInput, HeadlessWindow, InputEvent, InputSource, Key as PlatformKey,
+    PointerButton as PlatformPointerButton, Window, WindowDescriptor,
+};
+use canary_plugin_api::NativePluginLoader;
+use canary_runtime::{FrameDriver, FrameParams, RunContext, RuntimeBuilder};
+use canary_scheduler::{Schedule, SystemAccess};
+use canary_ui_core::{NullBackend, UiBuilder, UiId, UiIntent, UiIntents};
 
-/// A demo component, just to prove `canary-ecs`'s insert/query path works
-/// against a real (if trivial) game-shaped type.
+/// Fixed simulation step: one pass per outer frame, no fixed-step runner
+/// (deferred past `.13` by the roadmap).
+const STEP: Duration = Duration::from_millis(16);
+/// Player speed in logical pixels per second.
+const SPEED_PX_PER_SEC: f32 = 120.0;
+/// Scripted run length in outer frames.
+const FRAMES: u32 = 60;
+/// The UI button id the windowed sample will use; the intents stage below
+/// already honors it so the headless and windowed consumers share the
+/// simulation boundary contract.
+const FIRE_BUTTON: UiId = UiId::new("fire");
+
+/// Demo player position in logical pixels.
 #[derive(Debug, Clone, Copy)]
 struct Position {
     x: f32,
     y: f32,
 }
 
-/// Wraps a `canary-ecs` [`World`] plus its [`Schedule`] as a [`Subsystem`],
-/// demonstrating how a real engine subsystem is expected to be registered
-/// with [`App`]. See `docs/architecture/core-runtime.md#the-appengine-bootstrap`.
-///
-/// The schedule owns the per-tick ECS pipeline: physics step first,
-/// transform propagation second, soup bake third, mesh bake fourth,
-/// textured bake fifth. Registration order is the ordering mechanism —
-/// the constructor below registers in exactly that order, and the
-/// scheduler's solo-write staging turns the order into separate, ordered
-/// stages:
-///
-/// - Physics MUST precede propagation: the physics system writes
-///   `Transform` (stepped 2D poses) and propagation reads it. Reversed,
-///   the bakes snapshot one-tick-stale globals every tick — proven by
-///   `canary-physics`'s `step_before_propagation_sees_fresh_global` /
-///   `reversed_registration_bakes_stale_global` order tests, which pin
-///   both directions (mirroring the render-ecs precedent).
-/// - Propagation precedes the soup bake (see [`register_render_bake`]'s
-///   docs for why that order is load-bearing).
-/// - The mesh bake appends file-loaded geometry onto the soup-baked frame
-///   (a mesh-empty tick leaves it untouched), so soup-only worlds render
-///   exactly as before.
-/// - The textured bake runs last (see
-///   [`register_textured_render_bake`]'s docs).
-///
-/// The GPU never enters this schedule: device, target, and pipeline stay
-/// in `main()`'s frame scope and the baked frame is drawn explicitly
-/// after `tick()`'s `schedule.run()` returns, per
-/// `docs/architecture/rendering.md`'s "Extract, don't query" rule.
-///
-/// [`register_render_bake`]: canary_render_ecs::register_render_bake
-/// [`register_textured_render_bake`]: canary_render_ecs::register_textured_render_bake
-struct EcsSubsystem {
-    world: World,
-    schedule: Schedule,
+/// Demo shot counter: edge-triggered, one per fire press.
+#[derive(Debug, Clone, Copy)]
+struct Shots(u32);
+
+/// The demo's digital actions, in schema-declaration order.
+struct Actions {
+    up: ActionId,
+    down: ActionId,
+    left: ActionId,
+    right: ActionId,
+    fire: ActionId,
 }
 
-impl EcsSubsystem {
-    /// Builds the subsystem with the canonical system order:
-    /// physics step first, propagation second, soup bake third, mesh
-    /// bake fourth, textured bake fifth. Swapping physics after
-    /// propagation bakes stale `GlobalTransform`s — proven by
-    /// `canary-physics`'s `step_before_propagation_sees_fresh_global`
-    /// order test plus its reversed-registration failure proof (which
-    /// fails when physics is registered after propagation, mirroring the
-    /// render-ecs precedent) — and swapping the soup bake after the mesh
-    /// bake would let the soup overwrite the mesh vertices (see
-    /// [`register_mesh_render_bake`]'s docs).
-    ///
-    /// [`register_mesh_render_bake`]: canary_render_ecs::register_mesh_render_bake
-    ///
-    /// Also ensures the [`AssetStore<Mesh>`] resource exists (inserting an
-    /// empty one only when absent — never overwriting a pre-loaded store):
-    /// the mesh bake resolves handles against it, and a missing store
-    /// would silently skip every mesh entity rather than fail loudly.
-    /// Physics needs no constructor seeding: [`register_physics_step`]'s
-    /// system inserts its `PhysicsConfig` / `PhysicsClock` /
-    /// `SimulationTime` / `RapierBackend` defaults on first tick (never
-    /// overwriting), and [`EcsSubsystem::tick`] inserts the per-tick
-    /// [`FrameDelta`] below.
-    fn new(mut world: World) -> Self {
-        if world.resource::<AssetStore<Mesh>>().is_none() {
-            world.insert_resource(AssetStore::<Mesh>::new());
-        }
-        if world.resource::<AssetStore<Texture>>().is_none() {
-            world.insert_resource(AssetStore::<Texture>::new());
-        }
-        let mut schedule = Schedule::new();
-        register_physics_step(&mut schedule);
-        register_transform_propagation(&mut schedule);
-        register_render_bake(&mut schedule);
-        register_mesh_render_bake(&mut schedule);
-        register_textured_render_bake(&mut schedule);
-        Self { world, schedule }
-    }
+/// Declares the demo schema and binds both WASD and arrows to movement
+/// (multiple bindings per action) plus Space and pointer-primary to fire.
+fn demo_input() -> (InputMapper, Actions) {
+    let (schema, ids) =
+        ActionSchema::declare(["up", "down", "left", "right", "fire"]).expect("schema declares");
+    let mut mapper = InputMapper::new(schema);
+    let mut bind = |key: PlatformKey, action: ActionId| {
+        mapper
+            .add_binding(Binding::gameplay(
+                PhysicalControl::Key(KeyCode::from_platform_key(key)),
+                action,
+            ))
+            .expect("movement binding registers");
+    };
+    bind(PlatformKey::W, ids[0]);
+    bind(PlatformKey::ArrowUp, ids[0]);
+    bind(PlatformKey::S, ids[1]);
+    bind(PlatformKey::ArrowDown, ids[1]);
+    bind(PlatformKey::A, ids[2]);
+    bind(PlatformKey::ArrowLeft, ids[2]);
+    bind(PlatformKey::D, ids[3]);
+    bind(PlatformKey::ArrowRight, ids[3]);
+    bind(PlatformKey::Space, ids[4]);
+    mapper
+        .add_binding(Binding::gameplay(
+            PhysicalControl::Pointer(InputPointerButton::Primary),
+            ids[4],
+        ))
+        .expect("pointer fire binding registers");
+    (
+        mapper,
+        Actions {
+            up: ids[0],
+            down: ids[1],
+            left: ids[2],
+            right: ids[3],
+            fire: ids[4],
+        },
+    )
 }
 
-impl Subsystem for EcsSubsystem {
-    fn name(&self) -> &str {
-        "ecs"
-    }
+/// Integrates held movement actions at the pass step. Held `down` moves
+/// every pass; nothing latches inside the system.
+fn register_move_player(schedule: &mut Schedule, actions: &Actions) {
+    let (up, down, left, right) = (actions.up, actions.down, actions.left, actions.right);
+    schedule.add_write_system(
+        SystemAccess::new()
+            .reads_resource::<SimulationInput>()
+            .reads_resource::<RunContext>()
+            .writes::<Position>(),
+        move |world: &mut World| {
+            let snapshot = world
+                .resource::<SimulationInput>()
+                .expect("driver publishes the snapshot before the schedule runs");
+            let (dx, dy) = (
+                f32::from(snapshot.is_down(right)) - f32::from(snapshot.is_down(left)),
+                f32::from(snapshot.is_down(down)) - f32::from(snapshot.is_down(up)),
+            );
+            if dx == 0.0 && dy == 0.0 {
+                return;
+            }
+            let context = world
+                .resource::<RunContext>()
+                .expect("driver stamps RunContext before the schedule runs");
+            let step = SPEED_PX_PER_SEC * context.sim_step.as_secs_f32();
+            let entities: Vec<_> = world
+                .query::<Position>()
+                .map(|(entity, _)| entity)
+                .collect();
+            for entity in entities {
+                if let Some(position) = world.get_mut::<Position>(entity) {
+                    position.x += dx * step;
+                    position.y += dy * step;
+                }
+            }
+        },
+    );
+}
 
-    fn tick(&mut self, dt: std::time::Duration) {
-        // The runner owns the logical ECS tick. Advance once before the
-        // simulation schedule so every write in this run receives the
-        // same new tick, including FrameDelta and system outputs.
-        self.world.advance_tick();
+/// Fires once per fire press edge, however long the control stays held.
+fn register_fire_on_edge(schedule: &mut Schedule, fire: ActionId) {
+    schedule.add_write_system(
+        SystemAccess::new()
+            .reads_resource::<SimulationInput>()
+            .writes::<Shots>(),
+        move |world: &mut World| {
+            if !world
+                .resource::<SimulationInput>()
+                .expect("driver publishes the snapshot before the schedule runs")
+                .was_pressed(fire)
+            {
+                return;
+            }
+            let entities: Vec<_> = world.query::<Shots>().map(|(entity, _)| entity).collect();
+            for entity in entities {
+                if let Some(shots) = world.get_mut::<Shots>(entity) {
+                    shots.0 += 1;
+                }
+            }
+        },
+    );
+}
 
-        // Frame time reaches the fixed-step accumulator as an ordinary
-        // resource: inserting unconditionally overwrites last tick's
-        // delta (resources hold one value per type), so no stale dt can
-        // survive across simulation runs.
-        self.world.insert_resource(FrameDelta::new(dt));
-        self.schedule.run(&mut self.world);
-        tracing::debug!(
-            entities = self.world.entity_count(),
-            dt_ms = dt.as_secs_f64() * 1000.0,
-            "ecs tick"
-        );
-    }
+/// Applies UI-originated intents at the declared simulation boundary: a
+/// widget callback never touches the world; the intent lands here, in the
+/// pass. Headless runs a [`NullBackend`] so this stage idles — the
+/// windowed sample feeds it real button presses.
+fn register_apply_ui_intents(schedule: &mut Schedule) {
+    schedule.add_write_system(
+        SystemAccess::new()
+            .reads_resource::<UiIntents>()
+            .writes::<Shots>(),
+        |world: &mut World| {
+            let fired = world
+                .resource::<UiIntents>()
+                .expect("driver publishes intents before the schedule runs")
+                .intents
+                .contains(&UiIntent::ButtonPressed(FIRE_BUTTON));
+            if !fired {
+                return;
+            }
+            let entities: Vec<_> = world.query::<Shots>().map(|(entity, _)| entity).collect();
+            for entity in entities {
+                if let Some(shots) = world.get_mut::<Shots>(entity) {
+                    shots.0 += 1;
+                }
+            }
+        },
+    );
+}
 
-    fn shutdown(&mut self) {
-        tracing::info!(
-            entities = self.world.entity_count(),
-            "ecs subsystem shutting down"
-        );
+/// Scripted injections per frame: thrust held from frame 0, fire edges on
+/// Space (30/31) and pointer (40/41), focus loss clearing the held thrust
+/// at 45, and a stray post-focus thrust release at 50.
+fn inject_scripted_frame(input: &mut HeadlessInput, frame: u32) {
+    match frame {
+        0 => input.inject(InputEvent::KeyPressed(PlatformKey::D)),
+        30 => input.inject(InputEvent::KeyPressed(PlatformKey::Space)),
+        31 => input.inject(InputEvent::KeyReleased(PlatformKey::Space)),
+        40 => input.inject(InputEvent::PointerPressed(PlatformPointerButton::Primary)),
+        41 => input.inject(InputEvent::PointerReleased(PlatformPointerButton::Primary)),
+        45 => input.inject(InputEvent::FocusLost),
+        50 => input.inject(InputEvent::KeyReleased(PlatformKey::D)),
+        _ => {}
     }
 }
 
@@ -149,57 +219,85 @@ fn main() -> anyhow::Result<()> {
     canary_core::init_logging();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "Canary Engine booting");
 
-    // --- Platform abstraction: prove the trait boundary compiles and runs
-    // headless (see docs/architecture/platform-abstraction.md). This
-    // harness stays headless on purpose -- real `winit`-backed
-    // windowing exists behind `canary-platform`'s `winit-backend`
-    // feature (see v0.0.4), it just isn't what a deterministic boot
-    // harness and CI want.
+    // --- Platform abstraction: the trait boundary, headless by harness
+    // choice (see docs/architecture/platform-abstraction.md) — real
+    // `winit`-backed windowing lives behind `canary-platform`'s
+    // `winit-backend` feature and is exercised by the windowed sample.
     let mut window = HeadlessWindow::new(WindowDescriptor::default());
     let mut input = HeadlessInput::new();
     window.poll_events();
-    let _ = input.poll();
+    // `InputSource::poll` is infallible: it drains the queued events
+    // into a `Vec` (never a `Result`), so there is no error to handle.
+    // The queue is empty this early in startup, so the drained batch is
+    // deliberately discarded.
+    let _drained: Vec<InputEvent> = input.poll();
     tracing::info!(
         title = %window.descriptor().title,
-        "platform layer initialized (headless by harness choice -- see canary-platform's winit-backend feature for real windowing)"
+        "platform layer initialized (headless by harness choice)"
     );
 
-    // --- ECS: spawn a few demo entities and prove both the insert and the
-    // query path (see canary_ecs::World::query).
+    // --- Game state, input profile, and schedule, all on the public
+    // runtime library: the world is pre-populated, then owned by the
+    // runtime for the whole run.
     let mut world = World::new();
-    for i in 0..3 {
-        let entity = world.spawn();
-        world.insert(
-            entity,
-            Position {
-                x: i as f32,
-                y: 0.0,
+    let player = world.spawn();
+    world.insert(player, Position { x: 0.0, y: 0.0 })?;
+    world.insert(player, Shots(0))?;
+    let (mapper, actions) = demo_input();
+    let mut schedule = Schedule::new();
+    register_move_player(&mut schedule, &actions);
+    register_fire_on_edge(&mut schedule, actions.fire);
+    register_apply_ui_intents(&mut schedule);
+    let mut runtime = RuntimeBuilder::new().build(world)?;
+    let mut driver = FrameDriver::new(NullBackend, mapper);
+
+    // --- Scripted deterministic run: one sim pass per outer frame.
+    let mut build = |_: &mut dyn UiBuilder| {};
+    for frame in 0..FRAMES {
+        inject_scripted_frame(&mut input, frame);
+        let mut run_schedule = |world: &mut World| schedule.run(world);
+        let driven = runtime.drive_frame(
+            &mut driver,
+            FrameParams {
+                input: &mut input,
+                screen_width_px: 320.0,
+                screen_height_px: 240.0,
+                focused: true,
+                frame_dt: STEP,
+                build: &mut build,
+                sim_step: Some(STEP),
+                run_schedule: &mut run_schedule,
             },
-        )?;
+        );
+        debug_assert!(driven.sim_ran);
+        if frame % 15 == 0 || frame == FRAMES - 1 {
+            let world = runtime.world().expect("world is owned");
+            let position = world
+                .query::<Position>()
+                .next()
+                .map(|(_, position)| *position)
+                .expect("player exists");
+            let shots = world
+                .query::<Shots>()
+                .next()
+                .map(|(_, shots)| *shots)
+                .expect("shots exist");
+            tracing::info!(
+                frame,
+                x = position.x,
+                y = position.y,
+                shots = shots.0,
+                "headless frame"
+            );
+        }
     }
-    tracing::info!(entities = world.entity_count(), "spawned demo entities");
-    for (entity, position) in world.query::<Position>() {
-        tracing::debug!(%entity, x = position.x, y = position.y, "demo entity position");
-    }
-
-    // --- App bootstrap: register the ECS as a subsystem and run a few
-    // fixed-dt ticks, proving canary-core's init/tick/shutdown lifecycle
-    // deterministically (see `App::run_for`'s own docs for why a boot
-    // harness -- and CI -- want fixed, not real, dt).
-    let mut app = App::new();
-    app.add_subsystem(EcsSubsystem::new(world));
-    app.add_plugin_dir("plugins");
-    app.run_for(3, std::time::Duration::from_millis(16))?;
-
-    // --- A second, separate App proves the real-timed loop added in
-    // v0.0.9 (App::run) actually elapses real wall-clock time between
-    // ticks, not just that it type-checks -- run for a short, fixed
-    // real-world duration rather than an unbounded loop, so this boot
-    // harness still terminates on its own.
-    let mut timed_app = App::new();
-    timed_app.add_subsystem(EcsSubsystem::new(World::new()));
-    let start = std::time::Instant::now();
-    timed_app.run(|| start.elapsed() < std::time::Duration::from_millis(50))?;
+    let context = runtime.run_context().expect("frames write RunContext");
+    tracing::info!(
+        frames = FRAMES,
+        tick = ?context.tick,
+        sim_time_ms = context.sim_time.as_millis(),
+        "headless run complete"
+    );
 
     // --- Plugin loader: no plugins ship with this foundation, but prove
     // the native (Tier B) loader is constructible and that checking a
@@ -227,42 +325,4 @@ fn main() -> anyhow::Result<()> {
 
     tracing::info!("Canary Engine shutting down cleanly");
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use canary_ecs::Tick;
-    use canary_transform::{GlobalTransform, Transform};
-
-    #[test]
-    fn runner_advances_once_per_tick_and_allows_quiet_propagation_to_settle() {
-        let mut world = World::new();
-        let entity = world.spawn();
-        world
-            .insert(entity, Transform::identity())
-            .expect("transform insert must succeed");
-        let mut subsystem = EcsSubsystem::new(world);
-        let dt = std::time::Duration::from_millis(16);
-
-        subsystem.tick(dt);
-        let first_tick = subsystem.world.change_tick();
-        assert_ne!(first_tick, Tick::default());
-        assert!(subsystem.world.get::<GlobalTransform>(entity).is_some());
-
-        // The first follow-up run settles the propagation baseline.
-        subsystem.tick(dt);
-        let settled_tick = subsystem.world.change_tick();
-        assert_ne!(settled_tick, first_tick);
-
-        // With no transform or hierarchy changes, the next run advances
-        // time but does not rewrite GlobalTransform.
-        subsystem.tick(dt);
-        assert_ne!(subsystem.world.change_tick(), settled_tick);
-        assert!(subsystem
-            .world
-            .query_changed_since::<GlobalTransform>(settled_tick)
-            .next()
-            .is_none());
-    }
 }

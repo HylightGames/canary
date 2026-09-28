@@ -13,7 +13,9 @@ workspace = true
 [dependencies]
 canary-assets = { path = "../canary-assets" }
 canary-core = { path = "../canary-core" }
+canary-input = { path = "../canary-input" }
 canary-platform = { path = "../canary-platform" }
+canary-ui-core = { path = "../canary-ui-core" }
 canary-ecs = { path = "../canary-ecs" }
 canary-plugin-api = { path = "../canary-plugin-api" }
 canary-physics = { path = "../canary-physics" }
