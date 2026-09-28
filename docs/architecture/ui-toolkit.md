@@ -11,8 +11,8 @@ See
 [ADR 0011](../decisions/architecture-decision-records/0011-canaryui-abstraction-bootstrapped-on-egui.md)
 for the decision record; this document is the fuller design. The
 backend-neutral architecture is accepted; the first game-facing API and
-capture contract below are the `.13` implementation target. No UI crate or
-`egui` backend is implemented in the current working tree.
+capture contract below are implemented for `.13` (`canary-ui-core` +
+`canary-ui-egui`, proven by `examples/ui-game`).
 
 ## The mistake this is designed to avoid
 

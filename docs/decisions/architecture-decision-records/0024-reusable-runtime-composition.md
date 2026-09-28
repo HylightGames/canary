@@ -1,7 +1,18 @@
 # 0024. Reusable game-runtime composition and scoped plugin access
 
-**Status:** Proposed for the full `v0.0.13` game frame driver. The scoped
-R-34 runtime/library slice is implemented in `e256a61`; its narrower API
+**Status:** Accepted in part for `v0.0.13` (2026-09-27). Items 1–5 are
+implemented: composition lives in the `canary-runtime` library (no new
+crate), `Runtime::drive_frame` owns one active world, phase order
+(event pump → UI routing → tick → schedule), and tick ownership
+(`begin_sim_pass` advances tick/`sim_time` only for real simulation
+passes — R-38), proven by the migrated headless harness, the `ui-game`
+sample, and the `frame_driver`/`headless` integration tests. Two parts
+stay Proposed: item 6 lifecycle failure semantics (`drive_frame`
+returns `DrivenFrame`, not a typed phase error — panics propagate; no
+consumer needs failure contracts yet) and wiring the physics
+fixed-step accumulator into a `.13` consumer (the accumulator is
+preserved untouched in `canary-physics`; neither consumer runs physics
+systems). The scoped R-34 runtime/library slice is implemented in `e256a61`; its narrower API
 contract is accepted in
 [`2026-09-r34-api-review.md`](../../reviews/2026-09-r34-api-review.md).
 

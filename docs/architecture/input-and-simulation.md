@@ -4,20 +4,25 @@ This document summarizes the accepted input and simulation contracts in
 [ADR 0021](../decisions/architecture-decision-records/0021-amendments-to-pre-v0-3-locks.md)
 and [ADR 0022](../decisions/architecture-decision-records/0022-constitution-clarifications-and-red-team.md).
 The layer boundary is accepted; the detailed first-consumer contract below
-is proposed for review in
-[ADR 0025](../decisions/architecture-decision-records/0025-deterministic-input-actions-and-ui-capture.md).
-It is designed against the `.13` game/UI consumer and leaves concrete Rust
-type names open until that consumer proves the smallest usable API.
+is accepted in
+[ADR 0025](../decisions/architecture-decision-records/0025-deterministic-input-actions-and-ui-capture.md)
+and proven by the `.13` game/UI consumer (`examples/ui-game`).
 
 ## Current implementation
 
-`canary-platform` currently normalizes keyboard press/release events only.
-It does not map physical events to gameplay intent. No action-mapping layer,
-pointer/focus event path, or frame-tagged `SimulationInput` is implemented.
-The `canary-runtime` library now owns `RunContext` as an ECS resource and
-provides the initial scoped-plugin runtime slice; the full schedule/platform/
-presentation phase driver is still part of `.13` integration. A general
-fixed-step simulation runner remains future runtime work.
+`canary-platform` normalizes keyboard transitions, pointer position
+(logical pixels) and buttons, pointer-leave, and focus-loss events; it
+does not map physical events to gameplay intent. The `canary-input`
+crate maps those normalized events to named gameplay actions and
+produces frame-tagged `SimulationInput` (one local player, digital
+actions only — see ADR 0025). `canary-runtime` consumes it through
+`drive_input_frame` (UI-first capture routing, in-mapper per-binding
+pass-through) and `Runtime::drive_frame` (tick stamping, `SimulationInput`
+publishing, then the scheduled pass). The `canary-runtime` library owns
+`RunContext` as an ECS resource alongside the initial scoped-plugin
+runtime slice; `begin_sim_pass` advances tick/`sim_time` only on
+simulation passes (R-38 mitigated). A general fixed-step simulation
+runner remains future runtime work.
 
 ## Input path
 
@@ -92,14 +97,20 @@ steps once a fixed-step runner exists.
 
 `RunContext` is implemented in `canary-runtime` as a resource with run ID,
 outer frame index, ECS tick, frame delta, simulation time, and simulation-step
-duration. In the current scaffold, the resource is written before
-`advance_tick_for_pass`; the full frame driver must resolve whether the field
-names the upcoming or last completed pass and ensure systems observe the
-documented value (R-38). `begin_frame` currently folds every supplied frame
-duration into `sim_time`; the full driver must not advance simulation time on
-event/presentation-only frames. Plugin lifecycle phases and event/presentation
-frames do not advance the ECS tick. The current `Runtime::run` is still the
-scoped-access slice, not yet the complete game frame loop. See
+duration. [`Runtime::begin_frame`](../../../engine/canary-runtime/src/lib.rs)
+writes the frame-open state: `tick` names the most recent scheduled pass (the
+tick stands still on event/presentation-only frames), `sim_time` is untouched,
+and `sim_step` reads as zero. When the frame runs a simulation pass,
+[`Runtime::begin_sim_pass`](../../../engine/canary-runtime/src/lib.rs) folds
+the step into `sim_time`, advances the ECS tick exactly once (via the
+`advance_tick_for_pass` entry the R-34 review accepted), and re-stamps the
+resource — so `tick` always names the pass about to run, and systems observe
+the documented value (R-38, resolved). The frame driver stamps the snapshot's
+own `tick` from that context and publishes `SimulationInput` plus `UiIntents`
+before the schedule runs. Simulation time therefore advances only for actual
+simulation passes; plugin lifecycle phases and event/presentation frames never
+move the tick. The legacy `Runtime::run` entry point is still the scoped-access
+slice, not yet the complete game frame loop. See
 [`runtime-composition.md`](runtime-composition.md) and the
 [R-34 API review](../reviews/2026-09-r34-api-review.md) for the implemented
 boundary.

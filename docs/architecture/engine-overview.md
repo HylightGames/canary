@@ -51,7 +51,7 @@ or through explicit, documented interfaces — never through ad hoc globals.
 | Game runtime composition | `canary-runtime` library owns the active `World`, `RunContext`, and scoped Tier A lifecycle calls; full game frame driver and harness migration remain pending | [runtime-composition.md](runtime-composition.md) |
 | ECS | `canary-ecs` | [core-runtime.md](core-runtime.md) |
 | Scheduler (stage-based system execution) | `canary-scheduler` | [execution-model.md](execution-model.md) |
-| Input and simulation boundary | `canary-platform` currently normalizes keyboard transitions; proposed action flow lives in a future `canary-input` crate | [input-and-simulation.md](input-and-simulation.md) |
+| Input and simulation boundary | `canary-platform` normalizes keyboard transitions, pointer position/buttons, pointer-leave, and focus-loss; `canary-input` maps those normalized events to named actions and produces frame-tagged `SimulationInput` | [input-and-simulation.md](input-and-simulation.md) |
 | Transform & hierarchy | `canary-transform` | [transform.md](transform.md) |
 | Plugin trait & loader | `canary-plugin-api` | [plugin-system.md](plugin-system.md) |
 | Scripting / language-agnostic runtime | *(planned: `canary-script`)* | [scripting-system.md](scripting-system.md) |
@@ -59,7 +59,7 @@ or through explicit, documented interfaces — never through ad hoc globals.
 | Physics | `canary-physics` (2D slice) | [physics.md](physics.md) |
 | Networking | *(planned: `canary-net`)* | [networking.md](networking.md) |
 | Asset pipeline | `canary-assets` (minimal synchronous loaders) | [asset-system.md](asset-system.md) |
-| UI toolkit (`CanaryUI`) | *(planned: `canary-ui-core`)* | [ui-toolkit.md](ui-toolkit.md) |
+| UI toolkit (`CanaryUI`) | `canary-ui-core`, `canary-ui-egui` (first-game slice) | [ui-toolkit.md](ui-toolkit.md) |
 | Audio (`CanaryAudio`) | `canary-audio` (bootstrap) | [audio.md](audio.md) |
 | Localization (`CanaryLoc`) | `canary-loc` | [localization.md](localization.md) |
 | Project state & versioning | *(planned: `canary-state`)* | [state-and-versioning.md](state-and-versioning.md) |
@@ -70,10 +70,9 @@ yet. Some implemented crates provide only a narrow bootstrap slice; see
 
 The input and simulation document records the accepted RawInput →
 InputMapping → InputAction → PlayerInput → SimulationInput boundary and
-separates it from the current platform input stubs. That flow is an
-acceptance prerequisite for shared UI/gameplay input and deterministic
-simulation work; it is not yet an end-to-end implementation. It is part of
-the next `v0.0.13` milestone.
+the platform events that feed it. That flow is proven end-to-end by the
+`.13` game/UI consumer (shared UI/gameplay input, deterministic
+simulation input).
 
 ## The two structural bets this engine makes
 

@@ -33,8 +33,8 @@ status; check the record before relying on a decision.
 | [0021](0021-amendments-to-pre-v0-3-locks.md) | Amendments to the pre-v0.3 locks |
 | [0022](0022-constitution-clarifications-and-red-team.md) | Architectural constitution clarifications and review |
 | [0023](0023-audio-bootstrap-rodio-behind-custom-trait.md) | Audio bootstrap behind a Canary-owned trait |
-| [0024](0024-reusable-runtime-composition.md) | Proposed reusable runtime composition and scoped plugin access |
-| [0025](0025-deterministic-input-actions-and-ui-capture.md) | Proposed deterministic action input and UI capture boundary |
+| [0024](0024-reusable-runtime-composition.md) | Accepted in part (items 1–5) reusable runtime composition and scoped plugin access; item 6 lifecycle failure semantics remain Proposed |
+| [0025](0025-deterministic-input-actions-and-ui-capture.md) | Accepted deterministic action input and UI capture boundary |
 | [0026](0026-authored-state-and-simulation-snapshot-contract.md) | Proposed authored state and simulation snapshot contract |
 | [0027](0027-minimal-server-authoritative-replication.md) | Proposed first server-authoritative replication profile |
 | [0028](0028-authoritative-live-collaboration-operations.md) | Proposed authoritative live-collaboration operation and history contract |

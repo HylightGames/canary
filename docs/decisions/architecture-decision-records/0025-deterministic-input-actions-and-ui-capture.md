@@ -1,6 +1,21 @@
 # 0025. Route deterministic gameplay actions through one UI-aware input path
 
-**Status:** Proposed for `v0.0.13`; review before implementation.
+**Status:** Accepted for `v0.0.13` (2026-09-27). Implemented as decided:
+`canary-input` owns `ActionSchema`/`InputMapper`/`SimulationInput`, the
+platform emits the `.13` event set (keyboard transitions, pointer
+position/buttons, pointer-leave, focus-loss), UI routing has first
+refusal with in-mapper per-binding pass-through
+(`canary-runtime::drive_input_frame`), `CaptureTaken` synthesizes the
+gameplay release, the runtime stamps `tick` immediately before the
+scheduled pass, and the `ui-game` sample plus headless harness prove
+the contract live. Three seams stay open, all documented in code, none
+changing the decision: (1) the runtime *transmits* `SimulationInput` as
+a per-frame resource but keeps no persistent record log — recording is
+replay work; (2) the `EguiBackend` never emits `CaptureTaken` or
+`PointerLeave { pointer_capture_held: true }` yet — the mapper side of
+that contract is unit-proven with hand-set flags, adapter annotation is
+future work; (3) the concrete `ActionId` representation the decision
+left open is an opaque tag-plus-index newtype.
 
 ## Context
 

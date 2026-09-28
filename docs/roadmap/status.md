@@ -8,22 +8,25 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
-## Current handoff — `v0.0.13` is next
+## Current handoff — `v0.0.13` implemented, `v0.0.14` is next
 
-`v0.0.12` audio is implemented on `dev`, not yet tagged. The next milestone
-is `v0.0.13` (`CanaryUI` + windowed presentation). Continue from the exact
-checkpoint and acceptance gates in
-[`v0.0.13-roadmap.md`](v0.0.13-roadmap.md), then use
-[`v0.1.0-plan.md`](v0.1.0-plan.md) for the dependency-ordered `.14`–`.1.0`
-sequence. R-34's scoped active-World foundation is implemented in `e256a61`
-and mitigated; the full runtime frame driver is not. R-38 tracks the
-`RunContext.tick`/`sim_time` boundary that the frame driver must settle.
-Window presentation is
-in the current uncommitted working tree, with an owner-reported 5/5 live
-present proof. Input/UI and public consumer close-out are not started.
-R-36 remains open for richer lifecycle needs such as pause/reload/replacement;
-those are not a `.13` gate. Do not begin `.14` until the interactive consumer
-and common runtime path meet `.13` acceptance.
+`v0.0.12` audio and `v0.0.13` (`CanaryUI` + windowed presentation) are both
+implemented on `dev`, not yet tagged. What `.13` landed: window
+presentation with live lifecycle gates (`present_clear.rs`: steady,
+minimize/restore, resize→recreate, content-present, safe destruction;
+capability-rejection/fatal-error mappings unit-gated), the platform
+pointer/focus event slice, `canary-input` capture routing with in-mapper
+pass-through, `canary-ui-core` + `canary-ui-egui` (egui 0.36 paint output
+through the same RHI pass as the scene), `Runtime::drive_frame` owning
+event pump → UI routing → tick → schedule, the migrated headless harness,
+and the `ui-game` sample with a live proof record (600/600 presented,
+mapped movement + Space/click fire, +1-per-click no-double-fire). ADR
+0025 is Accepted; ADR 0024 items 1–5 Accepted, item 6 (typed lifecycle
+failure semantics) remains Proposed. R-37 and R-38 are mitigated (see
+[risk-register](../reviews/risk-register.md)). R-36 remains open for
+richer lifecycle needs such as pause/reload/replacement; those are not
+a `.13` gate. Continue with `.14` authored project state and simulation
+snapshots per [`v0.1.0-plan.md`](v0.1.0-plan.md).
 
 The next milestones are `.14` authored project state and simulation snapshots,
 `.15` minimal server-authoritative networking, `.16` the first collaboration
@@ -594,22 +597,22 @@ about working code in `engine/`.
 |---|---|---|---|
 | Repository/governance | ✅ | ✅ | `v0.0.1` |
 | Engine core (`canary-core`) | ✅ | ✅ | `v0.0.1` |
-| Consumer runtime composition | ✅ | ⚠️ Partial | `canary-runtime` library owns the active `World`, `RunContext`, and scoped Tier A `on_load`/`on_unload` calls (commit `e256a61`; R-34 mitigated). It does not yet run schedule/platform/UI/render frame phases; the old headless binary remains on its private harness. ADR 0024 and full `.13` consumer loop remain in progress; resolve R-38's context tick/simulation-time semantics in the frame driver. R-36 is open for future pause/reload/replacement semantics |
+| Consumer runtime composition | ✅ | ✅ | `canary-runtime` library owns the active `World`, `RunContext`, scoped Tier A `on_load`/`on_unload` calls (commit `e256a61`; R-34 mitigated), and the `.13` frame driver: `Runtime::drive_frame` owns event pump → UI routing → tick → schedule → extract, with the headless binary migrated onto it. Tick/`sim_time` advance only on simulation passes (`begin_sim_pass`; R-38 mitigated). ADR 0024 items 1–5 Accepted; item 6 (lifecycle failure semantics) stays Proposed; R-36 open for future pause/reload/replacement semantics |
 | Platform abstraction | ✅ | ✅ | Traits + headless + real `winit` backend (behind the `winit-backend` feature, off by default); `v0.0.4` |
-| Input and simulation boundary | ✅ | ⚠️ Partial | Platform currently normalizes keyboard press/release; proposed action mapping and UI capture are documented in [`input-and-simulation.md`](../architecture/input-and-simulation.md) and ADR 0025. Pointer/focus, `SimulationInput`, and runtime integration are not implemented |
+| Input and simulation boundary | ✅ | ✅ | Platform normalizes keyboard transitions plus pointer position/buttons, pointer-leave, and focus-loss; `canary-input` maps those to named actions and produces frame-tagged `SimulationInput` (one local player, digital only). UI-first capture routing with in-mapper per-binding pass-through and intent delivery at the next simulation boundary are implemented (`drive_input_frame`); see [`input-and-simulation.md`](../architecture/input-and-simulation.md) and ADR 0025 (Accepted) |
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
 | Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
 | Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented on `dev`, not yet tagged |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Active-World scoped lifecycle access is implemented for `on_load`/`on_unload` (R-34 mitigated); no per-frame hook |
-| Rendering | ✅ | ⚠️ (offscreen proven; window seam in working tree) | RHI trait + native Vulkan backend; ECS-driven CPU bake and file-loaded mesh/texture sampling are proven. Current uncommitted code adds a window surface, swapchain, and clear-only presentation proof; common-RHI scene/UI window rendering remains unproven. Depth/general materials also remain open |
+| Rendering | ✅ | ✅ | RHI trait + native Vulkan backend; ECS-driven CPU bake and file-loaded mesh/texture sampling are proven. Window presentation with live lifecycle gates (steady/minimize/restore/resize→recreate/content/destruction in `present_clear.rs`; capability-rejection and fatal-error mappings unit-gated) and same-RHI scene/UI window rendering (`ui-game`, 600/600 presented) are implemented on `dev`. Depth/general materials remain open |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ✅ (2D slice) | `PhysicsBackend` trait + private rapier2d 0.35.3 backend, fixed-step system with spiral guard, first-position registration, game-plus-pixel proof; determinism is single-machine repeatability; `v0.0.11`. 3D (Jolt canonical, Rapier3D alternative) still direction, post-`v0.1.0` |
 | Networking | ✅ | ❌ | Proposed first profile in ADR 0027 and [`networking.md`](../architecture/networking.md); no transport, replication, or removal-history code yet. Planned for `.15` |
 | Scripting system | ✅ | ❌ | Depends on Tier A |
 | Asset system | ✅ | ✅ (minimal) | `AssetId`/`AssetHandle<T>`/`AssetStore<T>` with sync GLB/PNG/WAV/Vorbis loaders; `AssetId` is provisional content identity. Stable `LogicalAssetId`, cooking, cache, hot reload, importers-as-plugins, and broader formats remain future work; `v0.0.10`/`.12` |
 | Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, headless default), `AudioSource`/`AudioListener` + trigger system using propagated `GlobalTransform` poses; host must insert a device backend for audible output. Custom engine stays the long-term default per ADR 0023; `v0.0.12` |
-| `CanaryUI` (UI toolkit) | ✅ | ❌ | ADR 0011 plus proposed first-game contract in [`ui-toolkit.md`](../architecture/ui-toolkit.md); no UI code yet. `.13` requires same-window, same-RHI game HUD and shared input capture |
+| `CanaryUI` (UI toolkit) | ✅ | ✅ (first-game slice) | ADR 0011 plus first-game contract in [`ui-toolkit.md`](../architecture/ui-toolkit.md); `canary-ui-core` (backend-neutral traits) + `canary-ui-egui` (egui 0.36 adapter, tessellate → RHI soup + scissor) implemented on `dev`, with same-window, same-RHI game HUD and shared input capture proven by `ui-game`. Full theming/layout/shaping remain future work |
 | Project state & versioning (`canary-state`) | ✅ | ❌ | Proposed product boundary and migration/snapshot rules are in [`state-and-versioning.md`](../architecture/state-and-versioning.md) and ADR 0026; no stable-ID registry, persistence codec, migration engine, or snapshots yet |
 | Live collaboration | ✅ | ❌ | ADR 0013 accepts topology only. Proposed operation, permission, conflict, history, and recovery contract is in [`live-collaboration.md`](../architecture/live-collaboration.md) and ADR 0028; no protocol code |
 | Editor | ⚠️ Partial (vision-level) | ❌ | Post-`v0.1.0`; build on the validated consumer runtime, project-state formats, `CanaryUI`, plugin lifecycle, and windowed rendering. See [`future-roadmap.md`](future-roadmap.md) |

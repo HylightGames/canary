@@ -2,9 +2,11 @@
 
 **Status:** The R-34 scoped-access foundation is implemented in
 `canary-runtime` (commit `e256a61`) and its API review is accepted for that
-scope. The full game frame driver and subsystem composition described here
-remain proposed work for `v0.0.13`. [ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md)
-remains Proposed for the broader composition contract; the narrower R-34
+scope. The game frame driver and subsystem composition described here are
+implemented for `v0.0.13` (`Runtime::drive_frame`; headless binary migrated).
+[ADR 0024](../decisions/architecture-decision-records/0024-reusable-runtime-composition.md)
+is Accepted for items 1–5; item 6 (lifecycle failure semantics) and the
+narrower R-34 follow-ups stay Proposed. The narrower R-34
 implementation contract is in
 [`2026-09-r34-api-review.md`](../reviews/2026-09-r34-api-review.md).
 
@@ -34,10 +36,12 @@ composition package, `canary-runtime`.
   one active `World`, a `RunContext` resource, Tier A plugin registrations,
   scoped lifecycle calls, and teardown. `run` currently loads plugins,
   advances outer-frame context for a requested frame count, then unloads
-  plugins. It does **not** run a `Schedule`, pump a window, route input, or
-  render. The pre-existing headless binary still owns its private
-  `EcsSubsystem` and has not yet migrated to the library. That migration and
-  the complete consumer frame driver are `.13` close-out work.
+  plugins. `drive_frame` additionally pumps one input frame through
+  UI-first routing, publishes the snapshot/intents resources, and runs a
+  caller-supplied `Schedule` for the simulation pass; the headless binary
+  is migrated to that path (scripted movement/fire demo, no private
+  subsystem). The windowed sample reuses the same driver with a real UI
+  backend and presenter.
 - `canary-scheduler::SystemAccess` is manual metadata. The current scheduler
   serializes writers and allows compatible read-only stages to run
   concurrently, but it cannot verify what a closure accesses (R-24).
@@ -86,8 +90,8 @@ their subsystem boundaries, consistent with
 [`engine-overview.md`](engine-overview.md#layering) and the subsystem ADRs.
 
 The proposed public library surface is part of the existing `canary-runtime`
-package. Its current headless binary can remain a smoke-test consumer of
-that library. This proposal does not add a second `canary-app` or
+package. Its headless binary is a consumer of that library (scripted
+input demo over `drive_frame`, no private subsystem). This proposal does not add a second `canary-app` or
 `canary-game` crate before there is a consumer need that justifies that
 boundary.
 
@@ -124,19 +128,18 @@ compose the first interactive consumer.
 
 `RunContext` is currently an ECS resource owned and updated by
 `canary-runtime`. `begin_frame` increments the outer-frame index and updates
-frame/simulation durations without advancing the ECS tick;
-`advance_tick_for_pass` advances exactly once for a scheduled pass. The full
-game frame driver that calls these at the correct phase boundaries remains
-unimplemented. The current library slice uses a fixed requested frame count
-and a caller-provided frame duration; it is not yet a wall-clock window loop.
-In the current scaffold, `begin_frame` also accumulates `sim_time` before a
-scheduled pass and snapshots the current world tick into the resource before
-`advance_tick_for_pass` is called. The accepted R-34 API review describes the
-context tick as the current or most recent pass and places this resource
-update before advancement. The full frame driver must preserve and document
-that meaning, or record an explicit review/ADR amendment before changing it.
-Outer-frame metadata may advance without simulation, but simulation time and
-ECS `Tick` must not (R-38).
+the frame metadata without advancing the ECS tick or `sim_time`;
+`begin_sim_pass` folds one step into `sim_time` and advances the tick exactly
+once for the scheduled pass (via `advance_tick_for_pass`); `drive_frame`
+calls both at the correct phase boundaries around UI-first input routing,
+snapshot/intent publication, and the schedule run. The R-34 meaning is
+preserved and now pinned by tests rather than amended: at frame open the
+context tick names the current or most recent pass, and the sim-pass
+re-stamp names the pass about to run — which is the tick the snapshot
+carries into the schedule. Outer-frame metadata may advance without
+simulation, but simulation time and ECS `Tick` do not (R-38, resolved).
+The current library slice uses a fixed requested frame count and a
+caller-provided frame duration; it is not yet a wall-clock window loop.
 
 ## Proposed phase order
 
