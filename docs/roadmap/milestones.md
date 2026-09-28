@@ -191,8 +191,9 @@ Full detail: [`v0.0.2.md`](../release-notes/v0.0.2.md).
 
 ## Current handoff
 
-`v0.0.12` is released as tag `v0.0.12` (2026-09-28). `v0.0.13` is implemented
-on `dev`, not yet tagged — it is cut next, in its own release commit.
+`v0.0.12` is released as tag `v0.0.12` (2026-09-28), and `v0.0.13` is
+released as tag `v0.0.13` (2026-09-28) — each cut in its own release
+commit, per the tagging-gap note below.
 
 ## Beyond `v0.0.2`
 

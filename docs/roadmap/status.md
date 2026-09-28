@@ -8,9 +8,9 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
-## Current handoff — `v0.0.13` implemented, `v0.0.14` is next
+## Current handoff — `v0.0.13` released, `v0.0.14` is next
 
-`v0.0.12` audio is released as tag `v0.0.12`; `v0.0.13` (`CanaryUI` + windowed presentation) is implemented, not yet tagged. What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, and `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`. Continue with `.14` authored project state and simulation snapshots per [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform

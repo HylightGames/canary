@@ -32,18 +32,11 @@ detail; this section summarizes rather than duplicates them.
 * **2D physics** — a new crate, `canary-physics`: an object-safe, leak-free `PhysicsBackend` trait (no third-party types in public signatures), minimal components (`RigidBody`, `Collider`, `Velocity`, `GravityScale`, `LockedAxes`, `ColliderMaterial`, `PhysicsConfig`), and a private rapier2d 0.35.3 backend. (`v0.0.11`)
 * **Fixed-timestep stepping with scheduler ordering** — a `PhysicsClock` accumulator plus `SimulationTime` (at most four `1/60` s steps per tick, leftover dropped by the spiral guard), frame time arriving as a `FrameDelta` resource through the existing `tick(dt)` seam with no `App` redesign, and first-position registration ahead of transform propagation and every render bake (proven fresh both directions, stale when reversed). (`v0.0.11`)
 * **Physics game proof** — a ground, falling-box, and scripted-kinematic-platform scene drawn as z-pinned quads through the unchanged soup bake (zero RHI churn): headless tests in the normal suite plus `#[ignore]`-gated pixel tests with an unstepped-pipeline negative control. Box2D 3.2.0 measured against in a throwaway harness (rapier faster 1.13–1.19x on the N-box pile) and not shipped; determinism scoped to single-machine repeatability, not cross-platform. (`v0.0.11`)
-* **Pointer and focus platform events** — `canary-platform` now normalizes pointer position (logical pixels), pointer buttons, pointer-leave, and window-focus-loss alongside keyboard transitions, with `winit` and headless implementations. (`v0.0.13`)
-* **Deterministic gameplay input with UI capture** — a new crate, `canary-input`: game-declared `ActionSchema`, multi-binding `InputMapper` with aggregate-before-edge digital semantics (`down`/`pressed`/`released`), per-binding UI pass-through judged inside the mapper, focus-loss/pointer-leave/capture-taken held-state release, and the immutable per-pass `SimulationInput` snapshot (mapper-stamped `frame_index`, runtime-stamped `tick`, delivered as a per-frame ECS resource). (`v0.0.13`)
-* **Backend-neutral UI boundary on `egui`** — new crates `canary-ui-core` (capture results, intents, renderer-independent paint batches; no `egui`/`winit`/render types) and `canary-ui-egui` (egui 0.36 adapter: event translation, focus-state capture reporting, tessellated triangle/scissor paint output plus font-atlas texture deltas, all through Canary-owned types). (`v0.0.13`)
-* **Runtime frame driver** — `Runtime::drive_frame` owns the `.13` phase order (event pump → UI routing before gameplay mapping → tick → one scheduled pass), with `Runtime::drive_input_frame` connecting platform events, the UI backend, capture annotation, and mapping; `UiIntents` arrives as a per-frame ECS resource for the next simulation boundary. (`v0.0.13`)
-* **Windowed game proof** — a new `ui-game` example: WASD/arrow movement, Space-or-HUD-button fire, and a readout HUD painted in the same RHI pass as the scene and blit-presented; live record is 600/600 frames presented with mapped, intent, and capture paths all exercised. (`v0.0.13`)
 
 * **Continuous performance benchmarking** — `divan` suites (through `codspeed-divan-compat`) in `canary-ecs`, `canary-scheduler`, `canary-transform`, `canary-assets`, `canary-loc`, `canary-physics`, and `canary-render-ecs`, covering entity/query/archetype work, stage scheduling, transform propagation, asset identity and PNG decode, localization resolution, fixed-step physics, and the full propagate → extract → bake frame. Measured on every pull request by CodSpeed's CPU simulation instrument (`.github/workflows/codspeed.yml`); benchmarks report, they do not gate — see [`docs/development/benchmarking.md`](docs/development/benchmarking.md).
 
 ### Changed
 
-* The headless runtime binary is now a consumer of the public `canary-runtime` library (`Runtime::drive_frame` with scripted input), replacing its private `EcsSubsystem` schedule; the same driver powers the windowed game sample. (`v0.0.13`)
-* `RunContext.tick` now has one documented meaning — the simulation pass about to run — with `sim_time` advancing only on real simulation passes (`begin_sim_pass`) while `frame_index`/`frame_dt` describe outer frames; event-only frames advance neither tick nor simulation time. (`v0.0.13`)
 * Transform propagation now skips quiet ticks (no `Transform`/`Parent`/`Children` writes since the last run): ~113–200x cheaper steady-state ticks with byte-identical globals, guarded by same-tick and follow-up-pass rails plus a downstream tick contract.
 * Render baking reuses scratch buffers across frames (steady-state bake allocates nothing; ~31% faster at small scenes, tail latency collapsed), mirroring the existing extract-scratch discipline; pixel output unchanged.
 * Two external architecture reviews (September 2026) were triaged against the actual codebase — see [`docs/reviews/triage/2026-09-review-triage.md`](docs/reviews/triage/2026-09-review-triage.md) — resolving `v0.0.7`'s and `v0.0.8`'s scope rather than picking from `future-roadmap.md`'s previously-open options.
@@ -83,6 +76,29 @@ bootstrap backend.
 Full scope: [`docs/release-notes/v0.0.12.md`](docs/release-notes/v0.0.12.md).
 
 [v0.0.12]: https://github.com/HylightGames/canary/releases/tag/v0.0.12
+
+## [v0.0.13] — 2026-09-28
+
+### Playable and visible: UI, presentation, and the frame driver
+
+`v0.0.13` adds windowed presentation with live lifecycle gates,
+deterministic gameplay input with UI capture, a backend-neutral UI
+abstraction bootstrapped on `egui`, the public runtime frame driver,
+and the first game sample — a HUD over a live scene in a real window.
+
+### Added
+
+* **Window presentation with live lifecycle gates** — the Vulkan presenter acquires, clears-or-blits, and presents through the real swapchain: steady frames, minimize/restore, resize→recreate, content-present, and safe destruction proven live; capability-rejection and fatal-error mappings unit-gated.
+* **Pointer and focus platform events** — `canary-platform` normalizes pointer position (logical pixels), buttons, pointer-leave, and focus-loss alongside keyboard transitions (`winit` + headless).
+* **Deterministic gameplay input with UI capture** — new crate `canary-input`: game-declared schemas, multi-binding mapping, per-binding UI pass-through judged inside the mapper, held-state release on focus-loss/leave/capture, and the immutable per-pass `SimulationInput` snapshot.
+* **Backend-neutral UI on `egui`** — new crates `canary-ui-core` and `canary-ui-egui` (egui 0.36 adapter painting through the same RHI pass as the scene).
+* **Runtime frame driver** — `Runtime::drive_frame` owns the phase order (event pump → UI routing → tick → one scheduled pass → extract → paint → present); tick and `sim_time` advance only on real simulation passes.
+* **Windowed game proof** — new `ui-game` example: WASD/arrow movement, Space-or-HUD-button fire, readout HUD in the same RHI pass as the scene; 600/600 frames presented live.
+* [ADR 0025](docs/decisions/architecture-decision-records/0025-deterministic-input-actions-and-ui-capture.md) moved from **Proposed** to **Accepted**; [ADR 0024](docs/decisions/architecture-decision-records/0024-reusable-runtime-composition.md) items 1–5 **Accepted** (item 6, typed lifecycle failure semantics, stays Proposed).
+
+Full scope: [`docs/release-notes/v0.0.13.md`](docs/release-notes/v0.0.13.md).
+
+[v0.0.13]: https://github.com/HylightGames/canary/releases/tag/v0.0.13
 
 ## [v0.0.2] — 2026-08-18
 
