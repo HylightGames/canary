@@ -20,12 +20,14 @@ fn vertex_format_to_vk(format: VertexFormat) -> vk::Format {
     match format {
         VertexFormat::Float32x2 => vk::Format::R32G32_SFLOAT,
         VertexFormat::Float32x3 => vk::Format::R32G32B32_SFLOAT,
+        VertexFormat::Float32x4 => vk::Format::R32G32B32A32_SFLOAT,
     }
 }
 
 /// A graphics pipeline: two shader stages (vertex + fragment) compiled
 /// from precompiled SPIR-V, a vertex input layout, and fixed-function
-/// state — no blending, no depth/stencil, matching
+/// state — no depth/stencil, and no blending except the blended textured
+/// variant ([`VulkanPipeline::new_textured_blended`]), matching
 /// [`canary_render::PipelineDescriptor`]'s scope.
 ///
 /// Uses **dynamic** viewport/scissor state (set per render pass in
@@ -55,7 +57,7 @@ pub struct VulkanPipeline {
 
 impl VulkanPipeline {
     pub(crate) fn new(vk_device: &VulkanDevice, desc: &PipelineDescriptor<'_>) -> Self {
-        Self::new_inner(vk_device, desc, false)
+        Self::new_inner(vk_device, desc, false, false)
     }
 
     /// Creates the single-texture variant: identical shader/states to
@@ -68,10 +70,28 @@ impl VulkanPipeline {
     /// textured entry point (see
     /// [`canary_render::RenderDevice::create_textured_pipeline`]).
     pub(crate) fn new_textured(vk_device: &VulkanDevice, desc: &PipelineDescriptor<'_>) -> Self {
-        Self::new_inner(vk_device, desc, true)
+        Self::new_inner(vk_device, desc, true, false)
     }
 
-    fn new_inner(vk_device: &VulkanDevice, desc: &PipelineDescriptor<'_>, textured: bool) -> Self {
+    /// Creates the blended single-texture variant: the
+    /// [`VulkanPipeline::new_textured`] layout plus standard src-alpha
+    /// blending (see
+    /// [`canary_render::RenderDevice::create_blended_textured_pipeline`]).
+    /// The `.13` UI slice's entry point — translucent `egui` geometry
+    /// composites over the scene instead of replacing it.
+    pub(crate) fn new_textured_blended(
+        vk_device: &VulkanDevice,
+        desc: &PipelineDescriptor<'_>,
+    ) -> Self {
+        Self::new_inner(vk_device, desc, true, true)
+    }
+
+    fn new_inner(
+        vk_device: &VulkanDevice,
+        desc: &PipelineDescriptor<'_>,
+        textured: bool,
+        blended: bool,
+    ) -> Self {
         let device = &vk_device.device;
 
         let vs_module = create_shader_module(device, desc.vertex_shader_spirv, desc.label);
@@ -135,9 +155,21 @@ impl VulkanPipeline {
         let multisample = vk::PipelineMultisampleStateCreateInfo::default()
             .rasterization_samples(vk::SampleCountFlags::TYPE_1);
 
-        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::default()
-            .color_write_mask(vk::ColorComponentFlags::RGBA)
-            .blend_enable(false);
+        let color_blend_attachment = if blended {
+            vk::PipelineColorBlendAttachmentState::default()
+                .color_write_mask(vk::ColorComponentFlags::RGBA)
+                .blend_enable(true)
+                .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+                .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+                .color_blend_op(vk::BlendOp::ADD)
+                .src_alpha_blend_factor(vk::BlendFactor::ONE)
+                .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+                .alpha_blend_op(vk::BlendOp::ADD)
+        } else {
+            vk::PipelineColorBlendAttachmentState::default()
+                .color_write_mask(vk::ColorComponentFlags::RGBA)
+                .blend_enable(false)
+        };
         let color_blend_attachments = [color_blend_attachment];
         let color_blend =
             vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachments);

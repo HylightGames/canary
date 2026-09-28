@@ -176,7 +176,9 @@ pub fn extract_textured_scene(world: &World) -> Vec<TexturedRenderItem> {
         .query2::<GlobalTransform, TexturedRenderable>()
         .filter_map(|(_, global, renderable)| {
             let mesh = mesh_store.get(renderable.mesh)?;
-            let _ = texture_store.get(renderable.texture)?;
+            if !texture_store.contains(renderable.texture) {
+                return None;
+            }
             let pairs = expand_mesh_to_textured_soup(mesh)?;
             let (vertices, uvs) = pairs.into_iter().unzip();
             Some(TexturedRenderItem {

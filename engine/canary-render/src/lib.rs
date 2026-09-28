@@ -42,8 +42,8 @@ pub use presentation::{
     SurfaceFormat,
 };
 pub use types::{
-    BufferDescriptor, ColorTargetDescriptor, PipelineDescriptor, RenderPassDescriptor,
-    TextureDescriptor, VertexAttribute, VertexFormat,
+    clamp_scissor, BufferDescriptor, ColorTargetDescriptor, PipelineDescriptor,
+    RenderPassDescriptor, ScissorRect, TextureDescriptor, VertexAttribute, VertexFormat,
 };
 
 /// A GPU device capable of creating the resources this trait's other
@@ -143,6 +143,22 @@ pub trait RenderDevice {
     /// a UV pair *is* two floats and needs no new enum variant.
     fn create_textured_pipeline(&self, desc: &PipelineDescriptor<'_>) -> Self::Pipeline;
 
+    /// Creates a blended single-texture graphics pipeline from
+    /// precompiled SPIR-V: identical to
+    /// [`RenderDevice::create_textured_pipeline`] (same one-texture
+    /// layout, same shader contract) except standard src-alpha
+    /// blending is enabled: `src.rgb * src.a + dst.rgb * (1 - src.a)`
+    /// for color, `src.a + dst.a * (1 - src.a)` for alpha, additive.
+    ///
+    /// Added for the `.13` UI slice: `egui` output is translucent
+    /// geometry (antialiased text, dimmed panels) that must composite
+    /// over the scene, not replace it. A separate method rather than a
+    /// descriptor flag for the same additive reason
+    /// [`RenderDevice::create_textured_pipeline`] documents: existing
+    /// pipeline construction compiles verbatim and the unblended path
+    /// (with its pixel proof) is untouched.
+    fn create_blended_textured_pipeline(&self, desc: &PipelineDescriptor<'_>) -> Self::Pipeline;
+
     /// Begins recording a new command buffer.
     fn create_command_encoder(&self) -> Self::CommandEncoder<'_>;
 
@@ -214,6 +230,17 @@ pub trait CommandEncoder<D: RenderDevice + ?Sized> {
     /// Draws `vertex_count` vertices from the currently bound vertex
     /// buffer, using the currently bound pipeline. No instancing.
     fn draw(&mut self, vertex_count: u32);
+
+    /// Restricts subsequent draws to `rect` (pixel units, top-left
+    /// origin, relative to the current target's extent). Added for the
+    /// `.13` UI slice: `egui` clip rects become one call per draw
+    /// group. Requires an open render pass (panics otherwise, like the
+    /// other ordering violations this trait's backends refuse loudly);
+    /// backends clamp the rect against the open target (see
+    /// [`crate::clamp_scissor`]) and a fully-clamped-away rect draws
+    /// nothing. The pass-open scissor is the full target until the
+    /// first call.
+    fn set_scissor(&mut self, rect: ScissorRect);
 
     /// Ends the current render pass.
     fn end_render_pass(&mut self);

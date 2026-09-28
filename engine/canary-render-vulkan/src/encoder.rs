@@ -9,7 +9,7 @@
 // ============================================================================
 
 use ash::vk;
-use canary_render::{CommandEncoder, RenderPassDescriptor};
+use canary_render::{clamp_scissor, CommandEncoder, RenderPassDescriptor, ScissorRect};
 
 use crate::buffer::VulkanBuffer;
 use crate::color_target::VulkanColorTarget;
@@ -48,6 +48,10 @@ pub struct VulkanCommandEncoder<'a> {
     /// out an abandoned encoder without leaking its command buffer.
     pass_open: bool,
     vertex_buffer_bound: bool,
+    /// The open pass's target extent, for clamping `set_scissor` rects.
+    /// Meaningful only while `pass_open` is true.
+    pass_width: u32,
+    pass_height: u32,
 }
 
 /// What [`VulkanCommandEncoder`] remembers about the bound pipeline:
@@ -87,6 +91,8 @@ impl<'a> VulkanCommandEncoder<'a> {
             bound: None,
             pass_open: false,
             vertex_buffer_bound: false,
+            pass_width: 0,
+            pass_height: 0,
         }
     }
 
@@ -213,6 +219,8 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
         }
         self.pass_open = true;
         self.vertex_buffer_bound = false;
+        self.pass_width = target.width;
+        self.pass_height = target.height;
     }
 
     fn set_pipeline(&mut self, pipeline: &VulkanPipeline) {
@@ -302,6 +310,53 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
             self.vk_device
                 .device
                 .cmd_draw(self.command_buffer, vertex_count, 1, 0, 0);
+        }
+    }
+
+    fn set_scissor(&mut self, rect: ScissorRect) {
+        assert!(
+            self.pass_open,
+            "set_scissor requires an open render pass: call begin_render_pass before set_scissor"
+        );
+        // Clamped on the host so the driver never sees an
+        // out-of-bounds rect; a fully-clamped-away rect becomes an
+        // empty scissor, which is legal Vulkan and discards every
+        // fragment — the draw that follows is a well-defined no-op.
+        let clamped = clamp_scissor(self.pass_width, self.pass_height, rect);
+        let scissor = match clamped {
+            Some(rect) => vk::Rect2D {
+                // Saturating rather than `as`-cast: coordinates past
+                // i32's range would need a multi-billion-pixel target,
+                // which no driver creates (creation fails loudly long
+                // before a scissor is recorded), so saturation is
+                // unreachable in practice and well-defined if reached.
+                offset: vk::Offset2D {
+                    x: i32::try_from(rect.x).unwrap_or(i32::MAX),
+                    y: i32::try_from(rect.y).unwrap_or(i32::MAX),
+                },
+                extent: vk::Extent2D {
+                    width: rect.width,
+                    height: rect.height,
+                },
+            },
+            None => vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: vk::Extent2D {
+                    width: 0,
+                    height: 0,
+                },
+            },
+        };
+        // SAFETY: begun buffer inside an open pass (asserted above);
+        // pipelines built here always declare dynamic scissor state
+        // (see `VulkanPipeline`'s docs), so recording is valid. The
+        // offsets are range-checked above (saturating conversion, no
+        // wrapping cast); extents come straight from the clamped rect,
+        // which never exceeds the open target.
+        unsafe {
+            self.vk_device
+                .device
+                .cmd_set_scissor(self.command_buffer, 0, &[scissor]);
         }
     }
 

@@ -301,12 +301,55 @@ pub fn draw_textured_frame<D: RenderDevice>(
     encoder.end_render_pass();
     device.submit_and_wait(encoder);
 }
+/// Records one baked frame's draw into an already-open render pass:
+/// `set_pipeline` → `set_vertex_buffer` → `draw(vertex_count)`.
+/// The `.13` sample's entry point: the scene records first, then UI
+/// paint records into the same pass, then the caller ends and submits
+/// once — one pass, one submit, no intermediate clear wiping the scene
+/// (the RHI has no load-op; a second pass would clear).
 ///
+/// Returns the uploaded vertex buffer (`None` for an empty frame, which
+/// records nothing): the caller must hold it until after the submission
+/// that reads it — dropping it earlier is use-after-free, for the same
+/// reason [`draw_baked_frame`] documents. Takes `device` only for the
+/// upload; all recording goes through `encoder`.
+pub fn record_baked_frame<D: RenderDevice>(
+    device: &D,
+    encoder: &mut D::CommandEncoder<'_>,
+    pipeline: &D::Pipeline,
+    frame: &BakedFrame,
+) -> Option<D::Buffer> {
+    // Same malformed-frame guard as the textured path above: a
+    // misaligned tail would make `vertex_count`'s floored division
+    // under-read the draw while the upload carries the extra bytes.
+    debug_assert!(
+        frame.vertices.len() % FLOATS_PER_VERTEX == 0,
+        "malformed BakedFrame: {} floats is not a multiple of the 5-float soup stride",
+        frame.vertices.len()
+    );
+    if frame.is_empty() {
+        return None;
+    }
+    let vertex_bytes: Vec<u8> = frame
+        .vertices
+        .iter()
+        .flat_map(|vertex: &f32| vertex.to_ne_bytes())
+        .collect();
+    let vertex_buffer = device.create_buffer(&BufferDescriptor {
+        label: "render-ecs baked frame",
+        data: &vertex_bytes,
+    });
+    encoder.set_pipeline(pipeline);
+    encoder.set_vertex_buffer(&vertex_buffer);
+    encoder.draw(frame.vertex_count());
+    Some(vertex_buffer)
+}
+
 /// Draws one baked frame: fresh buffer upload, one render pass, one draw.
 ///
 /// Records `begin_render_pass` (clearing to [`DEFAULT_CLEAR_COLOR`]) →
-/// `set_pipeline` → `set_vertex_buffer` → `draw(vertex_count)` →
-/// `end_render_pass`, then [`submit_and_wait`](canary_render::RenderDevice::submit_and_wait)
+/// [`record_baked_frame`] → `end_render_pass`, then
+/// [`submit_and_wait`](canary_render::RenderDevice::submit_and_wait)
 /// — the same single-pass, single-draw shape `hello_triangle` proves. The
 /// generic `D: RenderDevice` keeps this backend-agnostic: the bridge never
 /// names a concrete device type, so no backend crate leaks above the RHI.
@@ -321,39 +364,17 @@ pub fn draw_textured_frame<D: RenderDevice>(
 ///   to bind and nothing to draw (a zero-size buffer creation is
 ///   driver-risky, and drawing zero vertices proves nothing), but the pass
 ///   is still begun, ended, and submitted — so the target shows the clear
-///   color instead of stale contents from a previous frame. The vertex
-///   buffer binding is held in an `Option` outside the pass precisely so it
-///   outlives `submit_and_wait`: destroying a buffer the GPU has not
-///   finished reading is use-after-free, and synchronous submit is what
-///   makes this ordering sound.
+///   color instead of stale contents from a previous frame.
+/// - **The upload outlives the submit.** [`record_baked_frame`]'s returned
+///   buffer is held here across `submit_and_wait`: destroying a buffer the
+///   GPU has not finished reading is use-after-free, and synchronous
+///   submit is what makes this ordering sound.
 pub fn draw_baked_frame<D: RenderDevice>(
     device: &D,
     target: &D::ColorTarget,
     pipeline: &D::Pipeline,
     frame: &BakedFrame,
 ) {
-    // Same malformed-frame guard as the textured path above: a
-    // misaligned tail would make `vertex_count`'s floored division
-    // under-read the draw while the upload carries the extra bytes.
-    debug_assert!(
-        frame.vertices.len() % FLOATS_PER_VERTEX == 0,
-        "malformed BakedFrame: {} floats is not a multiple of the 5-float soup stride",
-        frame.vertices.len()
-    );
-    let vertex_buffer = if frame.is_empty() {
-        None
-    } else {
-        let vertex_bytes: Vec<u8> = frame
-            .vertices
-            .iter()
-            .flat_map(|vertex: &f32| vertex.to_ne_bytes())
-            .collect();
-        Some(device.create_buffer(&BufferDescriptor {
-            label: "render-ecs baked frame",
-            data: &vertex_bytes,
-        }))
-    };
-
     let mut encoder = device.create_command_encoder();
     encoder.begin_render_pass(
         target,
@@ -361,11 +382,10 @@ pub fn draw_baked_frame<D: RenderDevice>(
             clear_color: DEFAULT_CLEAR_COLOR,
         },
     );
-    if let Some(buffer) = vertex_buffer.as_ref() {
-        encoder.set_pipeline(pipeline);
-        encoder.set_vertex_buffer(buffer);
-        encoder.draw(frame.vertex_count());
-    }
+    // Held across `submit_and_wait` below: destroying a buffer the GPU
+    // has not finished reading is use-after-free, and synchronous
+    // submit is what makes this ordering sound.
+    let _held = record_baked_frame(device, &mut encoder, pipeline, frame);
     encoder.end_render_pass();
     device.submit_and_wait(encoder);
 }

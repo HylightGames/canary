@@ -793,6 +793,10 @@ impl RenderDevice for VulkanDevice {
         VulkanPipeline::new_textured(self, desc)
     }
 
+    fn create_blended_textured_pipeline(&self, desc: &PipelineDescriptor<'_>) -> Self::Pipeline {
+        VulkanPipeline::new_textured_blended(self, desc)
+    }
+
     fn create_command_encoder(&self) -> Self::CommandEncoder<'_> {
         VulkanCommandEncoder::new(self)
     }

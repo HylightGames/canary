@@ -52,9 +52,9 @@ pub use extract::{
 };
 pub use mesh_renderable::{expand_mesh_to_soup, extract_mesh_scene, MeshRenderable};
 pub use pipeline::{
-    draw_baked_frame, draw_textured_frame, render_vertex_attributes, render_vertex_stride,
-    textured_vertex_attributes, textured_vertex_stride, DEFAULT_CLEAR_COLOR, RENDER_WGSL,
-    TEXTURED_WGSL,
+    draw_baked_frame, draw_textured_frame, record_baked_frame, render_vertex_attributes,
+    render_vertex_stride, textured_vertex_attributes, textured_vertex_stride, DEFAULT_CLEAR_COLOR,
+    RENDER_WGSL, TEXTURED_WGSL,
 };
 pub use renderable::Renderable;
 pub use systems::{

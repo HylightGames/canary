@@ -85,6 +85,13 @@ impl VulkanSwapchain {
         self.framebuffers.get(index).copied()
     }
 
+    /// The swapchain image at `index`, or `None` when the driver handed
+    /// back an index outside the swapchain. For content blits (see the
+    /// presenter's content-frame path).
+    pub(crate) fn image_at(&self, index: usize) -> Option<vk::Image> {
+        self.images.get(index).copied()
+    }
+
     /// The negotiated surface format, in Canary-owned codes.
     pub(crate) fn surface_format(&self) -> SurfaceFormat {
         self.format
@@ -236,6 +243,46 @@ impl VulkanSwapchain {
         let format = offered[format_index];
         let native_format = native_formats[format_index];
 
+        // Content frames blit an offscreen target into the swapchain
+        // image (see the presenter's content-frame path), so creation
+        // demands both halves of that transfer up front: the surface
+        // must allow `TRANSFER_DST` usage on its images, and the
+        // negotiated format must support blit-destination. Loud errors,
+        // never a silent clear-only fallback — a caller asking for
+        // content frames on a surface that cannot receive them is a
+        // configuration bug, not a runtime condition.
+        if !capabilities
+            .supported_usage_flags
+            .contains(vk::ImageUsageFlags::TRANSFER_DST)
+        {
+            return Err(PresentationError::SwapchainCreation {
+                code: vk::Result::ERROR_INITIALIZATION_FAILED.as_raw(),
+                message: String::from(
+                    "the surface does not support TRANSFER_DST image usage: \
+                     content-frame blits cannot land here",
+                ),
+            });
+        }
+        // SAFETY: read-only format-feature query against the selected
+        // physical device and a format the surface just offered; returns
+        // properties by value, no null path.
+        let dst_features = unsafe {
+            device
+                .instance
+                .get_physical_device_format_properties(device.physical_device, native_format.format)
+        }
+        .optimal_tiling_features;
+        if !dst_features.contains(vk::FormatFeatureFlags::BLIT_DST) {
+            return Err(PresentationError::SwapchainCreation {
+                code: vk::Result::ERROR_INITIALIZATION_FAILED.as_raw(),
+                message: std::format!(
+                    "the negotiated surface format {:?} supports no blit-destination: \
+                     content-frame blits cannot land here",
+                    native_format.format,
+                ),
+            });
+        }
+
         let current = if capabilities.current_extent.width == u32::MAX {
             None
         } else {
@@ -276,7 +323,7 @@ impl VulkanSwapchain {
             .image_color_space(native_format.color_space)
             .image_extent(extent)
             .image_array_layers(1)
-            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
             .pre_transform(capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)

@@ -47,6 +47,25 @@ impl VulkanColorTarget {
         self.drawn.set(true);
     }
 
+    /// Whether a submitted render pass has touched this target. Read by
+    /// the presenter's content-frame path: blitting from a never-drawn
+    /// target copies an `UNDEFINED`-layout image, which is invalid even
+    /// when a lenient driver appears to tolerate it. Presentation-only,
+    /// like its reader.
+    #[cfg(feature = "presentation")]
+    pub(crate) fn was_drawn(&self) -> bool {
+        self.drawn.get()
+    }
+
+    /// The GPU image, for content-frame blits into swapchain images (see
+    /// the presenter). The image stays owned here; the caller must not
+    /// retain it past this target's next recreation or drop.
+    /// Presentation-only, like its reader.
+    #[cfg(feature = "presentation")]
+    pub(crate) fn image(&self) -> vk::Image {
+        self.image
+    }
+
     pub(crate) fn new(vk_device: &VulkanDevice, desc: &ColorTargetDescriptor) -> Self {
         // SAFETY for the creation sequence below as a whole: every call
         // operates on handles obtained lines above from the same live

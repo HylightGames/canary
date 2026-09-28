@@ -477,6 +477,21 @@ pub enum PresentationError {
         /// The offending axis length in pixels.
         value: u32,
     },
+    /// A content frame's offscreen target does not match the swapchain
+    /// extent. The caller recreates its target from the presenter's
+    /// current extent (reported by `PresentedFrame.swapchain_recreated`)
+    /// and retries — presenting a mismatched target would scale or crop
+    /// silently, so the presenter refuses loudly instead.
+    #[error(
+        "content target extent {content:?} does not match swapchain extent {swapchain:?}: \
+         recreate the target and retry"
+    )]
+    ContentExtentMismatch {
+        /// The swapchain's current extent in pixels.
+        swapchain: (u32, u32),
+        /// The content target's extent in pixels.
+        content: (u32, u32),
+    },
 }
 
 #[cfg(test)]

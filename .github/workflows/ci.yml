@@ -152,6 +152,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y mesa-vulkan-drivers
+      - name: Install X11 dev libraries and Xvfb (for the presentation proof)
+        # Same set as the windowing-integration job: building winit's x11
+        # backend needs these, and present_clear needs a live X11 display.
+        run: |
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxkbcommon-x11-0 libxrandr-dev libxi-dev libxcursor-dev pkg-config xvfb
       - name: Run the real Vulkan rendering integration tests
         # Scoped to explicit test targets (not whole-crate `--ignored`):
         # any future `#[ignore]` (e.g. a quarantined flake) must opt
@@ -162,7 +167,23 @@ jobs:
           cargo test --locked -p canary-render-vulkan
           --test texture_binding_misuse -- --ignored &&
           cargo test --locked -p canary-render-vulkan
-          --test chaos -- --ignored
+          --test chaos -- --ignored &&
+          cargo test --locked -p canary-render-vulkan
+          --test blended_textured_pipeline -- --ignored &&
+          cargo test --locked -p canary-ui-egui
+          --test ui_paint_pixels -- --ignored
+      - name: Run the windowed presentation proof (llvmpipe + Xvfb)
+        # present_clear is the v0.0.13 presentation-seam proof: steady
+        # frames, minimize/restore, resize-recreate, content blit,
+        # destruction order. It needs the `presentation` feature (off by
+        # default, so without it the target compiles to zero tests and
+        # reports a vacuous pass) plus a live X11 display and a presenting
+        # ICD — mesa lavapipe qualifies for both.
+        run: >
+          xvfb-run --auto-servernum
+          cargo test --locked -p canary-render-vulkan
+          --features presentation
+          --test present_clear -- --ignored
 
   render-ecs-integration:
     name: Real ECS-driven rendering integration test (llvmpipe)

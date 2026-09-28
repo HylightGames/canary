@@ -157,12 +157,20 @@ pub(crate) fn create_surface(
 
 /// Converts a backend device type without naming backend enums above
 /// this module.
+///
+/// Unrecognized (including future-added) `vk::PhysicalDeviceType`
+/// values collapse to [`DeviceKind::Other`] silently: this crate takes
+/// no logging dependency, and one observability line does not justify
+/// adding one. `Other` still scores through the shared
+/// presentation-adapter policy, so an unknown device stays selectable
+/// — just never preferred over a known kind.
 pub(crate) fn device_kind_of(kind: vk::PhysicalDeviceType) -> DeviceKind {
     match kind {
         vk::PhysicalDeviceType::DISCRETE_GPU => DeviceKind::DiscreteGpu,
         vk::PhysicalDeviceType::INTEGRATED_GPU => DeviceKind::IntegratedGpu,
         vk::PhysicalDeviceType::VIRTUAL_GPU => DeviceKind::VirtualGpu,
         vk::PhysicalDeviceType::CPU => DeviceKind::Cpu,
+        // See the doc comment above: silent by dependency-budget choice.
         _ => DeviceKind::Other,
     }
 }

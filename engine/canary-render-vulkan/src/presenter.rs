@@ -178,7 +178,46 @@ impl VulkanPresenter {
         window: &dyn SurfaceHandlesProvider,
         clear_color: [f32; 4],
     ) -> Result<FrameOutcome, PresentationError> {
-        let mut swapchain_recreated = false;
+        match self.prepare_frame(window)? {
+            ReadyOrSkipped::Skipped(outcome) => Ok(outcome),
+            ReadyOrSkipped::Ready(ready) => {
+                self.record_clear_and_submit(ready.image_index, clear_color)?;
+                self.finish_present(ready)
+            }
+        }
+    }
+
+    /// Blits an offscreen RHI color target into the acquired swapchain
+    /// image and presents it — one full content frame. The scene and UI
+    /// draw through the RHI into `target` first (same device — see
+    /// [`VulkanPresenter::device`]); this method only moves the finished
+    /// pixels to the screen and presents.
+    ///
+    /// Requires a drawn target at exactly the swapchain's current extent
+    /// (see [`VulkanPresenter::extent`]): a never-drawn target is a
+    /// caller bug (refused loudly in debug — blitting from an
+    /// `UNDEFINED`-layout image is invalid), and an extent mismatch is
+    /// [`PresentationError::ContentExtentMismatch`] (recreate the target
+    /// and retry — the presenter never scales or crops silently). The
+    /// blit converts formats semantically (offscreen RGBA to swapchain
+    /// BGRA, UNORM to sRGB); swapchain creation already verified both
+    /// directions' feature support, so an unsupported surface fails at
+    /// construction, not per frame. Lifecycle (suspend, recreate, skip,
+    /// mismatch flags) is identical to
+    /// [`VulkanPresenter::present_cleared_frame`].
+    pub fn present_color_target(
+        &mut self,
+        window: &dyn SurfaceHandlesProvider,
+        target: &crate::VulkanColorTarget,
+    ) -> Result<FrameOutcome, PresentationError> {
+        // Lifecycle order matters: a minimized window suspends even with
+        // a stale target (Suspended, not Mismatch). Otherwise the target
+        // is checked against the WINDOW's extent — what the swapchain
+        // will be after prepare — so a resize reports Mismatch with no
+        // side effects: no acquire, no recreate, and the recreate flag
+        // stays intact for the retry that actually presents. (A post-
+        // prepare re-check below nets the race where the window moves
+        // between the check and the blit.)
         let extent = window
             .surface_extent()
             .ok_or(PresentationError::NoWindowHandles)?;
@@ -186,6 +225,51 @@ impl VulkanPresenter {
             return Ok(FrameOutcome::Skipped {
                 status: AcquireStatus::Suspended,
             });
+        }
+        if (target.width, target.height) != extent {
+            return Err(PresentationError::ContentExtentMismatch {
+                swapchain: extent,
+                content: (target.width, target.height),
+            });
+        }
+        debug_assert!(
+            target.was_drawn(),
+            "present_color_target with a never-drawn target: submit at least one RHI render pass first"
+        );
+        match self.prepare_frame(window)? {
+            ReadyOrSkipped::Skipped(outcome) => Ok(outcome),
+            ReadyOrSkipped::Ready(ready) => {
+                // Race net: the window may have moved between the check
+                // above and this blit (prepare recreates first). A
+                // mismatch here consumed the recreate already, so the
+                // retry reports cleanly.
+                if (target.width, target.height) != self.extent {
+                    return Err(PresentationError::ContentExtentMismatch {
+                        swapchain: self.extent,
+                        content: (target.width, target.height),
+                    });
+                }
+                self.record_blit_and_submit(ready.image_index, target)?;
+                self.finish_present(ready)
+            }
+        }
+    }
+
+    /// The shared acquire-head of both frame paths: suspend, recreate,
+    /// acquire, skip handling. Returns either a skip outcome or a ready
+    /// image with the recreate flag the report carries.
+    fn prepare_frame(
+        &mut self,
+        window: &dyn SurfaceHandlesProvider,
+    ) -> Result<ReadyOrSkipped, PresentationError> {
+        let mut swapchain_recreated = false;
+        let extent = window
+            .surface_extent()
+            .ok_or(PresentationError::NoWindowHandles)?;
+        if is_suspended_extent(extent) {
+            return Ok(ReadyOrSkipped::Skipped(FrameOutcome::Skipped {
+                status: AcquireStatus::Suspended,
+            }));
         }
         let generation = window.resize_generation();
         if extent != self.extent || generation != self.generation || self.needs_recreate {
@@ -202,18 +286,18 @@ impl VulkanPresenter {
                     .surface_extent()
                     .ok_or(PresentationError::NoWindowHandles)?;
                 if is_suspended_extent(extent_now) {
-                    return Ok(FrameOutcome::Skipped {
+                    return Ok(ReadyOrSkipped::Skipped(FrameOutcome::Skipped {
                         status: AcquireStatus::Suspended,
-                    });
+                    }));
                 }
                 self.swapchain.recreate(&self.device, extent_now)?;
                 self.extent = extent_now;
                 self.generation = window.resize_generation();
                 self.needs_recreate = false;
             }
-            return Ok(FrameOutcome::Skipped {
+            return Ok(ReadyOrSkipped::Skipped(FrameOutcome::Skipped {
                 status: acquired.status,
-            });
+            }));
         }
         let image_index = acquired.index.ok_or(PresentationError::AcquireFailed {
             code: vk::Result::ERROR_INITIALIZATION_FAILED.as_raw(),
@@ -222,16 +306,26 @@ impl VulkanPresenter {
         if should_recreate_after_acquire(acquired.status) {
             self.needs_recreate = true;
         }
-        self.record_clear_and_submit(image_index, clear_color)?;
-        let present_status = self.present_image(image_index)?;
+        Ok(ReadyOrSkipped::Ready(ReadyImage {
+            image_index,
+            acquire_status: acquired.status,
+            swapchain_recreated,
+        }))
+    }
+
+    /// Presents a submitted image and folds the present status into the
+    /// recreate flag, reporting the frame as presented. Shared tail of
+    /// both frame paths.
+    fn finish_present(&mut self, ready: ReadyImage) -> Result<FrameOutcome, PresentationError> {
+        let present_status = self.present_image(ready.image_index)?;
         if should_recreate_after_present(present_status) {
             self.needs_recreate = true;
         }
         Ok(FrameOutcome::Presented(PresentedFrame {
-            image_index,
-            acquire_status: acquired.status,
+            image_index: ready.image_index,
+            acquire_status: ready.acquire_status,
             present_status,
-            swapchain_recreated,
+            swapchain_recreated: ready.swapchain_recreated,
         }))
     }
 
@@ -405,6 +499,185 @@ impl VulkanPresenter {
         Ok(())
     }
 
+    /// Blits `target`'s current contents into swapchain image
+    /// `image_index` and submits the transfer, blocking until done. The
+    /// blit converts formats semantically (offscreen RGBA to the
+    /// negotiated swapchain format); extents are equal by the time this
+    /// runs (checked in
+    /// [`VulkanPresenter::present_color_target`]), so no scaling occurs.
+    fn record_blit_and_submit(
+        &self,
+        image_index: u32,
+        target: &crate::VulkanColorTarget,
+    ) -> Result<(), PresentationError> {
+        let position =
+            usize::try_from(image_index).map_err(|_| PresentationError::PresentFailed {
+                code: vk::Result::ERROR_INITIALIZATION_FAILED.as_raw(),
+                message: std::format!(
+                    "swapchain image index {image_index} exceeds the address space"
+                ),
+            })?;
+        let dst_image =
+            self.swapchain
+                .image_at(position)
+                .ok_or(PresentationError::PresentFailed {
+                    code: vk::Result::ERROR_INITIALIZATION_FAILED.as_raw(),
+                    message: std::format!("no swapchain image for index {image_index}"),
+                })?;
+        let allocate_info = vk::CommandBufferAllocateInfo::default()
+            .command_pool(self.device.command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+        // SAFETY: fully specified allocate-info against this device's
+        // own pool; error-or-vec return.
+        let command_buffer = unsafe { self.device.device.allocate_command_buffers(&allocate_info) }
+            .map_err(|result| submit_error("allocating the blit command buffer", result))?
+            .first()
+            .copied()
+            .ok_or(PresentationError::PresentFailed {
+                code: vk::Result::ERROR_INITIALIZATION_FAILED.as_raw(),
+                message: String::from("the driver allocated no command buffer for count 1"),
+            })?;
+        let outcome = self.record_blit_inner(command_buffer, dst_image, target);
+        // SAFETY: buffer owned here (allocated lines above, never
+        // submitted elsewhere); freeing is infallible, so it runs on
+        // both paths — a failed submit never leaks its buffer.
+        unsafe {
+            self.device
+                .device
+                .free_command_buffers(self.device.command_pool, &[command_buffer]);
+        }
+        outcome
+    }
+
+    /// The record/submit/wait body of
+    /// [`VulkanPresenter::record_blit_and_submit`]: transitions the
+    /// acquired image into transfer-destination, blits the offscreen
+    /// target across it, transitions to present-source, and submits.
+    ///
+    /// Layout notes: the destination's old layout is `UNDEFINED` (always
+    /// a legal old layout, and correct here — the image was just
+    /// acquired and the blit overwrites it fully). The source needs no
+    /// barrier: the caller submits the RHI scene first via
+    /// `submit_and_wait`, so the queue is idle and the transfer-source
+    /// layout the RHI pass leaves is current and visible.
+    fn record_blit_inner(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        dst_image: vk::Image,
+        target: &crate::VulkanColorTarget,
+    ) -> Result<(), PresentationError> {
+        let device = &self.device.device;
+        let begin_info = vk::CommandBufferBeginInfo::default();
+        // SAFETY: freshly allocated primary buffer, never begun.
+        unsafe { device.begin_command_buffer(command_buffer, &begin_info) }
+            .map_err(|result| submit_error("beginning the blit command buffer", result))?;
+        let (width, height) = self.swapchain.extent();
+        let subresource = vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        };
+        let to_dst_barrier = vk::ImageMemoryBarrier::default()
+            .old_layout(vk::ImageLayout::UNDEFINED)
+            .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+            .src_access_mask(vk::AccessFlags::empty())
+            .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(dst_image)
+            .subresource_range(subresource);
+        let blit = vk::ImageBlit::default()
+            .src_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .src_offsets([
+                vk::Offset3D { x: 0, y: 0, z: 0 },
+                vk::Offset3D {
+                    x: width_int(width)?,
+                    y: height_int(height)?,
+                    z: 1,
+                },
+            ])
+            .dst_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .dst_offsets([
+                vk::Offset3D { x: 0, y: 0, z: 0 },
+                vk::Offset3D {
+                    x: width_int(width)?,
+                    y: height_int(height)?,
+                    z: 1,
+                },
+            ]);
+        let blits = [blit];
+        let to_present_barrier = vk::ImageMemoryBarrier::default()
+            .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+            .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+            .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+            .dst_access_mask(vk::AccessFlags::empty())
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(dst_image)
+            .subresource_range(subresource);
+        // SAFETY: both barriers reference the just-acquired image (owned
+        // by this swapchain, no other writer — the queue is idle), the
+        // blit reads the caller-submitted offscreen image in its
+        // transfer-source layout over the full equal extent, and the
+        // filter is `NEAREST` (no linear-filtering feature requirement)
+        // over a same-size region (no scaling).
+        unsafe {
+            device.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[to_dst_barrier],
+            );
+            device.cmd_blit_image(
+                command_buffer,
+                target.image(),
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                dst_image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &blits,
+                vk::Filter::NEAREST,
+            );
+            device.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[to_present_barrier],
+            );
+        }
+        // SAFETY: begun above with only valid record calls since; ending
+        // a well-formed buffer is sound.
+        unsafe { device.end_command_buffer(command_buffer) }
+            .map_err(|result| submit_error("ending the blit command buffer", result))?;
+        // SAFETY: single owned buffer, submitted to this device's own
+        // graphics-cum-present queue; waited on below before return.
+        let command_buffers = [command_buffer];
+        let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
+        unsafe { device.queue_submit(self.device.queue, &[submit_info], vk::Fence::null()) }
+            .map_err(|result| submit_error("submitting the blit command buffer", result))?;
+        unsafe { device.queue_wait_idle(self.device.queue) }
+            .map_err(|result| submit_error("waiting for the blit submission", result))?;
+        Ok(())
+    }
+
     /// Presents a submitted image to the window.
     fn present_image(&self, image_index: u32) -> Result<PresentStatus, PresentationError> {
         let swapchains = [self.swapchain.handle()];
@@ -430,6 +703,21 @@ impl VulkanPresenter {
     }
 }
 
+/// What [`VulkanPresenter::prepare_frame`] resolved: skip the frame or
+/// present into the acquired image.
+enum ReadyOrSkipped {
+    Skipped(FrameOutcome),
+    Ready(ReadyImage),
+}
+
+/// An acquired, drawable swapchain image plus the report flags its frame
+/// carries.
+struct ReadyImage {
+    image_index: u32,
+    acquire_status: AcquireStatus,
+    swapchain_recreated: bool,
+}
+
 /// Maps an acquire-fence failure: device loss is fatal, everything else
 /// is a failed acquire with context.
 fn fence_error(phase: &str, result: vk::Result) -> PresentationError {
@@ -453,6 +741,20 @@ fn submit_error(phase: &str, result: vk::Result) -> PresentationError {
             message: std::format!("{phase}: {result}"),
         }
     }
+}
+
+/// Expresses a swapchain-extent axis as a blit offset without a lossy
+/// `as` cast: axes beyond `i32`'s range (no real display reaches it)
+/// are an explicit error, not a silent truncation.
+fn width_int(value: u32) -> Result<i32, PresentationError> {
+    i32::try_from(value).map_err(|_| PresentationError::ExtentTooLarge { value })
+}
+
+/// Expresses a swapchain-extent axis as a blit offset without a lossy
+/// `as` cast: axes beyond `i32`'s range (no real display reaches it)
+/// are an explicit error, not a silent truncation.
+fn height_int(value: u32) -> Result<i32, PresentationError> {
+    i32::try_from(value).map_err(|_| PresentationError::ExtentTooLarge { value })
 }
 
 /// Expresses a swapchain-extent axis as a viewport float without a

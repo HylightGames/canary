@@ -87,6 +87,14 @@ pub enum VertexFormat {
     Float32x2,
     /// Three 32-bit floats (12 bytes total) — e.g. an RGB color.
     Float32x3,
+    /// Four 32-bit floats (16 bytes total) — e.g. an RGBA color.
+    /// Added for the `.13` UI slice: `egui` vertices carry an sRGB
+    /// color beside position and UV, and this trait has no normalized
+    /// integer formats, so the UI adapter expands each color channel
+    /// to a float on the host. Gamma handling stays deferred with the
+    /// materials system (same stance as [`TextureDescriptor`]'s "no
+    /// sRGB transfer-function handling"): bytes are normalized as-is.
+    Float32x4,
 }
 
 impl VertexFormat {
@@ -95,6 +103,7 @@ impl VertexFormat {
         match self {
             VertexFormat::Float32x2 => 8,
             VertexFormat::Float32x3 => 12,
+            VertexFormat::Float32x4 => 16,
         }
     }
 }
@@ -146,6 +155,60 @@ pub struct RenderPassDescriptor {
     pub clear_color: [f32; 4],
 }
 
+/// A scissor rectangle for [`crate::CommandEncoder::set_scissor`]:
+/// pixel units, top-left origin, relative to the current render
+/// target's extent. Added for the `.13` UI slice (`egui` clip rects);
+/// backends clamp it against the open target (see
+/// [`clamp_scissor`]) so drivers never see an out-of-bounds rect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScissorRect {
+    /// Left edge in pixels from the target's left edge.
+    pub x: u32,
+    /// Top edge in pixels from the target's top edge.
+    pub y: u32,
+    /// Width in pixels. Zero means "draws nothing".
+    pub width: u32,
+    /// Height in pixels. Zero means "draws nothing".
+    pub height: u32,
+}
+
+/// Clamps `rect` to a `target_width` × `target_height` target,
+/// returning `None` when nothing of the rect survives (fully
+/// outside, or zero area). Pure and backend-neutral so every backend
+/// applies the same rule: drivers must never receive an
+/// out-of-bounds scissor, and callers can skip draws that clamp to
+/// nothing without recording no-op work.
+pub const fn clamp_scissor(
+    target_width: u32,
+    target_height: u32,
+    rect: ScissorRect,
+) -> Option<ScissorRect> {
+    if rect.width == 0 || rect.height == 0 {
+        return None;
+    }
+    if rect.x >= target_width || rect.y >= target_height {
+        return None;
+    }
+    let max_width = target_width - rect.x;
+    let max_height = target_height - rect.y;
+    let width = if rect.width < max_width {
+        rect.width
+    } else {
+        max_width
+    };
+    let height = if rect.height < max_height {
+        rect.height
+    } else {
+        max_height
+    };
+    Some(ScissorRect {
+        x: rect.x,
+        y: rect.y,
+        width,
+        height,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,5 +217,65 @@ mod tests {
     fn vertex_format_sizes_match_their_documented_byte_widths() {
         assert_eq!(VertexFormat::Float32x2.size_bytes(), 8);
         assert_eq!(VertexFormat::Float32x3.size_bytes(), 12);
+        assert_eq!(VertexFormat::Float32x4.size_bytes(), 16);
+    }
+
+    #[test]
+    fn scissor_rect_fully_inside_target_is_unchanged() {
+        let rect = ScissorRect {
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+        };
+        assert_eq!(clamp_scissor(320, 240, rect), Some(rect));
+    }
+
+    #[test]
+    fn scissor_rect_partially_outside_is_clamped_to_target() {
+        let rect = ScissorRect {
+            x: 300,
+            y: 220,
+            width: 100,
+            height: 100,
+        };
+        assert_eq!(
+            clamp_scissor(320, 240, rect),
+            Some(ScissorRect {
+                x: 300,
+                y: 220,
+                width: 20,
+                height: 20,
+            })
+        );
+    }
+
+    #[test]
+    fn scissor_rect_fully_outside_yields_none() {
+        let right = ScissorRect {
+            x: 320,
+            y: 0,
+            width: 10,
+            height: 10,
+        };
+        assert_eq!(clamp_scissor(320, 240, right), None);
+        let below = ScissorRect {
+            x: 0,
+            y: 240,
+            width: 10,
+            height: 10,
+        };
+        assert_eq!(clamp_scissor(320, 240, below), None);
+    }
+
+    #[test]
+    fn scissor_rect_with_zero_area_yields_none() {
+        let flat = ScissorRect {
+            x: 10,
+            y: 10,
+            width: 0,
+            height: 50,
+        };
+        assert_eq!(clamp_scissor(320, 240, flat), None);
     }
 }
