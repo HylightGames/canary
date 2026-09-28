@@ -85,7 +85,7 @@ impl InputSource for HeadlessInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::Key;
+    use crate::input::{Key, PointerButton};
 
     #[test]
     fn headless_window_reports_its_descriptor_and_close_state() {
@@ -121,6 +121,32 @@ mod tests {
             ]
         );
         // Events are consumed by `poll`, not re-delivered.
+        assert_eq!(input.poll(), Vec::new());
+    }
+
+    #[test]
+    fn headless_input_round_trips_pointer_and_focus_events_in_order() {
+        // Given: a queued pointer/focus sequence, as a real backend would
+        // observe it during one UI interaction plus a focus change.
+        let mut input = HeadlessInput::new();
+        input.inject(InputEvent::PointerMoved { x: 10.0, y: 20.0 });
+        input.inject(InputEvent::PointerPressed(PointerButton::Primary));
+        input.inject(InputEvent::PointerReleased(PointerButton::Primary));
+        input.inject(InputEvent::PointerLeft);
+        input.inject(InputEvent::FocusLost);
+
+        // When: the queue is drained.
+        // Then: every event arrives once, in injection order.
+        assert_eq!(
+            input.poll(),
+            vec![
+                InputEvent::PointerMoved { x: 10.0, y: 20.0 },
+                InputEvent::PointerPressed(PointerButton::Primary),
+                InputEvent::PointerReleased(PointerButton::Primary),
+                InputEvent::PointerLeft,
+                InputEvent::FocusLost,
+            ]
+        );
         assert_eq!(input.poll(), Vec::new());
     }
 }

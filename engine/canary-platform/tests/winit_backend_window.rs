@@ -41,6 +41,13 @@
 //! `winit` actually received. An equivalent macOS/Windows test is real,
 //! intended future work, not fixed here.
 //!
+//! On a Wayland desktop, `winit` prefers the Wayland backend whenever
+//! `WAYLAND_DISPLAY` is set, which makes the test window invisible to
+//! this test's X11 queries -- unset it so `winit` falls back to X11
+//! (XWayland), e.g. `env -u WAYLAND_DISPLAY cargo test ...`. Proven
+//! live against Hyprland+XWayland, where the window also nests inside a
+//! frame window (which is why the title search below recurses).
+//!
 //! Two more things confirmed the direct way rather than assumed, both
 //! real `winit` constraints rather than test-harness bugs:
 //! - `winit::event_loop::EventLoop::new()` panics if called off the
@@ -74,29 +81,38 @@ use x11rb::rust_connection::RustConnection;
 
 /// Finds the (single, first-matching) top-level window whose `WM_NAME`
 /// equals `title`, by walking the root window's children -- since bare
-/// `Xvfb` has no window manager to ask via a higher-level API.
+/// `Xvfb` has no window manager to ask via a higher-level API. The walk
+/// recurses: a reparenting window manager nests the client window inside
+/// a frame window, so only direct children are not enough there (bare
+/// `Xvfb` never reparents, so recursion changes nothing in CI).
 fn find_window_by_title(conn: &RustConnection, root: X11Window, title: &str) -> Option<X11Window> {
-    let tree = conn.query_tree(root).ok()?.reply().ok()?;
-    for child in tree.children {
-        let prop = conn
-            .get_property(
-                false,
-                child,
-                AtomEnum::WM_NAME,
-                GetPropertyType::ANY,
-                0,
-                u32::MAX,
-            )
-            .ok()?
-            .reply()
-            .ok()?;
-        if let Ok(name) = String::from_utf8(prop.value) {
-            if name == title {
-                return Some(child);
+    fn visit(conn: &RustConnection, window: X11Window, title: &str) -> Option<X11Window> {
+        let tree = conn.query_tree(window).ok()?.reply().ok()?;
+        for child in tree.children {
+            let prop = conn
+                .get_property(
+                    false,
+                    child,
+                    AtomEnum::WM_NAME,
+                    GetPropertyType::ANY,
+                    0,
+                    u32::MAX,
+                )
+                .ok()?
+                .reply()
+                .ok()?;
+            if let Ok(name) = String::from_utf8(prop.value) {
+                if name == title {
+                    return Some(child);
+                }
+            }
+            if let Some(found) = visit(conn, child, title) {
+                return Some(found);
             }
         }
+        None
     }
-    None
+    visit(conn, root, title)
 }
 
 /// Sends a real ICCCM `WM_DELETE_WINDOW` `ClientMessage` -- the same
@@ -158,6 +174,11 @@ fn real_window_lifecycle_end_to_end() {
     assert!(
         !window.should_close(),
         "a freshly created window should not report should_close()"
+    );
+    assert!(
+        window.scale_factor() > 0.0,
+        "a live window must report a positive scale factor, got {}",
+        window.scale_factor()
     );
 
     // Drive it through several real poll cycles -- this is what actually
@@ -256,6 +277,37 @@ fn real_window_lifecycle_end_to_end() {
             canary_platform::Key::W
         )),
         "expected a KeyPressed(Key::W) event, got: {observed:?}"
+    );
+    assert!(
+        window.is_focused(),
+        "the window holds X input focus after set_input_focus, so is_focused() must report true"
+    );
+
+    // --- Real focus loss, by moving X input focus back to the root ---
+    conn.set_input_focus(
+        x11rb::protocol::xproto::InputFocus::PARENT,
+        root,
+        x11rb::CURRENT_TIME,
+    )
+    .expect("set_input_focus (root) request failed")
+    .check()
+    .expect("set_input_focus (root) failed");
+    conn.flush().expect("flush failed");
+
+    let mut focus_events = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while window.is_focused() {
+        window.poll_events();
+        focus_events.extend(input.poll());
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for is_focused() to report false after focus moved to the root"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        focus_events.contains(&canary_platform::InputEvent::FocusLost),
+        "losing OS focus must surface FocusLost, got: {focus_events:?}"
     );
 
     // --- Graceful close, via a real WM_DELETE_WINDOW ClientMessage ---

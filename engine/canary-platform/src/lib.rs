@@ -32,5 +32,5 @@ mod window;
 pub mod winit_backend;
 
 pub use headless::{HeadlessInput, HeadlessWindow};
-pub use input::{InputEvent, InputSource, Key};
+pub use input::{InputEvent, InputSource, Key, PointerButton};
 pub use window::{Window, WindowDescriptor};

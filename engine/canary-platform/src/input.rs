@@ -9,12 +9,48 @@
 // ============================================================================
 
 /// A normalized input event, independent of any specific OS input API.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputEvent {
     /// A key transitioned from up to down.
     KeyPressed(Key),
     /// A key transitioned from down to up.
     KeyReleased(Key),
+    /// The pointer moved. Position is in logical pixels (physical pixels
+    /// divided by the window scale factor), matching the coordinate space
+    /// `canary-input` routes and CanaryUI will hit-test in.
+    PointerMoved {
+        /// Horizontal position in logical pixels.
+        x: f32,
+        /// Vertical position in logical pixels.
+        y: f32,
+    },
+    /// A pointer button transitioned from up to down.
+    PointerPressed(PointerButton),
+    /// A pointer button transitioned from down to up.
+    PointerReleased(PointerButton),
+    /// The pointer left the window's client area. Carries no capture state:
+    /// the platform does not track UI pointer capture, so consumers that
+    /// need it (the CanaryUI adapter) annotate capture before handing the
+    /// event to the mapper.
+    PointerLeft,
+    /// The window lost keyboard focus. The mapper treats this as releasing
+    /// every held control, so backends must emit it reliably — a stuck key
+    /// after alt-tab is worse than a missed one.
+    FocusLost,
+}
+
+/// A platform-independent pointer button identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum PointerButton {
+    /// The primary button (usually the left button).
+    Primary,
+    /// The secondary button (usually the right button).
+    Secondary,
+    /// The middle button (usually the wheel click).
+    Middle,
+    /// Any further button, identified by backend-assigned index.
+    Other(u8),
 }
 
 /// A platform-independent, physical (layout-independent) key identifier —

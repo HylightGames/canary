@@ -552,13 +552,28 @@ impl InputMapper {
                         );
                     }
                 }
-                control_event => {
-                    // Key/pointer press or release (the only variants with
-                    // `control()` targeting `Some`); capture is judged per
-                    // binding inside the press/release helpers.
-                    let control = control_event.control().expect(
-                        "press/release variants always name a control; all other variants are matched above",
-                    );
+                control_event @ (RawInputEvent::KeyPressed { .. }
+                | RawInputEvent::KeyReleased { .. }
+                | RawInputEvent::PointerPressed { .. }
+                | RawInputEvent::PointerReleased { .. }) => {
+                    // Key/pointer press or release: the control is named by
+                    // the pattern, so the compiler proves exhaustiveness —
+                    // no `expect` on the `control()` projection.
+                    let control = match control_event {
+                        RawInputEvent::KeyPressed { key } | RawInputEvent::KeyReleased { key } => {
+                            PhysicalControl::Key(key)
+                        }
+                        RawInputEvent::PointerPressed { button }
+                        | RawInputEvent::PointerReleased { button } => {
+                            PhysicalControl::Pointer(button)
+                        }
+                        RawInputEvent::PointerMoved { .. }
+                        | RawInputEvent::PointerLeave { .. }
+                        | RawInputEvent::FocusLost
+                        | RawInputEvent::CaptureTaken { .. } => {
+                            unreachable!("outer pattern admits only press/release variants")
+                        }
+                    };
                     if control_event.is_press() {
                         self.press_control(
                             control,
@@ -613,6 +628,40 @@ pub fn raw_event_from_platform(event: &canary_platform::InputEvent) -> RawInputE
         canary_platform::InputEvent::KeyReleased(key) => RawInputEvent::KeyReleased {
             key: KeyCode::from_platform_key(*key),
         },
+        canary_platform::InputEvent::PointerMoved { x, y } => {
+            RawInputEvent::PointerMoved { x: *x, y: *y }
+        }
+        canary_platform::InputEvent::PointerPressed(button) => RawInputEvent::PointerPressed {
+            button: pointer_button_from_platform(*button),
+        },
+        canary_platform::InputEvent::PointerReleased(button) => RawInputEvent::PointerReleased {
+            button: pointer_button_from_platform(*button),
+        },
+        // The platform carries no capture state (it doesn't track UI
+        // pointer capture), so this converts to "left with no capture
+        // held". The CanaryUI adapter annotates capture before handing
+        // events to the mapper; see `RawInputEvent::PointerLeave`.
+        canary_platform::InputEvent::PointerLeft => RawInputEvent::PointerLeave {
+            pointer_capture_held: false,
+        },
+        canary_platform::InputEvent::FocusLost => RawInputEvent::FocusLost,
+    }
+}
+
+/// Converts a platform pointer button into the backend-neutral button
+/// the mapper routes. The two enums mirror each other variant for
+/// variant, so this is a 1:1 map with a sentinel for the future.
+fn pointer_button_from_platform(button: canary_platform::PointerButton) -> PointerButton {
+    match button {
+        canary_platform::PointerButton::Primary => PointerButton::Primary,
+        canary_platform::PointerButton::Secondary => PointerButton::Secondary,
+        canary_platform::PointerButton::Middle => PointerButton::Middle,
+        canary_platform::PointerButton::Other(index) => PointerButton::Other(index),
+        // Platform `PointerButton` is `non_exhaustive`: later variants
+        // land here. `u8::MAX` is a documented sentinel, not a real
+        // button index — the same convention as `Key::Other(u32::MAX)`
+        // for unidentified keys in the winit backend.
+        _ => PointerButton::Other(u8::MAX),
     }
 }
 
@@ -628,6 +677,7 @@ mod tests {
     use super::*;
     use crate::{all_captured, all_open};
     use canary_ecs::World;
+    use canary_platform::PointerButton as PlatformPointerButton;
     use canary_platform::{HeadlessInput, InputEvent, InputSource, Key};
 
     const KEY_A: KeyCode = KeyCode::from_code(11);
@@ -1016,6 +1066,62 @@ mod tests {
         assert_ne!(
             KeyCode::from_platform_key(Key::A),
             KeyCode::from_platform_key(Key::Space)
+        );
+    }
+
+    #[test]
+    fn platform_pointer_events_convert_to_raw_events() {
+        // Given: one platform event of each new pointer/focus kind.
+        // When/Then: each converts to its backend-neutral counterpart.
+        assert_eq!(
+            raw_event_from_platform(&InputEvent::PointerMoved { x: 10.0, y: 20.0 }),
+            RawInputEvent::PointerMoved { x: 10.0, y: 20.0 }
+        );
+        assert_eq!(
+            raw_event_from_platform(&InputEvent::PointerPressed(PlatformPointerButton::Primary)),
+            RawInputEvent::PointerPressed {
+                button: crate::PointerButton::Primary
+            }
+        );
+        assert_eq!(
+            raw_event_from_platform(&InputEvent::PointerReleased(
+                PlatformPointerButton::Secondary
+            )),
+            RawInputEvent::PointerReleased {
+                button: crate::PointerButton::Secondary
+            }
+        );
+        assert_eq!(
+            raw_event_from_platform(&InputEvent::PointerLeft),
+            RawInputEvent::PointerLeave {
+                pointer_capture_held: false
+            }
+        );
+        assert_eq!(
+            raw_event_from_platform(&InputEvent::FocusLost),
+            RawInputEvent::FocusLost
+        );
+    }
+
+    #[test]
+    fn drain_platform_events_preserves_pointer_event_order() {
+        // Given: a mixed queue of key + pointer + focus events.
+        let mut source = HeadlessInput::new();
+        source.inject(InputEvent::PointerMoved { x: 1.0, y: 2.0 });
+        source.inject(InputEvent::KeyPressed(Key::A));
+        source.inject(InputEvent::FocusLost);
+        // When: drained through the conversion seam.
+        let drained = drain_platform_events(&mut source);
+        // Then: order is preserved across the mixed kinds.
+        assert_eq!(
+            drained,
+            vec![
+                RawInputEvent::PointerMoved { x: 1.0, y: 2.0 },
+                RawInputEvent::KeyPressed {
+                    key: KeyCode::from_platform_key(Key::A),
+                },
+                RawInputEvent::FocusLost,
+            ]
         );
     }
 }

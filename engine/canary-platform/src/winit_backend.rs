@@ -51,13 +51,13 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window as WinitOsWindow, WindowId};
 
-use crate::input::{InputEvent, InputSource, Key};
+use crate::input::{InputEvent, InputSource, Key, PointerButton};
 use crate::surface::{DisplayHandle, SurfaceHandlesProvider, WindowHandle, WindowHandles};
 use crate::window::{Window, WindowDescriptor};
 
@@ -71,6 +71,24 @@ struct SharedState {
     /// How many resizes this window has observed — the presenter's
     /// recreate signal (see [`SurfaceHandlesProvider::resize_generation`]).
     resize_generation: u64,
+    /// Whether the window currently holds OS input focus. Starts `true`:
+    /// a just-created window opens in the foreground on every desktop
+    /// platform this backend targets, and `winit` corrects it on the
+    /// first focus event either way — while no events can arrive at an
+    /// unfocused window, so a wrong-`true` first frame routes nothing.
+    focused: bool,
+}
+
+impl SharedState {
+    /// The window's current scale factor, or 1.0 if the OS window doesn't
+    /// exist yet (no window event can arrive before creation, so this is
+    /// unreachable in practice — but physical pixels equal logical pixels
+    /// at 1.0, making it the only safe fallback).
+    fn scale_factor(&self) -> f64 {
+        self.os_window
+            .as_ref()
+            .map_or(1.0, |window| window.scale_factor())
+    }
 }
 
 /// The actual [`winit::application::ApplicationHandler`] implementation.
@@ -134,6 +152,32 @@ impl ApplicationHandler for AppHandler<'_> {
                     ElementState::Released => InputEvent::KeyReleased(key),
                 };
                 shared.pending_input.push(input_event);
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let (x, y) = logical_position(position, shared.scale_factor());
+                shared.pending_input.push(InputEvent::PointerMoved { x, y });
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let button = pointer_button_from_winit(button);
+                let input_event = match state {
+                    ElementState::Pressed => InputEvent::PointerPressed(button),
+                    ElementState::Released => InputEvent::PointerReleased(button),
+                };
+                shared.pending_input.push(input_event);
+            }
+            WindowEvent::CursorLeft { .. } => {
+                shared.pending_input.push(InputEvent::PointerLeft);
+            }
+            WindowEvent::Focused(focused) => {
+                // Focus gained needs no event: the mapper holds nothing
+                // to release for a window that just became active. Focus
+                // lost pushes `FocusLost` so the mapper can clear held
+                // controls — and either way the flag tracks the window's
+                // live focus state for the frame driver's UI input.
+                shared.focused = focused;
+                if !focused {
+                    shared.pending_input.push(InputEvent::FocusLost);
+                }
             }
             _ => {}
         }
@@ -252,6 +296,34 @@ fn physical_key_to_key(physical_key: PhysicalKey) -> Key {
     }
 }
 
+/// Maps a `winit` mouse button onto this crate's [`PointerButton`].
+/// `winit` names three buttons and numbers the rest from 0; this crate
+/// names the same three and continues the numbering after them, so the
+/// first unnamed winit button is [`PointerButton::Other`]`(3)`.
+fn pointer_button_from_winit(button: MouseButton) -> PointerButton {
+    match button {
+        MouseButton::Left => PointerButton::Primary,
+        MouseButton::Right => PointerButton::Secondary,
+        MouseButton::Middle => PointerButton::Middle,
+        // Numbered from 0 in winit, continuing after the three named
+        // buttons here. Saturates instead of wrapping: a backend with
+        // more than 259 buttons is a broken backend, and an index that
+        // collides is diagnosable while one that wraps silently is not.
+        MouseButton::Back => PointerButton::Other(3),
+        MouseButton::Forward => PointerButton::Other(4),
+        MouseButton::Other(index) => PointerButton::Other(u8::try_from(index).unwrap_or(u8::MAX)),
+    }
+}
+
+/// Converts a `winit` physical cursor position into logical pixels using
+/// the window's scale factor. No numeric cast on our side: `winit`'s own
+/// [`winit::dpi::PhysicalPosition::to_logical`] performs the physical ->
+/// logical division and yields `f32` components directly.
+fn logical_position(position: winit::dpi::PhysicalPosition<f64>, scale_factor: f64) -> (f32, f32) {
+    let logical = position.to_logical::<f32>(scale_factor);
+    (logical.x, logical.y)
+}
+
 /// A real `winit`-backed window. See the module docs for the pull/push
 /// bridge this implements and why this shares state with [`WinitInput`].
 /// The shared state is `Rc<RefCell<..>>`, so this type is `!Send`:
@@ -338,6 +410,7 @@ impl WinitWindow {
             close_requested: false,
             pending_input: Vec::new(),
             resize_generation: 0,
+            focused: true,
         }));
 
         let mut handler = AppHandler {
@@ -359,6 +432,37 @@ impl WinitWindow {
     pub fn input_source(&self) -> WinitInput {
         WinitInput {
             shared: Rc::clone(&self.shared),
+        }
+    }
+
+    /// The window's current scale factor: physical pixels per logical
+    /// pixel. The frame driver divides the physical `surface_extent` by
+    /// this to size the UI viewport in logical pixels.
+    pub fn scale_factor(&self) -> f64 {
+        self.shared.borrow().scale_factor()
+    }
+
+    /// Whether the window currently holds OS input focus, as of the last
+    /// [`Window::poll_events`] pump. The frame driver passes this through
+    /// to the UI frame; the mapper learns of focus loss separately via
+    /// the [`InputEvent::FocusLost`] event the pump pushes.
+    pub fn is_focused(&self) -> bool {
+        self.shared.borrow().focused
+    }
+
+    /// Minimizes (`true`) or restores (`false`) the window.
+    ///
+    /// Linux-only and test-only, like [`WinitWindow::new_for_testing`]:
+    /// the live presentation proof needs to drive the suspend path
+    /// through a real window manager. Asynchronous like the resize
+    /// hatch above — poll events and re-read [`Window::surface_extent`]
+    /// (a minimized window typically reports a zero extent, which is
+    /// what suspends presentation).
+    #[cfg(target_os = "linux")]
+    #[doc(hidden)]
+    pub fn set_minimized_for_testing(&self, minimized: bool) {
+        if let Some(os_window) = self.shared.borrow().os_window.as_ref() {
+            os_window.set_minimized(minimized);
         }
     }
 }
@@ -516,5 +620,40 @@ mod tests {
             )),
             Key::Other(u32::MAX)
         );
+    }
+
+    #[test]
+    fn maps_winit_pointer_buttons_to_named_variants() {
+        use winit::event::MouseButton;
+        assert_eq!(
+            pointer_button_from_winit(MouseButton::Left),
+            crate::input::PointerButton::Primary
+        );
+        assert_eq!(
+            pointer_button_from_winit(MouseButton::Right),
+            crate::input::PointerButton::Secondary
+        );
+        assert_eq!(
+            pointer_button_from_winit(MouseButton::Middle),
+            crate::input::PointerButton::Middle
+        );
+        assert_eq!(
+            pointer_button_from_winit(MouseButton::Back),
+            crate::input::PointerButton::Other(3)
+        );
+        assert_eq!(
+            pointer_button_from_winit(MouseButton::Forward),
+            crate::input::PointerButton::Other(4)
+        );
+    }
+
+    #[test]
+    fn converts_physical_cursor_position_to_logical_pixels() {
+        // Given: a physical position on a 2x display.
+        let physical = winit::dpi::PhysicalPosition::new(200.0, 100.0);
+        // When: normalized with that display's scale factor.
+        // Then: logical pixels, matching the `PointerMoved` contract.
+        assert_eq!(logical_position(physical, 2.0), (100.0, 50.0));
+        assert_eq!(logical_position(physical, 1.0), (200.0, 100.0));
     }
 }
