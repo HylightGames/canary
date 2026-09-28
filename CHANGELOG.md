@@ -32,8 +32,6 @@ detail; this section summarizes rather than duplicates them.
 * **2D physics** — a new crate, `canary-physics`: an object-safe, leak-free `PhysicsBackend` trait (no third-party types in public signatures), minimal components (`RigidBody`, `Collider`, `Velocity`, `GravityScale`, `LockedAxes`, `ColliderMaterial`, `PhysicsConfig`), and a private rapier2d 0.35.3 backend. (`v0.0.11`)
 * **Fixed-timestep stepping with scheduler ordering** — a `PhysicsClock` accumulator plus `SimulationTime` (at most four `1/60` s steps per tick, leftover dropped by the spiral guard), frame time arriving as a `FrameDelta` resource through the existing `tick(dt)` seam with no `App` redesign, and first-position registration ahead of transform propagation and every render bake (proven fresh both directions, stale when reversed). (`v0.0.11`)
 * **Physics game proof** — a ground, falling-box, and scripted-kinematic-platform scene drawn as z-pinned quads through the unchanged soup bake (zero RHI churn): headless tests in the normal suite plus `#[ignore]`-gated pixel tests with an unstepped-pipeline negative control. Box2D 3.2.0 measured against in a throwaway harness (rapier faster 1.13–1.19x on the N-box pile) and not shipped; determinism scoped to single-machine repeatability, not cross-platform. (`v0.0.11`)
-* **WAV and Ogg Vorbis sound loading** — `Sound` (interleaved `f32` PCM, mono/stereo) decoded by pure-Rust `hound` + `lewton` (Symphonia declined on MPL-2.0 grounds), with bit-exact fixtures, file and decode budgets, and the same root confinement as every other loader. (`v0.0.12`)
-* **Audio playback** — a new crate, `canary-audio`: an object-safe, leak-free `AudioBackend` trait (no third-party types in public signatures), minimal components (`AudioSource` trigger intent, `AudioListener`, system-owned voices, `AudioConfig`), and a private rodio 0.22.2 bootstrap backend (decode-only MIT/Apache features; no-device operation degrades typed, never panics). A scheduler-registered trigger system turns game-state transitions into backend calls (removal/despawn reaps voices), proven by a stub-backend game proof asserting exact call order. (`v0.0.12`)
 * **Pointer and focus platform events** — `canary-platform` now normalizes pointer position (logical pixels), pointer buttons, pointer-leave, and window-focus-loss alongside keyboard transitions, with `winit` and headless implementations. (`v0.0.13`)
 * **Deterministic gameplay input with UI capture** — a new crate, `canary-input`: game-declared `ActionSchema`, multi-binding `InputMapper` with aggregate-before-edge digital semantics (`down`/`pressed`/`released`), per-binding UI pass-through judged inside the mapper, focus-loss/pointer-leave/capture-taken held-state release, and the immutable per-pass `SimulationInput` snapshot (mapper-stamped `frame_index`, runtime-stamped `tick`, delivered as a per-frame ECS resource). (`v0.0.13`)
 * **Backend-neutral UI boundary on `egui`** — new crates `canary-ui-core` (capture results, intents, renderer-independent paint batches; no `egui`/`winit`/render types) and `canary-ui-egui` (egui 0.36 adapter: event translation, focus-state capture reporting, tessellated triangle/scissor paint output plus font-atlas texture deltas, all through Canary-owned types). (`v0.0.13`)
@@ -66,6 +64,25 @@ detail; this section summarizes rather than duplicates them.
 * Several real CI gaps found and fixed during the same pass: a Vulkan-dependent test that ran unguarded on every CI platform, a Windows-only compile failure from unscoped Wayland dependencies, and `canary-plugin-api`'s host-only loader code being incorrectly checked against the `wasm32-wasip2` target.
 * A macOS-only CI flake: replaced a wall-clock timing assertion in the scheduler's concurrency test with a deterministic overlap proof after loaded runners exceeded it twice through pure scheduling jitter. (`v0.0.9`)
 * Removed the unused `wasmtime-wasi` dependency (zero references in source; the lockstep-pin lesson is preserved in comments for when a real call site lands). (`v0.0.9`)
+
+## [v0.0.12] — 2026-09-28
+
+### Audio playback
+
+`v0.0.12` gives Canary sound-asset loading plus real audio playback:
+an `AudioSource` component triggered by real game state, playing real
+sound assets through Canary's own trait with a private `rodio`
+bootstrap backend.
+
+### Added
+
+* **WAV and Ogg Vorbis sound loading** — `Sound` (interleaved `f32` PCM, mono/stereo) decoded by pure-Rust `hound` + `lewton` (Symphonia declined on MPL-2.0 grounds), with bit-exact fixtures, file and decode budgets, and the same root confinement as every other loader.
+* **Audio playback** — a new crate, `canary-audio`: an object-safe, leak-free `AudioBackend` trait (no third-party types in public signatures), minimal components (`AudioSource` trigger intent, `AudioListener`, system-owned voices, `AudioConfig`), and a private rodio 0.22.2 bootstrap backend (decode-only MIT/Apache features; no-device operation degrades typed, never panics). A scheduler-registered trigger system turns game-state transitions into backend calls (removal/despawn reaps voices), proven by a stub-backend game proof asserting exact call order.
+* [ADR 0023](docs/decisions/architecture-decision-records/0023-audio-bootstrap-rodio-behind-custom-trait.md) (rodio bootstrap behind a Canary-owned trait) moved from **Proposed** to **Accepted**.
+
+Full scope: [`docs/release-notes/v0.0.12.md`](docs/release-notes/v0.0.12.md).
+
+[v0.0.12]: https://github.com/HylightGames/canary/releases/tag/v0.0.12
 
 ## [v0.0.2] — 2026-08-18
 

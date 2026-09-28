@@ -191,12 +191,8 @@ Full detail: [`v0.0.2.md`](../release-notes/v0.0.2.md).
 
 ## Current handoff
 
-`v0.0.12` is implemented on `dev`, not yet tagged. `v0.0.13` is the next
-milestone; see the live [`status`](status.md), the
-[`roadmap handoff`](README.md), the detailed
-[`v0.0.13 roadmap`](v0.0.13-roadmap.md), and the full
-[`v0.1.0 plan`](v0.1.0-plan.md). This file remains a concise historical
-milestone record; it is not the source of truth for what is next.
+`v0.0.12` is released as tag `v0.0.12` (2026-09-28). `v0.0.13` is implemented
+on `dev`, not yet tagged — it is cut next, in its own release commit.
 
 ## Beyond `v0.0.2`
 
@@ -206,7 +202,13 @@ one shipped, which is exactly the kind of staleness this document
 exists to avoid, so it's corrected here rather than left to mislead the
 next reader. Full narrative detail for each lives in its own roadmap
 doc, matching the depth `v0.0.1`/`v0.0.2` get above, rather than
-duplicated here:
+duplicated here. Tagging gap, recorded as accepted 2026-09-28: only
+`v0.0.1`/`v0.0.2` carry git tags, and the `v0.0.12`/`v0.0.13` cuts below
+resume tagging from `.12` forward — `v0.0.3` through `v0.0.11` remain
+implemented-but-untagged (each has its roadmap doc and release note).
+Backfilling nine historical tags was judged archaeology with real
+wrong-commit risk for zero consumer benefit; no one should re-decide
+this without that context:
 
 - **`v0.0.3`** — Tier A (sandboxed WASM/Wasmtime) plugin loading. See
   [`v0.0.3-roadmap.md`](v0.0.3-roadmap.md). Scoped alongside

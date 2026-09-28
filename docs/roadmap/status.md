@@ -10,8 +10,7 @@ a point-in-time record — the same convention as
 
 ## Current handoff — `v0.0.13` implemented, `v0.0.14` is next
 
-`v0.0.12` audio and `v0.0.13` (`CanaryUI` + windowed presentation) are both
-implemented on `dev`, not yet tagged. What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`; `v0.0.13` (`CanaryUI` + windowed presentation) is implemented, not yet tagged. What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -543,7 +542,7 @@ refused — the subsystem self-steps); input-driven control (the
 platform is pose-scripted, no input system yet) — see the roadmap
 doc for the reasoning behind each.
 
-## `v0.0.12` — Implemented, not yet tagged
+## `v0.0.12` — Released as tag `v0.0.12` (2026-09-28)
 
 Full detail: [`v0.0.12-roadmap.md`](v0.0.12-roadmap.md) and
 [ADR 0023](../decisions/architecture-decision-records/0023-audio-bootstrap-rodio-behind-custom-trait.md).
