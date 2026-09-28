@@ -1,90 +1,69 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="misc/logo/icon-white.svg">
-    <img src="misc/logo/icon-black.svg" width="180" alt="Canary Engine logo">
+    <img src="misc/logo/icon-black.svg" width="144" alt="Canary Engine logo">
   </picture>
 </p>
 
-<h2 align="center">2D and 3D game engine built in Rust</h2>
+<h1 align="center">Canary Engine</h1>
 
 <p align="center">
-  <strong>
-    An open-source game engine built from first principles, with extensibility at its core.
-  </strong>
+  <a href="https://github.com/HylightGames/canary/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/HylightGames/canary/actions/workflows/ci.yml/badge.svg?branch=dev"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/HylightGames/canary"></a>
+  <a href="https://www.rust-lang.org/"><img alt="Rust" src="https://img.shields.io/badge/language-Rust-orange?logo=rust"></a>
+  <a href="https://github.com/HylightGames/canary/actions/workflows/codspeed.yml"><img alt="Benchmarks" src="https://github.com/HylightGames/canary/actions/workflows/codspeed.yml/badge.svg?branch=dev"></a>
 </p>
+
+Canary is a 2D and 3D game engine written in Rust. It is still being built: the project has working engine systems and a small windowed game example, but it is not ready for production games. There is no editor or downloadable build yet.
 
 <p align="center">
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <a href=".github/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF.svg?logo=github-actions&logoColor=white"></a>
-  <a href="rust-toolchain.toml"><img alt="Rust" src="https://img.shields.io/badge/language-Rust-orange.svg?logo=rust"></a>
-  <a href="https://app.codspeed.io/HylightGames/canary?utm_source=badge"><img src="https://img.shields.io/endpoint?url=https://codspeed.io/badge.json" alt="CodSpeed"/></a>
-  <a href="docs/roadmap/status.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.0.12-yellow.svg"></a>
+  <a href="examples/spinning-cube">
+    <img src="misc/screenshots/spinning_cube.gif" width="360" alt="A colored cube rendered by Canary's Vulkan backend">
+  </a>
 </p>
 
-> **Early development:** Canary is currently at `v0.0.12` and is not yet
-> production-ready. The engine foundation and extensibility systems are under
-> active development.
+<p align="center"><em>An early offscreen rendering example. See the <a href="examples">examples</a> for runnable projects.</em></p>
 
-## Current status
+## Project status
 
-Implemented:
+The current development line has a windowed sample with Vulkan rendering, keyboard controls, and an interactive HUD. Canary also has an entity-component system, a parallel system scheduler, 2D physics, audio, asset loading, localization, and native and WebAssembly plugin support.
 
-- Archetype-based ECS, with multi-component queries, typed resources, and change detection
-- A stage-based scheduler that runs non-conflicting systems concurrently
-- `Transform`/`GlobalTransform` hierarchy with scheduler-driven propagation
-- ECS-driven rendering: scene extraction + CPU bake + draw through the RHI
-- Native C-ABI plugins
-- Sandboxed WebAssembly Component plugins
-- Real windowing (behind an opt-in feature) and a first rendering backend (Vulkan)
-- Fluent-backed localization
-- 2D physics (fixed-step simulation driving ECS transforms)
-- Audio playback (trait + bootstrap backend, game-state triggered)
-- Core runtime and platform abstractions
+Development happens on `dev`. The status page tracks the current milestone, completed work, and what comes next.
 
-A windowed renderer, game-facing UI, and reusable consumer runtime are the
-next planned step (`v0.0.13`); project state, a first networking slice, and
-live collaboration follow in `v0.0.14`–`v0.0.16` before the `v0.1.0`
-small-game integration proof. A full render graph/material system, editor,
-visual scripting, asset cooking/hot reload, and marketplace remain later work.
-See the [roadmap handoff](docs/roadmap/README.md) for the exact continuation
-sequence.
+- [Current status](docs/roadmap/status.md)
+- [Roadmap handoff](docs/roadmap/README.md)
+- [Plan through v0.1.0](docs/roadmap/v0.1.0-plan.md)
 
-See [`docs/roadmap/status.md`](docs/roadmap/status.md) for the complete,
-living implementation status.
+## Build from source
 
-## Visual progress
-
-The rendering bootstrap (`v0.0.6`): a real Vulkan pipeline, rendering
-and reading back real pixels, offscreen. No swapchain/window
-presentation yet — see
-[`examples/spinning-cube`](examples/spinning-cube) for how this was
-made and what it does and doesn't demonstrate about the RHI's current
-scope.
-
-<p align="center">
-  <img src="misc/screenshots/spinning_cube.gif" width="360" alt="A spinning, colored cube rendered through canary-render-vulkan">
-</p>
-
-## Getting started
-
-There are no binary releases yet. Build Canary from source:
+You need the stable Rust toolchain. Canary's [`rust-toolchain.toml`](rust-toolchain.toml) selects it when you use rustup.
 
 ```sh
 git clone https://github.com/HylightGames/canary.git
 cd canary
-
 cargo build --workspace
 cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all -- --check
-cargo run -p canary-runtime
 ```
 
-Performance is measured in-repo too: each benchmarked crate carries a
-`divan` suite under `benches/`, run on every pull request by CodSpeed —
-see [`docs/development/benchmarking.md`](docs/development/benchmarking.md).
+To run the windowed sample, use a desktop display and a Vulkan driver:
 
-`canary-runtime` is a headless boot harness (no window yet) that exercises
-the engine vertical slice end to end; see
-[`docs/roadmap/status.md`](docs/roadmap/status.md) for what is and isn't
-wired up.
+```sh
+cargo run -p ui-game -- 600
+```
+
+The `600` limits the run to 600 frames. Build and platform requirements are in the [build guide](docs/development/build-system.md). See the [sample notes](examples/ui-game/README.md) for controls and known limits.
+
+## Documentation
+
+- [Engine architecture](docs/architecture/engine-overview.md)
+- [Examples](examples)
+- [Roadmap](docs/roadmap)
+- [Architecture decisions](docs/decisions/architecture-decision-records)
+
+## Contributing
+
+Bug reports and feature requests can be filed in [GitHub Issues](https://github.com/HylightGames/canary/issues). Before starting a large change, read the [contribution guide](CONTRIBUTING.md); it explains the project's review and development process.
+
+For security problems, follow the private reporting instructions in [SECURITY.md](SECURITY.md) instead of opening a public issue.
+
+Canary is released under the [MIT License](LICENSE).
