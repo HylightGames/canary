@@ -31,7 +31,7 @@ thiserror = "2.0.19"
 # No transitive pins required: `cargo tree` shows no edition2024 wall and
 # no rust-version above this toolchain (unlike the `block-buffer`/`ignore`/
 # `globset` pins documented in docs/development/build-system.md).
-rapier2d = "0.35"
+rapier2d = "0.36"
 
 [dev-dependencies]
 divan = { version = "5", package = "codspeed-divan-compat" }
