@@ -35,16 +35,19 @@ pub mod identity;
 pub mod migration;
 pub mod schema;
 pub mod snapshot;
+pub mod spawn_plan;
 pub mod value;
 
-pub use authored::{AuthoredChange, AuthoredDocument};
+pub use authored::{AuthoredChange, AuthoredDocument, Prefab};
 pub use codec::{AuthoredFormat, SnapshotFormat};
 pub use error::StateError;
 pub use identity::{ProjectId, ProjectRegistry};
-pub use migration::{MigrationChain, MigrationError};
+pub use migration::{MigrationChain, MigrationError, MigrationStep};
 pub use schema::{AuthoredEnvelope, EncodingVersion, SchemaId, SchemaVersion, SnapshotEnvelope};
 pub use snapshot::{
-    decode_snapshot, encode_snapshot, OwnedRng, RemapTable, Snapshot, SnapshotChecksum,
-    SnapshotProfile, SnapshotRecord,
+    decode_snapshot, encode_snapshot, load_snapshot, save_snapshot, snapshot_checksum, OwnedRng,
+    RemapTable, SimStateSnapshot, Snapshot, SnapshotChecksum, SnapshotProfile, SnapshotRecord,
+    SIM_STATE_ID, SIM_STATE_SCHEMA,
 };
+pub use spawn_plan::{PlannedComponent, PlannedEntity, SpawnPlan};
 pub use value::SnapshotValue;

@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::StateError;
-use crate::schema::{SchemaId, SchemaVersion, SnapshotEnvelope, SNAPSHOT_ENCODING};
+use crate::schema::{check_encoding, SchemaId, SchemaVersion, SnapshotEnvelope, SNAPSHOT_ENCODING};
 use crate::value::SnapshotValue;
 
 /// Declared shape of one snapshot stream: which schema, which version, and
@@ -86,22 +86,26 @@ pub struct Snapshot {
 /// Translates live runtime handles to canonical snapshot-local IDs at the
 /// encode boundary. Assignment order defines the IDs, so callers that need
 /// stable snapshots must feed handles in a deterministic order.
+///
+/// Keys are the full `(index, generation)` tuple: generations are `u64`, so
+/// no lossless `u64` packing exists and any hash would risk aliasing two
+/// live entities into one canonical ID.
 #[derive(Debug, Default)]
 pub struct RemapTable {
-    live_to_canonical: HashMap<u64, u32>,
+    live_to_canonical: HashMap<(u32, u64), u32>,
     next: u32,
 }
 
 impl RemapTable {
-    /// Returns the canonical ID for `live`, assigning a fresh one (`0, 1,
-    /// 2, …`) on first sight.
-    pub fn assign(&mut self, live: u64) -> u32 {
-        if let Some(id) = self.live_to_canonical.get(&live) {
+    /// Returns the canonical ID for the live `(index, generation)` handle,
+    /// assigning a fresh one (`0, 1, 2, …`) on first sight.
+    pub fn assign(&mut self, index: u32, generation: u64) -> u32 {
+        if let Some(id) = self.live_to_canonical.get(&(index, generation)) {
             return *id;
         }
         let id = self.next;
         self.next += 1;
-        self.live_to_canonical.insert(live, id);
+        self.live_to_canonical.insert((index, generation), id);
         id
     }
 }
@@ -116,6 +120,23 @@ impl OwnedRng {
     #[must_use]
     pub fn from_seed(seed: u64) -> Self {
         Self(seed)
+    }
+
+    /// Restores a generator from previously captured [`OwnedRng::state`].
+    /// The stream continues exactly where the captured one left off: the
+    /// inner splitmix64 word is the whole state, so no seed expansion or
+    /// OS randomness is involved.
+    #[must_use]
+    pub fn from_state(state: u64) -> Self {
+        Self(state)
+    }
+
+    /// Captures the current stream position for a snapshot. Feed the result
+    /// back through [`OwnedRng::from_state`] on restore to continue the
+    /// same deterministic sequence across a save/restore boundary.
+    #[must_use]
+    pub fn state(&self) -> u64 {
+        self.0
     }
 
     /// Next deterministic `u64`.
@@ -164,8 +185,34 @@ pub fn encode_snapshot(
     Ok((bytes, SnapshotChecksum(digest)))
 }
 
+/// Recomputes the canonical checksum of an already-decoded [`Snapshot`]:
+/// records sort by ID, the envelope checksum clears, the body
+/// postcard-encodes, SHA-256 digests it. This is the same canonicalization
+/// [`decode_snapshot`] verifies against, factored out so callers holding a
+/// [`Snapshot`] (rather than bytes) can re-pin or compare checksums without
+/// re-encoding through a profile.
+pub fn snapshot_checksum(snapshot: &Snapshot) -> Result<SnapshotChecksum, StateError> {
+    let mut canonical = snapshot.clone();
+    canonical.records.sort_by_key(|record| record.id);
+    canonical.envelope.checksum.clear();
+    let bytes = postcard::to_allocvec(&canonical)?;
+    Ok(SnapshotChecksum(format!("{:x}", Sha256::digest(&bytes))))
+}
+
 /// Decodes and verifies: checksum first, then postcard, then envelope.
 /// A corrupt or non-canonical payload fails before any record is trusted.
+///
+/// Local-file-only: `bytes` must come from [`save_snapshot`] /
+/// [`load_snapshot`] (or an equivalent trusted-local write). Untrusted
+/// network bytes must not reach this function until size and nesting budgets
+/// land (planned envelope work): decoding runs before verification, so a
+/// hostile sender can force allocation first.
+///
+/// The checksum gate runs before the encoding gate on purpose: a truncated
+/// or hand-edited file fails as [`StateError::ChecksumMismatch`] (or a typed
+/// codec error) regardless of which byte was touched, while a
+/// checksum-valid payload under an encoding this build cannot read fails as
+/// [`StateError::UnsupportedEncoding`].
 pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, StateError> {
     let snapshot: Snapshot = postcard::from_bytes(bytes).map_err(StateError::from)?;
     let claimed = snapshot.envelope.checksum.clone();
@@ -182,7 +229,167 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, StateError> {
             computed,
         });
     }
+    check_encoding(snapshot.envelope.encoding, SNAPSHOT_ENCODING)?;
     Ok(canonical)
+}
+
+/// Reserved component schema for the deterministic sim-core record: the
+/// simulation tick, clock, and owned RNG position that travel inside a
+/// snapshot's record list. Always declared in a snapshot profile (see the
+/// runtime registry), so checksums accept it; restore partitions it out
+/// before entity allocation, so it never gains a runtime entity.
+pub const SIM_STATE_SCHEMA: &str = "canary.sim-state";
+
+/// Reserved snapshot-local ID for the sim-core record. It sorts after every
+/// entity ID by construction, so canonical order keeps it last without a
+/// special case in the sort.
+pub const SIM_STATE_ID: u32 = u32::MAX;
+
+/// Deterministic sim-core state: the three values a save/restore round-trip
+/// must carry so the simulation continues deterministically on the other
+/// side — the completed-step count, the simulation clock (all `Duration`s
+/// as whole nanoseconds, saturating at `u64::MAX`), and the owned RNG
+/// stream position (see [`OwnedRng::state`]). Wall-clock frame identity and
+/// input history are not simulation state and travel nowhere here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SimStateSnapshot {
+    /// Completed simulation steps.
+    pub tick: u64,
+    /// Accumulated simulation time, whole nanoseconds.
+    pub sim_time_nanos: u64,
+    /// The `dt` that advanced the most recent step, whole nanoseconds.
+    pub step_nanos: u64,
+    /// The input frame that drove the most recent step.
+    pub frame_index: u64,
+    /// Owned RNG stream position at capture time.
+    pub rng_state: u64,
+}
+
+impl SimStateSnapshot {
+    /// Field keys of the sim-core record, in canonical order.
+    const TICK_KEY: &'static str = "tick";
+    const SIM_TIME_KEY: &'static str = "sim_time_nanos";
+    const STEP_KEY: &'static str = "step_nanos";
+    const FRAME_KEY: &'static str = "frame_index";
+    const RNG_KEY: &'static str = "rng_state";
+
+    /// Packs this state into the reserved sim-core record. Durations arrive
+    /// as `std::time::Duration` and saturate to whole nanoseconds.
+    #[must_use]
+    pub fn to_record(
+        tick: u64,
+        sim_time: std::time::Duration,
+        step: std::time::Duration,
+        frame_index: u64,
+        rng_state: u64,
+    ) -> SnapshotRecord {
+        Self {
+            tick,
+            sim_time_nanos: sim_time.as_nanos().min(u128::from(u64::MAX)) as u64,
+            step_nanos: step.as_nanos().min(u128::from(u64::MAX)) as u64,
+            frame_index,
+            rng_state,
+        }
+        .into_record()
+    }
+
+    /// Packs already-nanos state into the reserved sim-core record.
+    fn into_record(self) -> SnapshotRecord {
+        SnapshotRecord {
+            id: SIM_STATE_ID,
+            component: SchemaId::new(SIM_STATE_SCHEMA),
+            fields: BTreeMap::from([
+                (Self::TICK_KEY.to_owned(), SnapshotValue::U64(self.tick)),
+                (
+                    Self::SIM_TIME_KEY.to_owned(),
+                    SnapshotValue::U64(self.sim_time_nanos),
+                ),
+                (
+                    Self::STEP_KEY.to_owned(),
+                    SnapshotValue::U64(self.step_nanos),
+                ),
+                (
+                    Self::FRAME_KEY.to_owned(),
+                    SnapshotValue::U64(self.frame_index),
+                ),
+                (Self::RNG_KEY.to_owned(), SnapshotValue::U64(self.rng_state)),
+            ]),
+        }
+    }
+
+    /// Unpacks and validates the reserved sim-core record: exact reserved
+    /// ID and schema, all five fields present as `U64`. Anything else is a
+    /// typed error — a corrupt or hand-assembled record never seeds the RNG.
+    pub fn from_record(record: &SnapshotRecord) -> Result<Self, StateError> {
+        let invalid = |reason: String| StateError::MigrationInvalid {
+            schema: SIM_STATE_SCHEMA.to_owned(),
+            to: 0,
+            reason,
+        };
+        if record.id != SIM_STATE_ID {
+            return Err(invalid(format!(
+                "sim-state record carries id {}, expected reserved {SIM_STATE_ID}",
+                record.id
+            )));
+        }
+        if record.component.as_str() != SIM_STATE_SCHEMA {
+            return Err(invalid(format!(
+                "sim-state record names schema '{}', expected '{SIM_STATE_SCHEMA}'",
+                record.component.as_str()
+            )));
+        }
+        let field = |key: &str| match record.fields.get(key) {
+            Some(SnapshotValue::U64(value)) => Ok(*value),
+            other => Err(invalid(format!(
+                "sim-state field '{key}' must be a U64, got {other:?}"
+            ))),
+        };
+        Ok(Self {
+            tick: field(Self::TICK_KEY)?,
+            sim_time_nanos: field(Self::SIM_TIME_KEY)?,
+            step_nanos: field(Self::STEP_KEY)?,
+            frame_index: field(Self::FRAME_KEY)?,
+            rng_state: field(Self::RNG_KEY)?,
+        })
+    }
+
+    /// Rebuilds whole-nanosecond durations, saturating at `u64::MAX` nanos.
+    #[must_use]
+    pub fn sim_time(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.sim_time_nanos)
+    }
+
+    /// Rebuilds the last-step duration.
+    #[must_use]
+    pub fn step(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.step_nanos)
+    }
+}
+
+/// Atomically persists canonical snapshot bytes: complete bytes to a sibling
+/// temporary file, platform flush, then rename over `path`. A crash before
+/// the rename leaves the previous file untouched; a stale temporary file
+/// from such a crash is fully overwritten by the next save, never merged.
+/// Filesystem durability varies by platform (see the authored-save notes);
+/// what this promises is atomic replacement, not a universal flush barrier.
+pub fn save_snapshot(path: &std::path::Path, bytes: &[u8]) -> Result<(), StateError> {
+    crate::authored::atomic_write(path, bytes)
+}
+
+/// Loads snapshot bytes previously written by [`save_snapshot`]. The payload
+/// still owes its checksum gate ([`decode_snapshot`]) before any caller
+/// trusts or restores it; a truncated or hand-edited file fails there with
+/// a typed error instead of yielding partial state.
+///
+/// Local-file-only, like [`decode_snapshot`]: the path must be a
+/// trusted-local save file. Bytes fetched from an untrusted network peer
+/// must not be written here and then loaded as if they were a save file
+/// until size and nesting budgets land.
+pub fn load_snapshot(path: &std::path::Path) -> Result<Vec<u8>, StateError> {
+    std::fs::read(path).map_err(|error| StateError::File {
+        path: path.to_path_buf(),
+        reason: error.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -272,12 +479,37 @@ mod tests {
 
     #[test]
     fn tampered_bytes_fail_the_checksum() {
-        let (mut bytes, _) = encode_snapshot(&profile(), vec![record(0)]).expect("encode");
-        let last = bytes.len() - 1;
-        bytes[last] ^= 0x01;
+        let (bytes, _) = encode_snapshot(&profile(), vec![record(0)]).expect("encode");
+        // One flipped bit anywhere — envelope head, middle, tail — must
+        // fail typed, so no tamper position slips through a partial gate.
+        for position in [0, bytes.len() / 2, bytes.len() - 1] {
+            let mut tampered = bytes.clone();
+            tampered[position] ^= 0x01;
+            assert!(
+                matches!(
+                    decode_snapshot(&tampered).unwrap_err(),
+                    StateError::ChecksumMismatch { .. } | StateError::SnapshotCodec(_)
+                ),
+                "tamper at byte {position} passed verification"
+            );
+        }
+    }
+
+    #[test]
+    fn checksum_valid_payload_under_newer_encoding_is_rejected() {
+        use crate::schema::EncodingVersion;
+        let (bytes, _) = encode_snapshot(&profile(), vec![record(0)]).expect("encode");
+        let mut snapshot = decode_snapshot(&bytes).expect("decode");
+        // A checksum-valid payload under an encoding this build cannot
+        // read: re-stamp the checksum over the bumped envelope so the
+        // failure is the encoding gate, not the checksum gate.
+        snapshot.envelope.encoding = EncodingVersion(SNAPSHOT_ENCODING.0 + 1);
+        let sum = snapshot_checksum(&snapshot).expect("re-stamp");
+        snapshot.envelope.checksum = sum.0;
+        let bumped = postcard::to_allocvec(&snapshot).expect("re-encode");
         assert!(matches!(
-            decode_snapshot(&bytes).unwrap_err(),
-            StateError::ChecksumMismatch { .. } | StateError::SnapshotCodec(_)
+            decode_snapshot(&bumped).unwrap_err(),
+            StateError::UnsupportedEncoding { .. }
         ));
     }
 
@@ -298,6 +530,21 @@ mod tests {
     }
 
     #[test]
+    fn checksum_helper_agrees_with_encode_and_notices_tampering() {
+        let (bytes, encoded_sum) =
+            encode_snapshot(&profile(), vec![record(2), record(0)]).expect("encode");
+        let snapshot = decode_snapshot(&bytes).expect("decode");
+        let recomputed = snapshot_checksum(&snapshot).expect("checksum");
+        assert_eq!(recomputed, encoded_sum);
+        let mut tampered = snapshot.clone();
+        tampered.records[0]
+            .fields
+            .insert("hp".to_owned(), SnapshotValue::I64(999));
+        let tampered_sum = snapshot_checksum(&tampered).expect("checksum");
+        assert_ne!(tampered_sum, encoded_sum);
+    }
+
+    #[test]
     fn rng_is_deterministic_per_seed() {
         let mut first = OwnedRng::from_seed(42);
         let mut second = OwnedRng::from_seed(42);
@@ -311,8 +558,199 @@ mod tests {
     #[test]
     fn remap_assigns_stable_ids() {
         let mut table = RemapTable::default();
-        assert_eq!(table.assign(99), 0);
-        assert_eq!(table.assign(7), 1);
-        assert_eq!(table.assign(99), 0);
+        assert_eq!(table.assign(9, 0), 0);
+        assert_eq!(table.assign(0, 7), 1);
+        assert_eq!(table.assign(9, 0), 0);
+    }
+
+    #[test]
+    fn remap_keys_the_full_index_generation_tuple() {
+        let mut table = RemapTable::default();
+        // Same slot recycled across generations: every handle is distinct.
+        // A `u64` hash of the pair could alias two of these into one
+        // canonical ID; the tuple key cannot.
+        let first = table.assign(3, 0);
+        let second = table.assign(3, 1);
+        let third = table.assign(4, 0);
+        let extreme = table.assign(u32::MAX, u64::MAX);
+        assert_ne!(first, second, "generation distinguishes handles");
+        assert_ne!(first, third, "index distinguishes handles");
+        assert_ne!(second, extreme, "extremes assign distinctly");
+        assert_eq!(table.assign(3, 0), first, "repeat sightings reuse the ID");
+        assert_eq!(
+            table.assign(u32::MAX, u64::MAX),
+            extreme,
+            "repeat extremes reuse the ID"
+        );
+    }
+
+    #[test]
+    fn remap_survives_slot_recycling_storms() {
+        // Hundreds of generations churn through one slot while neighboring
+        // slots interleave: every `(index, generation)` sighting must keep
+        // its own canonical ID, and repeat sightings must reuse it.
+        let mut table = RemapTable::default();
+        let mut first_sight: Vec<u32> = Vec::new();
+        for generation in 0..500u64 {
+            first_sight.push(table.assign(7, generation));
+            // Neighboring slots churn alongside so no two tuples alias.
+            let _ = table.assign(generation as u32, 0);
+        }
+        let distinct: std::collections::HashSet<u32> = first_sight.iter().copied().collect();
+        assert_eq!(
+            distinct.len(),
+            first_sight.len(),
+            "recycled generations must never alias"
+        );
+        for (generation, expected) in first_sight.iter().enumerate() {
+            assert_eq!(
+                table.assign(7, generation as u64),
+                *expected,
+                "repeat sightings reuse the ID"
+            );
+        }
+        assert_eq!(table.assign(7, 0), first_sight[0]);
+        let extreme = table.assign(u32::MAX, u64::MAX);
+        assert!(
+            !first_sight.contains(&extreme),
+            "extreme handles assign outside the storm range"
+        );
+        assert_eq!(table.assign(u32::MAX, u64::MAX), extreme);
+    }
+
+    #[test]
+    fn missing_snapshot_file_is_a_typed_error() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "canary-snapshot-missing-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let err = load_snapshot(&dir.join("never-saved.bin")).unwrap_err();
+        assert!(
+            matches!(err, StateError::File { .. }),
+            "missing file must fail typed, got {err:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rng_state_continues_the_same_stream() {
+        let mut rng = OwnedRng::from_seed(7);
+        let _ = rng.next_u64();
+        let _ = rng.next_u64();
+        let resumed = OwnedRng::from_state(rng.state());
+        let mut resumed = resumed;
+        assert_eq!(resumed.next_u64(), rng.next_u64());
+    }
+
+    #[test]
+    fn sim_state_record_round_trips_through_canonical_bytes() {
+        use std::time::Duration;
+        let sim_record = SimStateSnapshot::to_record(
+            41,
+            Duration::from_millis(656),
+            Duration::from_millis(16),
+            40,
+            0xDEAD_BEEF,
+        );
+        assert_eq!(sim_record.id, SIM_STATE_ID);
+        assert_eq!(sim_record.component.as_str(), SIM_STATE_SCHEMA);
+        let state = SimStateSnapshot::from_record(&sim_record).expect("unpack");
+        assert_eq!(state.tick, 41);
+        assert_eq!(state.sim_time(), Duration::from_millis(656));
+        assert_eq!(state.step(), Duration::from_millis(16));
+        assert_eq!(state.frame_index, 40);
+        assert_eq!(OwnedRng::from_state(state.rng_state).next_u64(), {
+            let mut rng = OwnedRng::from_state(0xDEAD_BEEF);
+            rng.next_u64()
+        });
+
+        // The reserved record rides inside an ordinary snapshot and still
+        // verifies: profiles always declare the reserved schema.
+        let profile = SnapshotProfile::new(
+            SchemaId::new("canary.snapshot"),
+            SchemaVersion(1),
+            vec![
+                SchemaId::new("canary.health"),
+                SchemaId::new(SIM_STATE_SCHEMA),
+            ],
+        );
+        let health = record(0);
+        let (bytes, _) =
+            encode_snapshot(&profile, vec![health, sim_record]).expect("encode with sim-state");
+        let snapshot = decode_snapshot(&bytes).expect("decode");
+        assert_eq!(snapshot.records.len(), 2);
+        assert_eq!(
+            snapshot.records.last().expect("sim-state sorts last").id,
+            SIM_STATE_ID
+        );
+    }
+
+    #[test]
+    fn sim_state_rejects_malformed_records() {
+        let mut record = SimStateSnapshot::to_record(
+            1,
+            std::time::Duration::ZERO,
+            std::time::Duration::ZERO,
+            0,
+            0,
+        );
+        record.fields.remove("tick");
+        assert!(matches!(
+            SimStateSnapshot::from_record(&record).unwrap_err(),
+            StateError::MigrationInvalid { .. }
+        ));
+        record = SimStateSnapshot::to_record(
+            1,
+            std::time::Duration::ZERO,
+            std::time::Duration::ZERO,
+            0,
+            0,
+        );
+        record.id = 3;
+        assert!(matches!(
+            SimStateSnapshot::from_record(&record).unwrap_err(),
+            StateError::MigrationInvalid { .. }
+        ));
+    }
+
+    #[test]
+    fn interrupted_snapshot_save_leaves_the_last_good_file_recoverable() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "canary-snapshot-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let path = dir.join("sim.bin");
+
+        let (good_bytes, _) = encode_snapshot(&profile(), vec![record(0)]).expect("encode");
+        save_snapshot(&path, &good_bytes).expect("first save");
+
+        // Crashed writer: partial sibling temp, no rename. The committed
+        // file still loads and verifies.
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, &good_bytes[..good_bytes.len() / 2]).expect("plant partial");
+        let recovered = load_snapshot(&path).expect("recover");
+        decode_snapshot(&recovered).expect("good file verifies");
+
+        // Next save overwrites the stale temp and renames; a truncated
+        // final file then fails typed at the checksum gate.
+        let (next_bytes, _) =
+            encode_snapshot(&profile(), vec![record(0), record(1)]).expect("encode");
+        save_snapshot(&path, &next_bytes).expect("second save");
+        assert!(!tmp.exists(), "rename consumes the temp file");
+        std::fs::write(&path, &next_bytes[..next_bytes.len() / 2]).expect("truncate");
+        let broken = load_snapshot(&path).expect("truncated file still reads");
+        assert!(matches!(
+            decode_snapshot(&broken).unwrap_err(),
+            StateError::ChecksumMismatch { .. } | StateError::SnapshotCodec(_)
+        ));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

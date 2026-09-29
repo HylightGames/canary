@@ -50,11 +50,18 @@ use canary_plugin_api::{
 };
 use thiserror::Error;
 
+mod authored_spawn;
 mod frame_driver;
 mod input_frame;
+mod simulation_snapshot;
 
+pub use authored_spawn::{AuthoredSpawner, SpawnDecoder, SpawnReport, StagedInsert};
 pub use frame_driver::{DrivenFrame, FrameDriver, FrameParams};
 pub use input_frame::{drive_input_frame, InputFrame, InputFrameOutput};
+pub use simulation_snapshot::{
+    decode_entity_ref, encode_entity_ref, ComponentBinding, ResourceBinding, RestoreReport,
+    SimClock, SimComponent, SimResource, Simulation, SnapshotRegistry, StepReport,
+};
 
 /// Owned and advanced by the runtime; consumed (read) by
 /// schedules/systems and scoped plugin host calls. Written at frame open

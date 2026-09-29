@@ -81,4 +81,32 @@ pub enum StateError {
     /// message is captured as text at the boundary.)
     #[error("randomness unavailable: {0}")]
     Randomness(String),
+
+    /// An authored asset marker named a logical ID no resolver satisfies.
+    #[error("unresolved asset reference '{id}'")]
+    AssetUnresolved {
+        /// The logical asset ID the document asked for.
+        id: String,
+    },
+
+    /// A staged component passed validation but its typed insert failed
+    /// during apply. The leaf cannot name the ECS error type, so the cause
+    /// arrives as text; the entity is the fresh runtime handle (debug
+    /// rendering) that rejected the insert.
+    #[error("spawn placement failed for entity '{entity}': {reason}")]
+    PlacementFailed {
+        /// Debug rendering of the fresh entity that rejected the insert.
+        entity: String,
+        /// Why the insert failed.
+        reason: String,
+    },
+
+    /// A snapshot entity reference names a snapshot-local ID that has no
+    /// record in the same snapshot. Checked at restore time (before the
+    /// first world mutation), never at capture: capture only assigns IDs.
+    #[error("unresolvable snapshot entity reference to snapshot-local id {id}")]
+    UnresolvableEntityRef {
+        /// The snapshot-local ID no record provides.
+        id: u32,
+    },
 }

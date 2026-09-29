@@ -112,18 +112,16 @@ impl AuthoredDocument {
         Ok(serde_json::from_str(text)?)
     }
 
-    /// Atomically writes the document: temp sibling file, then rename.
+    /// Atomically writes the document: complete bytes to a sibling
+    /// temporary file, platform flush, then rename over `path`. A crash
+    /// before the rename leaves the previous file untouched, so a failed
+    /// or interrupted save reports a typed error and the last good project
+    /// data stays recoverable. A stale temporary file from such a crash is
+    /// fully overwritten by the next save, never merged — which is what
+    /// the interrupted-write recovery test proves.
     pub fn save(&self, path: &Path) -> Result<(), StateError> {
         let text = self.to_canonical_json()?;
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, text).map_err(|e| StateError::File {
-            path: tmp.clone(),
-            reason: e.to_string(),
-        })?;
-        std::fs::rename(&tmp, path).map_err(|e| StateError::File {
-            path: path.to_path_buf(),
-            reason: e.to_string(),
-        })
+        atomic_write(path, text.as_bytes())
     }
 
     /// Reads and parses a document. Callers still owe the staged checks
@@ -137,8 +135,10 @@ impl AuthoredDocument {
     }
 
     /// Resolves a prefab to its effective field map: base fields first,
-    /// then overrides. A base that itself names a base is rejected —
-    /// inheritance is one level, never a chain.
+    /// then overrides, merged per key — and per field when both sides hold
+    /// objects (the usual schema-to-fields shape), so overriding one field
+    /// of a schema keeps the base's sibling fields. A base that itself
+    /// names a base is rejected — inheritance is one level, never a chain.
     pub fn resolve_prefab(
         &self,
         name: &str,
@@ -168,9 +168,49 @@ impl AuthoredDocument {
                     .map(|(k, v)| (k.clone(), v.clone())),
             );
         }
-        fields.extend(prefab.overrides.iter().map(|(k, v)| (k.clone(), v.clone())));
+        for (key, value) in &prefab.overrides {
+            match (fields.get_mut(key), value) {
+                (
+                    Some(serde_json::Value::Object(base_fields)),
+                    serde_json::Value::Object(override_fields),
+                ) => {
+                    for (field, item) in override_fields {
+                        base_fields.insert(field.clone(), item.clone());
+                    }
+                }
+                _ => {
+                    fields.insert(key.clone(), value.clone());
+                }
+            }
+        }
         Ok(fields)
     }
+}
+
+/// Writes complete `bytes` to a sibling temporary file (flushed, then
+/// atomically renamed over `path`). Shared by authored saves and snapshot
+/// saves so both paths offer the same crash semantics. Durability details
+/// vary by filesystem and are reported by callers, not promised here.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), StateError> {
+    use std::io::Write as _;
+    let tmp = path.with_extension("tmp");
+    let mut file = std::fs::File::create(&tmp).map_err(|error| StateError::File {
+        path: tmp.clone(),
+        reason: error.to_string(),
+    })?;
+    file.write_all(bytes).map_err(|error| StateError::File {
+        path: tmp.clone(),
+        reason: error.to_string(),
+    })?;
+    file.sync_all().map_err(|error| StateError::File {
+        path: tmp.clone(),
+        reason: error.to_string(),
+    })?;
+    drop(file);
+    std::fs::rename(&tmp, path).map_err(|error| StateError::File {
+        path: path.to_path_buf(),
+        reason: error.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -275,5 +315,123 @@ mod tests {
             );
         }
         assert!(document.resolve_prefab("c").is_err());
+    }
+
+    #[test]
+    fn prefab_override_keeps_base_sibling_fields() {
+        let mut document = doc();
+        document.prefabs.insert(
+            "base".to_owned(),
+            Prefab {
+                base: None,
+                overrides: BTreeMap::from([(
+                    "test.health".to_owned(),
+                    serde_json::json!({"hp": 10, "armor": 2}),
+                )]),
+            },
+        );
+        document.prefabs.insert(
+            "tough".to_owned(),
+            Prefab {
+                base: Some("base".to_owned()),
+                overrides: BTreeMap::from([(
+                    "test.health".to_owned(),
+                    serde_json::json!({"hp": 99}),
+                )]),
+            },
+        );
+        let resolved = document.resolve_prefab("tough").expect("resolve");
+        assert_eq!(
+            resolved["test.health"],
+            serde_json::json!({"hp": 99, "armor": 2}),
+            "one overridden field must not drop its siblings"
+        );
+    }
+
+    #[test]
+    fn unknown_data_round_trips_byte_identical() {
+        let text = r#"{"envelope":{"schema":"canary.project","version":1,"encoding":1},
+            "project":"123e4567-e89b-42d3-a456-426614174000",
+            "sections":{"entity.hero":{"test.health":{"hp":10},"future-component":{"nested":[1,2]}}},
+            "from_the_future": {"nested": [1,2]}}"#;
+        let parsed = AuthoredDocument::from_canonical_json(text).expect("parse");
+        assert_eq!(parsed.unknown.len(), 1);
+        let first = parsed.to_canonical_json().expect("serialize");
+        let again = AuthoredDocument::from_canonical_json(&first).expect("reparse");
+        let second = again.to_canonical_json().expect("reserialize");
+        assert_eq!(first, second, "load→save must be byte-identical");
+        assert!(
+            first.contains("from_the_future"),
+            "unknown field kept: {first}"
+        );
+        assert!(
+            first.contains("future-component"),
+            "unknown section kept: {first}"
+        );
+        assert_eq!(again, parsed);
+    }
+
+    /// Unique scratch directory per test process run: no `tempfile`
+    /// dependency for two recovery tests.
+    fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "canary-state-{}-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed),
+            tag
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    #[test]
+    fn interrupted_save_leaves_the_last_good_file_recoverable() {
+        let dir = scratch_dir("interrupted");
+        let path = dir.join("project.json");
+        let mut first = doc();
+        first
+            .sections
+            .insert("entity.hero".to_owned(), serde_json::json!({"hp": 1}));
+        first.save(&path).expect("first save");
+
+        // Simulate a writer killed mid-stream: a partial sibling temp file
+        // with no rename. The committed file must still load as v1.
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, b"{partial").expect("plant partial tmp");
+        let recovered = AuthoredDocument::load(&path).expect("recover v1");
+        assert_eq!(recovered.sections, first.sections);
+
+        // The next save fully overwrites the stale temp file, renames, and
+        // loads as v2 — the crash left no residue behind.
+        let mut second = first.clone();
+        second
+            .sections
+            .insert("entity.hero".to_owned(), serde_json::json!({"hp": 2}));
+        second.save(&path).expect("second save");
+        assert!(!tmp.exists(), "rename consumes the temp file");
+        let loaded = AuthoredDocument::load(&path).expect("recover v2");
+        assert_eq!(loaded.sections, second.sections);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn truncated_file_fails_typed_instead_of_yielding_partial_state() {
+        let dir = scratch_dir("truncated");
+        let path = dir.join("project.json");
+        let mut document = doc();
+        document
+            .sections
+            .insert("entity.hero".to_owned(), serde_json::json!({"hp": 1}));
+        document.save(&path).expect("save");
+        let bytes = std::fs::read(&path).expect("read back");
+        std::fs::write(&path, &bytes[..bytes.len() / 2]).expect("truncate");
+        let err = AuthoredDocument::load(&path).expect_err("truncated file fails");
+        assert!(
+            matches!(err, StateError::AuthoredJson(_)),
+            "typed codec error, got {err:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

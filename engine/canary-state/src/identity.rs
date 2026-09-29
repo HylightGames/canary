@@ -59,9 +59,6 @@ impl<'de> Deserialize<'de> for ProjectId {
                 if digits.len() != 32 {
                     return Err(E::invalid_length(digits.len(), &self));
                 }
-                if digits.len() != 32 {
-                    return Err(E::invalid_length(digits.len(), &self));
-                }
                 let mut bytes = [0u8; 16];
                 for (i, pair) in digits.chunks_exact(2).enumerate() {
                     bytes[i] = (pair[0] << 4) | pair[1];

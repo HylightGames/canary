@@ -25,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.13"
+version = "0.0.14"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/HylightGames/canary"
