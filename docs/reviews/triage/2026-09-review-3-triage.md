@@ -330,3 +330,14 @@ here is implemented as part of this triage. Concretely:
    documented; noted here so it isn't re-litigated from scratch by a
    future review that hasn't read `design-philosophy.md` and
    `engine-overview.md` first.
+
+## `v0.0.14` close-out note (2026-09-29, docs lane; engine work on `dev`, uncommitted)
+
+Point 8's deferred nuance ("share *primitives*, but not necessarily the
+same wire *format*") is now implemented, not just stated: `canary-state`
+is one codec vocabulary (`SchemaId` / `SchemaVersion` /
+`EncodingVersion` envelopes, `SnapshotValue`) behind two products with
+separate roots, profiles, and bytes ("never the same bytes" —
+`engine/canary-state/src/lib.rs`), and ADR 0026's consequences leave
+stable wire compatibility to `.15` networking. No verdict change — the
+deferred item landing as filed.

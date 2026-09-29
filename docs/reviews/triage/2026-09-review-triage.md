@@ -293,3 +293,17 @@ unblocks (for a future, separate session/PR, not bundled here):
 Everything else above is filed as **accepted-but-deferred** against the
 milestone it actually belongs to, so it isn't rediscovered from scratch
 later.
+
+## `v0.0.14` close-out note (2026-09-29, docs lane; engine work on `dev`, uncommitted)
+
+Review #2 items #9/#10 (schema-driven serialization + migrations —
+"revisit when that crate is actually scoped") have landed in
+`canary-state`: linear per-schema `MigrationChain`s
+(`engine/canary-state/src/migration.rs`, including the
+`migrate_fields` JSON bridge over `SnapshotValue::from_json` /
+`to_json`), versioned envelopes on every typed payload, and
+migration/unknown-data fixtures exercised on the restore path
+(`migration_fixture_applies_on_the_restore_path`,
+`unknown_fields_survive_a_capture_restore_cycle_byte_identical` in
+`engine/canary-runtime/src/simulation_snapshot.rs`). No verdict change —
+the deferred items landing as filed.

@@ -2,9 +2,14 @@
 
 This document formalizes a principle raised during `v0.0.1` and judged
 important enough to become part of the architectural core. The
-`canary-state` subsystem is not implemented; ECS identity/schema
-primitives and a minimal asset loader exist, while rendering and physics
-have narrow implemented slices. See
+`canary-state` foundation slice is implemented (commit `7f651e7`:
+canonical pretty-JSON project files, one-level prefabs, change log,
+atomic save/staged load, linear migrations, postcard snapshots), and
+the `.14` work-package slice (prefab bake, staged spawn,
+capture/restore/checksum/step with presentation exclusion) is
+implemented on `dev` in the uncommitted working tree — see the status
+section below. ECS identity/schema primitives and
+the asset loader are in place. See
 [ADR 0012](../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md)
 for the founding decision record and
 [ADR 0013](../decisions/architecture-decision-records/0013-live-collaboration-server-authoritative-topology.md)
@@ -283,15 +288,89 @@ been reviewed against `.14`/`.15` implementation evidence.
 
 ## Status in this foundation
 
-The identity, authoring, and snapshot contracts are implemented in the
-`canary-state` crate: canonical pretty-JSON project files with deterministic
-ordering and unknown-field preservation, one-level prefab overrides, an
-authored change log, atomic save with staged load, linear per-schema
-migration chains, and postcard snapshots with SHA-256 checksums over the
-canonical payload (encoding selection recorded in ADR 0026). Logical identity
-allocation, authored codecs, migration, prefab baking, and simulation snapshot
-APIs are done for the `.14` foundation slice; prefab baking against live
-scenes, networking, and the first shared-edit slice follow in `.15` and
-`.16`. See the [`v0.1.0 plan`](../roadmap/v0.1.0-plan.md) for their work packages and
+The identity, authoring, and snapshot contracts are implemented across
+two crates on `dev` (foundation at commit `7f651e7`; the `.14`
+work-package slice above it in the uncommitted working tree — see
+[`status.md`](../roadmap/status.md) for the handoff):
+
+- **Authored project files** (`engine/canary-state/src/authored.rs`):
+  canonical pretty-JSON documents with deterministic `BTreeMap`
+  ordering, unknown-field preservation with byte-identical load→save
+  round trips, one-level prefab override tables with per-field object
+  merge, an authored change log, atomic save (sibling temp file, flush,
+  rename) with staged load, and linear per-schema migration chains
+  (`migration.rs`, plus the `migrate_fields` JSON bridge over
+  `SnapshotValue::from_json`/`to_json` in `value.rs`).
+- **Prefab baking against live scenes**
+  (`engine/canary-state/src/spawn_plan.rs`,
+  `engine/canary-runtime/src/authored_spawn.rs`):
+  `SpawnPlan::from_document` bakes `prefab` references one level (base
+  fields first, the instance's own fields win per field; chained bases
+  rejected) without touching a live world and without rewriting the
+  document — each planned entity records its prefab provenance, and bake
+  output equals the hand-written equivalent. `AuthoredSpawner::spawn`
+  validates the whole plan (prefab bake, asset resolution, world
+  registry agreement, full decode into staged typed inserts) before the
+  first `World::spawn`, so any failure aborts with zero mutations.
+- **Simulation boundary** (`engine/canary-state/src/snapshot.rs`,
+  `engine/canary-runtime/src/simulation_snapshot.rs`):
+  `SnapshotRegistry` captures only bound component/resource schemas in
+  canonical record order (byte-identical across binding order and
+  allocator history), `checksum` re-pins the envelope digest, and
+  `Simulation::step` advances the ECS tick, folds `dt` into the sim
+  clock (published as a `SimClock` resource), and draws one value from
+  a seed-owned `OwnedRng` splitmix64 stream — no OS randomness anywhere.
+  Restore is staged validate-before-mutate (profile agreement, world
+  registration, entity-reference totality, full decode against
+  placeholder entities, sim-state unpacking); undeclared schemas,
+  decode failures, dangling references (`StateError::UnresolvableEntityRef`),
+  duplicate resource records, and tampered payloads all abort with zero
+  world mutations. Presentation-only entities and unbound resources are
+  never captured, never cleared, and survive restore untouched — proven
+  by sentinel tests including byte scans of the capture payload.
+- **Deterministic continuation without a wire break**
+  (`SimStateSnapshot` in `snapshot.rs`): tick, clock, and RNG position
+  travel as a reserved `canary.sim-state` record at `u32::MAX` inside an
+  ordinary snapshot — checksummed like any other record, partitioned
+  out before entity allocation so it never gains a runtime entity. The
+  postcard wire format is unchanged (the golden-bytes test still pins
+  the exact pre-sim-state encoding). Only `capture_with_sim` /
+  `restore_with_sim` emit and consume it; plain `restore` refuses a
+  sim-carrying snapshot (silently forking the RNG is worse than
+  failing), and `restore_with_sim` refuses a snapshot without one.
+  Same-seed determinism holds across the save/restore boundary, step for
+  step, including through an interrupted-write recovery.
+- **Recovery evidence**: an interrupted authored save leaves the last
+  good file loadable and the next save consumes the stale temp file; a
+  truncated final file fails typed at the parse gate (authored) or the
+  checksum gate (snapshot) — never partial state.
+
+Scoped truths, stated so they are not over-read:
+
+- Restore purity is validate-all-plus-proof, not a transactional
+  guarantee against impure decoders: phase two re-runs the same pure
+  decode functions with a resolve closure phase one proved total (pinned
+  by the `phase_two_redecode_is_identical_and_failure_free` proof test).
+  A decoder that fails in phase two violates its documented purity
+  contract (`SimComponent`/`SimResource`); the registry cannot stage
+  opaque typed values any earlier without breaking the leaf seam
+  (`canary-state` never sees live types).
+- Capture→restore→recapture byte stability rests on the `World` LIFO
+  free-stack discipline (despawn in descending order so fresh spawns
+  land ascending). When the snapshot holds more entities than the world,
+  the surplus reuses older free slots and recapture IDs reflect
+  allocator history rather than the snapshot's — the restore stays
+  correct through the live map either way.
+- Byte identity is claimed only for identical declared state (same tick
+  and RNG position). No claim is made that divergent histories converge
+  to identical bytes.
+- The stable `LogicalAssetId` registry remains future work: asset
+  references resolve through a caller-supplied `logical-id → string`
+  function (`$asset` markers, `StateError::AssetUnresolved` on miss),
+  not a registry.
+
+Encoding selection is recorded in ADR 0026. Networking and the first
+shared-edit slice follow in `.15` and `.16`. See the
+[`v0.1.0 plan`](../roadmap/v0.1.0-plan.md) for their work packages and
 exit evidence, and [`future-roadmap.md`](../roadmap/future-roadmap.md) for
 work after the first collaboration proof.

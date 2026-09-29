@@ -79,3 +79,12 @@ either already captured by an existing risk-register entry (R-35) or too
 low-priority to act on before its trigger condition arrives. No new
 risk-register entries needed. Docs-only, per the same standing
 instruction as Review #3's triage.
+
+## `v0.0.14` close-out note (2026-09-29, docs lane; engine work on `dev`, uncommitted)
+
+The "World/serialization strategy" row's sharper concern (R-33:
+removal/destruction has no durable signal) is still open after `.14`:
+staged restore (`engine/canary-runtime/src/simulation_snapshot.rs`)
+replaces simulated entities wholesale and proves entity-reference
+totality, but writes no removal log — that remains the `.15` work item
+per the plan. No verdict change.

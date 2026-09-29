@@ -8,9 +8,9 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
-## Current handoff — `v0.0.13` released, `v0.0.14` is next
+## Current handoff — `v0.0.13` released, `v0.0.14` released (2026-09-29)
 
-`v0.0.12` audio is released as tag `v0.0.12`, and `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`. Continue with `.14` authored project state and simulation snapshots per [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, and `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`. Continue with `.15` minimal server-authoritative networking per [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -24,12 +24,12 @@ mapped movement + Space/click fire, +1-per-click no-double-fire). ADR
 failure semantics) remains Proposed. R-37 and R-38 are mitigated (see
 [risk-register](../reviews/risk-register.md)). R-36 remains open for
 richer lifecycle needs such as pause/reload/replacement; those are not
-a `.13` gate. Continue with `.14` authored project state and simulation
-snapshots per [`v0.1.0-plan.md`](v0.1.0-plan.md).
+a `.13` gate. `.14` authored project state and simulation snapshots
+are released as tag `v0.0.14` — see the `v0.0.14` section below.
 
-The next milestones are `.14` authored project state and simulation snapshots,
-`.15` minimal server-authoritative networking, `.16` the first collaboration
-slice, then `.1.0` integration in a small sample game. The detailed sequence
+With `.14` released, the next milestones are `.15` minimal
+server-authoritative networking, `.16` the
+first collaboration slice, then `.1.0` integration in a small sample game. The detailed sequence
 and out-of-scope items are in [`v0.1.0-plan.md`](v0.1.0-plan.md); long-term
 editor, visual scripting, and ecosystem work is in
 [`future-roadmap.md`](future-roadmap.md).
@@ -586,6 +586,62 @@ long-term default per ADR 0023 — it replaces the private backend,
 never the trait) — see the roadmap doc for the reasoning behind
 each.
 
+## `v0.0.14` — Released as tag `v0.0.14` (2026-09-29)
+
+Single focus: authored project state + deterministic simulation
+snapshots as two separate products sharing one codec vocabulary. Work
+packages per [`v0.1.0-plan.md`](v0.1.0-plan.md#v0014--project-state);
+contract in [ADR 0026](../decisions/architecture-decision-records/0026-authored-state-and-simulation-snapshot-contract.md)
+(Accepted; encoding selection recorded 2026-09-28) and
+[`state-and-versioning.md`](../architecture/state-and-versioning.md#status-in-this-foundation).
+
+- [x] WP1 (design package): version domains, unknown-vs-missing
+      semantics, canonical ordering, atomic persistence, and
+      change-tracking-vs-tick separation specified before code. The
+      stable `LogicalAssetId` registry stays future work — asset
+      references resolve through a caller-supplied function (`$asset`
+      markers; `StateError::AssetUnresolved` on miss).
+- [x] WP2 (authored state): `engine/canary-state/src/authored.rs`
+      (canonical pretty JSON, one-level prefab tables with per-field
+      object merge, change log, atomic save, staged load),
+      `spawn_plan.rs` (`SpawnPlan::from_document`: dep-free prefab bake
+      that never rewrites the document), `value.rs`
+      (`SnapshotValue::from_json`/`to_json`), `migration.rs` (linear
+      chains + `migrate_fields` bridge), `error.rs`
+      (`PlacementFailed`, `UnresolvableEntityRef`).
+      `engine/canary-runtime/src/authored_spawn.rs`
+      (`AuthoredSpawner`/`SpawnDecoder`/`StagedInsert`): staged
+      two-phase spawn — full validation before the first `World::spawn`.
+- [x] WP3 (simulation boundary):
+      `engine/canary-state/src/snapshot.rs` (envelopes, SHA-256
+      checksum, `SimStateSnapshot` reserved record, atomic
+      `save/load_snapshot` helpers) and
+      `engine/canary-runtime/src/simulation_snapshot.rs`
+      (`SnapshotRegistry` capture/checksum/restore,
+      `Simulation::step` with owned `OwnedRng` stream + `SimClock`
+      resource, `SimComponent`/`SimResource` participation seams,
+      presentation exclusion). Restores are staged
+      validate-before-mutate; RNG/clock persist via the reserved
+      sim-core record with no wire-format break (the golden-bytes test
+      still pins the pre-sim-state encoding).
+- [x] WP4 (fixtures/proof, engine side): migration + unknown-data
+      fixtures, same-seed determinism across save/restore,
+      presentation-exclusion sentinels (including byte scans of the
+      capture payload), interrupted-write recovery on both products,
+      capture→restore→recapture byte stability (scoped to the LIFO
+      free-stack discipline), and the phase-two re-decode purity proof.
+      Docs side (this file, `state-and-versioning.md`, risk/triage
+      notes) closed by the docs lane in the same change.
+
+**Explicitly not in `v0.0.14`**: the `LogicalAssetId` registry, nested
+prefab inheritance, cross-history byte identity (claimed only for
+identical declared state), transactional restore against impure
+decoders, the durable removal/destruction log replication needs (R-33,
+a `.15` item), and any wire-compatibility promise (networking's
+concern per ADR 0026).
+
+Full scope: [`docs/release-notes/v0.0.14.md`](../release-notes/v0.0.14.md).
+
 ## Full architecture-to-implementation map
 
 Every documented subsystem, and where it actually stands. "Documented"
@@ -612,7 +668,7 @@ about working code in `engine/`.
 | Asset system | ✅ | ✅ (minimal) | `AssetId`/`AssetHandle<T>`/`AssetStore<T>` with sync GLB/PNG/WAV/Vorbis loaders; `AssetId` is provisional content identity. Stable `LogicalAssetId`, cooking, cache, hot reload, importers-as-plugins, and broader formats remain future work; `v0.0.10`/`.12` |
 | Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, headless default), `AudioSource`/`AudioListener` + trigger system using propagated `GlobalTransform` poses; host must insert a device backend for audible output. Custom engine stays the long-term default per ADR 0023; `v0.0.12` |
 | `CanaryUI` (UI toolkit) | ✅ | ✅ (first-game slice) | ADR 0011 plus first-game contract in [`ui-toolkit.md`](../architecture/ui-toolkit.md); `canary-ui-core` (backend-neutral traits) + `canary-ui-egui` (egui 0.36 adapter, tessellate → RHI soup + scissor) implemented on `dev`, with same-window, same-RHI game HUD and shared input capture proven by `ui-game`. Full theming/layout/shaping remain future work |
-| Project state & versioning (`canary-state`) | ✅ | ✅ (foundation slice) | Product boundary and migration/snapshot rules in [`state-and-versioning.md`](../architecture/state-and-versioning.md) and ADR 0026 (Accepted); `canary-state` implements canonical-JSON project files (deterministic order, unknown preservation, one-level prefabs, change log, atomic save/staged load), linear migration chains, and postcard snapshots with SHA-256 checksums. Prefab baking against live scenes remains future work |
+| Project state & versioning (`canary-state`) | ✅ | ✅ (`.14` slice) | Product boundary and migration/snapshot rules in [`state-and-versioning.md`](../architecture/state-and-versioning.md) and ADR 0026 (Accepted); `canary-state` implements canonical-JSON project files (deterministic order, unknown preservation, one-level prefabs, change log, atomic save/staged load), linear migration chains with a `migrate_fields` bridge, postcard snapshots with SHA-256 checksums, and dep-free prefab bake (`SpawnPlan::from_document`); `canary-runtime` composes staged spawn (`AuthoredSpawner`) and the simulation boundary (`SnapshotRegistry` capture/checksum/restore, `Simulation::step`, `SimClock`, RNG/clock via the reserved sim-core record with no wire break). Presentation exclusion, migration/unknown fixtures, and interrupted-write recovery are proven; released as tag `v0.0.14` |
 | Live collaboration | ✅ | ❌ | ADR 0013 accepts topology only. Proposed operation, permission, conflict, history, and recovery contract is in [`live-collaboration.md`](../architecture/live-collaboration.md) and ADR 0028; no protocol code |
 | Editor | ⚠️ Partial (vision-level) | ❌ | Post-`v0.1.0`; build on the validated consumer runtime, project-state formats, `CanaryUI`, plugin lifecycle, and windowed rendering. See [`future-roadmap.md`](future-roadmap.md) |
 | CLI/headless operation (editor) | ✅ (principle recorded) | N/A yet | No editor exists to apply it to; proven in spirit by `canary-runtime`/`xtask` today |

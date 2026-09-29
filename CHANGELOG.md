@@ -80,6 +80,31 @@ Full scope: [`docs/release-notes/v0.0.12.md`](docs/release-notes/v0.0.12.md).
 
 [v0.0.12]: https://github.com/HylightGames/canary/releases/tag/v0.0.12
 
+## [v0.0.14] — 2026-09-29
+
+### Authored project state and deterministic simulation snapshots
+
+`v0.0.14` adds authored project state and deterministic simulation
+snapshots as two separate products sharing one codec vocabulary
+(ADR 0026 Accepted): canonical-JSON project documents with one-level
+prefab bake and staged spawn, plus checksummed postcard simulation
+snapshots with an owned-RNG simulation step — presentation excluded,
+atomic saves with interrupted-write recovery, migration and unknown-data
+fixtures proving both products independently.
+
+### Added
+
+* **Authored project documents** — `canary-state` canonical pretty-JSON documents with deterministic ordering, unknown-field preservation (byte-identical load→save round trips), per-schema linear migration chains with a `migrate_fields` JSON bridge, an authored change log, atomic save (sibling temp file, flush, rename), and staged load.
+* **One-level prefab bake** — `SpawnPlan::from_document` bakes `prefab` references one level (base fields first, instance fields win per field; chained bases rejected) without touching a live world and without rewriting the document; bake output equals the hand-written equivalent.
+* **Staged spawn** — `canary-runtime`'s `AuthoredSpawner` validates the whole plan (prefab bake, asset resolution, world registry agreement, full decode into staged typed inserts) before the first `World::spawn`, so any failure aborts with zero mutations.
+* **Simulation snapshot boundary** — `SnapshotRegistry` captures only bound component/resource schemas in canonical record order (byte-identical across binding order and allocator history), with SHA-256 `checksum` re-pinning the envelope digest and staged validate-before-mutate `restore` (undeclared schemas, decode failures, dangling references, duplicate resource records, and tampered payloads all abort with zero world mutations).
+* **Deterministic simulation step** — `Simulation::step` advances the ECS tick, folds `dt` into the sim clock (published as a `SimClock` resource), and draws from a seed-owned `OwnedRng` stream with no OS randomness; tick, clock, and RNG position travel as a reserved `canary.sim-state` record at `u32::MAX` with no wire-format break (the golden-bytes test still pins the pre-sim-state encoding), and same-seed determinism holds across the save/restore boundary step for step.
+* **Proof fixtures** — migration + unknown-data fixtures, same-seed determinism across save/restore, presentation-exclusion sentinels (including byte scans of the capture payload), interrupted-write recovery on both products (last good file loadable; truncated files fail typed at the parse/checksum gate, never partial state), capture→restore→recapture byte stability (scoped to the LIFO free-stack discipline), and the phase-two re-decode purity proof.
+
+Full scope: [`docs/release-notes/v0.0.14.md`](docs/release-notes/v0.0.14.md).
+
+[v0.0.14]: https://github.com/HylightGames/canary/releases/tag/v0.0.14
+
 ## [v0.0.13] — 2026-09-28
 
 ### Playable and visible: UI, presentation, and the frame driver
