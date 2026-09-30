@@ -41,6 +41,15 @@ jobs:
           # Same as ci.yml: LFS fixtures must resolve to real bytes or
           # the `cargo test --release` below reads pointer text instead.
           lfs: true
+      - name: Install Linux audio/windowing dev libraries (ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        # Release-profile builds compile the whole workspace including the
+        # cpal ALSA backend (alsa-sys probes pkg-config alsa at compile
+        # time, ADR 0023) and winit's x11 backend. Same set as ci.yml's
+        # lint-and-test job; without it the ubuntu leg fails in alsa-sys.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev
       - name: cargo build --workspace --release
         run: cargo build --locked --workspace --release
       - name: cargo test --workspace --release
