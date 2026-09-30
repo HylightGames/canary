@@ -1,0 +1,21 @@
+[package]
+name = "canary-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Server-authoritative replication transport for Canary (QUIC default behind a Canary-owned trait)"
+
+[lints]
+workspace = true
+
+[dependencies]
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+quinn = "0.11"
+serde = { version = "1", features = ["derive", "alloc"] }
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+rcgen = "0.13"

@@ -54,10 +54,12 @@ mod column;
 mod component_identity;
 mod entity;
 mod error;
+mod replication;
 mod world;
 
 pub use column::Tick;
 pub use component_identity::CanaryComponent;
 pub use entity::Entity;
 pub use error::EcsError;
+pub use replication::Replicated;
 pub use world::World;

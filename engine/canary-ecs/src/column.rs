@@ -45,6 +45,33 @@ use std::any::Any;
 pub struct Tick(u64);
 
 impl Tick {
+    /// The raw counter value, for crossing a boundary that cannot name
+    /// [`Tick`](crate::column::Tick) itself — replication tombstones and
+    /// per-client last-acknowledged cursors in `canary-net` record this
+    /// `u64` alongside `World::query_changed_since` baselines (ADR 0014).
+    ///
+    /// This is the scheduler-tick domain only: it is distinct from the
+    /// wire session sequence and the simulation step count, which
+    /// `canary-net` keeps as separate types so the three can never be
+    /// confused (ADR 0027 amendment 4). Compare `Tick` values with `Tick`
+    /// ordering wherever both sides can name the type; use the raw value
+    /// only at the boundary.
+    #[must_use]
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// Rebuilds a [`Tick`](crate::column::Tick) previously exported via
+    /// [`Tick::get`] — e.g. restoring a persisted last-acknowledged tick
+    /// for a reconnecting replication client.
+    ///
+    /// No validation is possible or needed: every `u64` is a meaningful
+    /// point on the world's monotonic timeline.
+    #[must_use]
+    pub fn from_raw(value: u64) -> Self {
+        Self(value)
+    }
+
     /// Advances to the next tick. The inner representation stays
     /// private even within the crate -- [`crate::World::advance_tick`]
     /// goes through this method rather than reaching into a `pub(crate)`
