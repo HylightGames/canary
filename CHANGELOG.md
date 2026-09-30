@@ -61,6 +61,37 @@ detail; this section summarizes rather than duplicates them.
 * A macOS-only CI flake: replaced a wall-clock timing assertion in the scheduler's concurrency test with a deterministic overlap proof after loaded runners exceeded it twice through pure scheduling jitter. (`v0.0.9`)
 * Removed the unused `wasmtime-wasi` dependency (zero references in source; the lockstep-pin lesson is preserved in comments for when a real call site lands). (`v0.0.9`)
 
+## [v0.0.15] — 2026-09-30
+
+### Minimal server-authoritative networking
+
+`v0.0.15` adds the smallest real server-authoritative replication path
+that builds on project state — reusing the versioned codecs and snapshot
+contracts `v0.0.14` establishes, plus the authority, removal history, and
+ordering networking genuinely needs (ADR 0027 Accepted): a new
+`canary-net` crate with a Canary-owned transport trait and a QUIC default,
+canonical snapshot/delta replication with entity- and type-level opt-in,
+a typed session path with validated client input, a durable tombstone log
+with reconnect resync, and deterministic loopback proofs plus a
+separate-process QUIC round trip. No prediction, no rollback, no
+production identity — those stay explicitly out of scope.
+
+### Added
+
+* **Replication transport crate** — new crate `canary-net`: an object-safe, leak-free `NetTransport` trait (no third-party types in public signatures) with a private `QuinnTransport` QUIC default (ALPN `canary-1`, DER-bytes constructors, certificate pinning as a proof-only peer policy), length-prefix framing with the limit gate before any allocation, and a `postcard` envelope codec (no default features) that rejects trailing bytes and verifies the SHA-256 checksum before the payload is trusted.
+* **Replication vocabulary** — canonical snapshots (sort-then-checksum bytes) and sequenced deltas with base-sequence basing and validate-all-before-apply semantics; stable server-scoped network identity (`NetEntityMap`, tuple-keyed so slot recycling never aliases); entity-level opt-in via the `Replicated` marker in `canary-ecs` composed with type-level opt-in via `ReplicationRegistry`; per-schema payload codecs where unknown schemas fail as resync-required, never panic; dirty-set computation stays in `canary-ecs` via `World::query_changed_since` (no parallel dirty-flag system). `Tick` gains only `get()`/`from_raw()` boundary accessors — wire sequence, simulation step (`SimTick`), and scheduler tick are never compared across domains.
+* **Session path** — typed handshake vocabulary (`Hello`/`Welcome`/`Reject` with independent protocol, schema-manifest, game, and plugin/API checks; version mismatch is a typed reject followed by close), per-client input ingress validation (ownership, sequence, bounds, action-schema plus exact action-version compatibility, input window; malformed input is a typed error with no state mutation and the connection stays alive), bounded per-client queues with explicit backpressure (ingress overflow disconnects the offender, egress overflow drops the oldest stale state), per-client session records with whole-record disconnect, connection admission and liveness policy on a caller-supplied `u64` clock (no wall-clock reads), and capped per-client metrics rows so churn cannot grow memory.
+* **Removal history and resync** — `TombstoneLog` (bounded retention, per-client cursors, ack-gated reclamation, drop→resync) closes the durable removal/destruction gap replication needs (R-33); `BaselineRetention` (bounded ring of recent authoritative snapshots consulted with the session-surviving tombstone log) lets a reconnect — always a new session — replay its shared baseline plus retained tombstones when covered, else take a live full snapshot. Per-delta journal replay is deliberately not built: retained snapshots plus tombstones supersede it (rationale documented in `resync.rs`).
+* **Proofs** — `QuinnTransport` pinning proven over a real QUIC connection (right pin round-trips an envelope, wrong pin refuses the handshake); a separate-process QUIC session round trip (`tests/session_roundtrip.rs`: server and client as distinct processes over real TLS/ALPN exchanging snapshot, deltas, and frame-tagged input); an in-process loopback transport with deterministic counter-based fault injection carrying the resync end-to-end proof (drop mid-session, reconnect, incremental replay, live deltas after) and the 5-cell network-conditions matrix (clean, loss, duplication, reorder, latency — convergence plus no double-apply per cell, each fault cell proving its fault fired).
+
+### Explicitly not in `v0.0.15`
+
+Per-delta journal replay, an unreliable datagram lane, client prediction/reconciliation/rollback, production identity/matchmaking (certificate pinning is proof-only), and cross-build wire compatibility — carried to `.16` and beyond per ADR 0027.
+
+Full scope: [`docs/release-notes/v0.0.15.md`](docs/release-notes/v0.0.15.md).
+
+[v0.0.15]: https://github.com/HylightGames/canary/releases/tag/v0.0.15
+
 ## [v0.0.12] — 2026-09-28
 
 ### Audio playback

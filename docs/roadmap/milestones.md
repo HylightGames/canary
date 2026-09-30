@@ -192,10 +192,10 @@ Full detail: [`v0.0.2.md`](../release-notes/v0.0.2.md).
 ## Current handoff
 
 `v0.0.12` is released as tag `v0.0.12` (2026-09-28), `v0.0.13` is
-released as tag `v0.0.13` (2026-09-28), and `v0.0.14` is released as
-tag `v0.0.14` (2026-09-29) — each cut in its own release commit, per
-the tagging-gap note below. `v0.0.15` (minimal server-authoritative
-networking) is next; see [`status.md`](status.md) for the live
+released as tag `v0.0.13` (2026-09-28), `v0.0.14` is released as
+tag `v0.0.14` (2026-09-29), and `v0.0.15` is released as tag
+`v0.0.15` (2026-09-30) — each cut in its own release commit, per
+the tagging-gap note below. `v0.0.16` (live collaboration) is next; see [`status.md`](status.md) for the live
 inventory and [`v0.1.0-plan.md`](v0.1.0-plan.md) for its work packages.
 
 ## Beyond `v0.0.2`
@@ -209,8 +209,8 @@ doc, matching the depth `v0.0.1`/`v0.0.2` get above, rather than
 duplicated here. Tagging-gap note, resolved 2026-09-28: only
 `v0.0.1`/`v0.0.2` carried git tags, so `v0.0.3`–`v0.0.11` were backfill-tagged
 on their implementation-record commits (no history rewritten — plain
-annotated tags on existing commits), and `v0.0.12`/`v0.0.13`/`v0.0.14` were cut as
-real releases. All milestones `v0.0.1`–`v0.0.14` now carry tags
+annotated tags on existing commits), and `v0.0.12`/`v0.0.13`/`v0.0.14`/`v0.0.15` were cut as
+real releases. All milestones `v0.0.1`–`v0.0.15` now carry tags
 (`v0.0.2` is held locally on `946a687` — pushing it is rejected by an
 unlisted server-side creation restriction on that ref; the commit itself
 is on `dev`, so nothing is lost and a later retry is a single push):
@@ -272,6 +272,15 @@ is on `dev`, so nothing is lost and a later retry is a single push):
   (presentation excluded, atomic saves with interrupted-write
   recovery). See [`v0.1.0-plan.md`](v0.1.0-plan.md#v0014--project-state),
   [`status.md`](status.md), and ADR 0026.
+- **`v0.0.15`** — released 2026-09-30: minimal server-authoritative
+  networking (`canary-net`) — Canary-owned transport trait with a QUIC
+  default, canonical snapshot/delta replication with entity- and
+  type-level opt-in, a typed session path with validated client input,
+  a durable tombstone log with reconnect resync, Quinn pinning proof,
+  a separate-process QUIC round trip, and a deterministic loopback
+  fault-injection matrix. No prediction, rollback, or production
+  identity. See [`v0.1.0-plan.md`](v0.1.0-plan.md#v0015--networking),
+  [`status.md`](status.md), and ADR 0027.
 
 [`docs/roadmap/status.md`](status.md) is the single source of truth for
 current implementation status; treat any version claim here as

@@ -1,10 +1,11 @@
 # Networking & Multiplayer
 
-Architecture for the planned networking subsystem (see
-[`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md)). No `canary-net`
-or transport implementation exists yet. The initial networking milestone is
-planned for `v0.0.15`, after project state. Its proposed first replication
-profile is recorded in
+Architecture for the networking subsystem (see
+[`docs/roadmap/v0.1.0-plan.md`](../roadmap/v0.1.0-plan.md)). The `v0.0.15`
+foundation slice (`canary-net` + replication vocabulary) is implemented;
+see [Status in this foundation](#status-in-this-foundation) for what is
+built and what stays open. The initial networking milestone follows
+project state. Its first replication profile is recorded in
 [ADR 0027](../decisions/architecture-decision-records/0027-minimal-server-authoritative-replication.md);
 review it before exposing a wire format. This is one of the
 areas where [`docs/research/engine-comparisons.md`](../research/engine-comparisons.md)
@@ -18,6 +19,10 @@ See [ADR 0007](../decisions/architecture-decision-records/0007-networking-and-mu
 for the decision record.
 
 ## Authority model: server-authoritative by default
+
+> Scope: this section describes the target authority model; the `.15` proof
+> ships server-authoritative state and input with no client prediction or
+> reconciliation.
 
 The default model is server-authoritative: the server owns the true
 simulation state; clients send inputs and intents, and may write their own
@@ -34,6 +39,10 @@ authority model — "the server" doesn't have to mean a dedicated data-center
 process, just a process that's authoritative.
 
 ## Client prediction & reconciliation
+
+> Scope: prediction and reconciliation are the target model described here;
+> `.15` ships neither — the first proof uses one reliable ordered stream
+> with server-authoritative snapshots and deltas.
 
 ```mermaid
 sequenceDiagram
@@ -105,7 +114,7 @@ not a complete multiplayer stack:
   authority, and recovery contracts are proven; add a datagram lane only
   after a measured workload requires it.
 - Handshake compatibility checks keep protocol, schema, game-content, and
-  plugin/API versions separate. The first profile rejects unsupported
+  plugin/API versions separate (ADR 0026 items 2–3). The first profile rejects unsupported
   protocol or required schema versions before applying project/runtime state.
   It does not promise compatibility between arbitrary engine builds.
 - QUIC encryption is not an application identity or authorization model.
@@ -164,10 +173,63 @@ in [rendering.md](rendering.md) for the RHI.
 
 ## Status in this foundation
 
-No `canary-net` crate, transport, or replication marker types exist yet.
-Stable component schema identity is implemented. Snapshot APIs, durable
-removal/destruction history, canonical ordering, and frame-tagged simulation
-input are specified or required by ADRs 0020–0022 but are not implemented.
-The first profile is proposed in this document and ADR 0027; its acceptance
-still requires API review and a separate-process server/client proof. See
-[`v0.0.15`](../roadmap/v0.1.0-plan.md#v0015--networking).
+`v0.0.14` delivered the state contracts this profile builds on: authored
+codecs (canonical JSON) and simulation snapshot codecs (postcard 1.x with
+`SchemaId + SchemaVersion + EncodingVersion` envelopes, ADR 0026),
+`SpawnPlan` for baking authored documents into runtime state, and
+`SnapshotRegistry` for canonical capture/restore with presentation-state
+exclusion and the reserved sim record (`SimStateSnapshot`). Version domains
+follow ADR 0026 items 2–3.
+
+`v0.0.15` WP1–WP4 are implemented in the `dev` working tree (uncommitted;
+gates, API review, and commit outstanding — see
+[`status.md`](../roadmap/status.md)). Shipped slices in `engine/canary-net`
+(`src/` unless noted), with `canary-ecs` carrying the `Replicated` marker
+(`engine/canary-ecs/src/replication.rs`) and the `Tick::get()`/`from_raw()`
+boundary accessors (`engine/canary-ecs/src/column.rs`):
+
+- WP1 (transport/boundary): `ids.rs` (`ProtocolVersion`,
+  `SchemaManifestVersion`, `NetEntityId`, `NetSequence`, `SimTick`),
+  `transport.rs` (`NetTransport` + `QuinnTransport` with ALPN pinning; no
+  third-party types in public signatures), `frame.rs` + `envelope.rs`
+  (length-prefix framing gated before allocation, SHA-256 checksums),
+  `limits.rs` + `error.rs` (bounds, typed disconnect reasons).
+- WP2 (representation): `replication.rs` (canonical snapshots + sequenced
+  deltas, validate-all-before-apply, gap→resync), `tombstone.rs`
+  (`TombstoneLog`, the R-33 removal/destruction signal), `mapping.rs`
+  (`NetEntityMap`, alias-free slot-recycling identity), `policy.rs`
+  (`ReplicationRegistry`), `codec.rs` (`SchemaCodecs`; unknown schema fails
+  the message, never panics).
+- WP3 (session): `handshake.rs` (typed `Hello`/`Welcome`/`Reject` +
+  `TemporarilyBanned`), `input.rs` (`ClientInput`/`InputValidator`,
+  `InputAck`), `session.rs` (`SessionTable` + `ClientAck`), `queue.rs`
+  (bounded queues; ingress overflow disconnects, egress overflow drops
+  superseded state), `sequence.rs` (`SequenceGate`, never-apply-twice).
+- WP4 (hardening/proof): `policy.rs` (`ConnectionPolicy`/`IdleTracker`/
+  `HandshakeGate` on a caller-supplied `u64` clock — no wall-clock reads),
+  `metrics.rs` (exact globals + capped per-client rows), `resync.rs`
+  (`BaselineRetention` ring + `ResyncPlan`), `loopback.rs`
+  (fault-injecting transport + resync proof + 5-cell network-conditions
+  matrix), `tests/session_roundtrip.rs` (separate-process QUIC proof: real
+  server child process, real TLS pinning and ALPN).
+
+Scoped truths this slice holds (and stops at):
+
+- Reconnect is new-session-only: disconnect drops the whole session record,
+  and resync replays a retained baseline under a fresh session id — the old
+  session is never resumed.
+- Byte identity is never claimed: proofs compare decoded logical state
+  (entries, ticks, ack fields), never raw bytes.
+- Ban/idle policy has fail-open edges: zero thresholds disable banning,
+  the label cap evicts least-recently-seen fail-open, and a backward clock
+  delays but never false-triggers enforcement.
+- Metrics per-client rows are capped (256 by default; globals stay exact),
+  evicted on disconnect.
+- Explicitly not built: per-delta journal replay (superseded by retained
+  snapshots + tombstones), an unreliable datagram lane (needs measured
+  evidence), production identity (certificate pinning is proof-only).
+
+Pre-wire preconditions: the separate-process server/client proof now exists
+in-tree (`tests/session_roundtrip.rs`), so that half of the acceptance gate
+is met pending validation; API review is still outstanding. ADR 0027 is
+Accepted.

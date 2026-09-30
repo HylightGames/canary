@@ -88,3 +88,15 @@ staged restore (`engine/canary-runtime/src/simulation_snapshot.rs`)
 replaces simulated entities wholesale and proves entity-reference
 totality, but writes no removal log — that remains the `.15` work item
 per the plan. No verdict change.
+
+## `v0.0.15` note (2026-09-30, docs lane; engine work on `dev`, uncommitted)
+
+R-33 moves to In Progress (not Mitigated): `.15` WP1–WP4 implement exactly
+the named shape — `TombstoneLog`
+(`engine/canary-net/src/tombstone.rs`, bounded + ack-gated + drop→resync),
+exercised by the loopback resync proof and the 5-cell fault matrix — but
+the four gates, API review, and commit are still outstanding, so the risk
+register honestly records progress rather than closure. No triage verdict
+above changes: replication sidesteps the `Tick`-shape concern (R-32 stays
+Open, narrowed) and defers prediction/rollback per plan, consistent with
+the prior triage positions. Nothing here re-opens a settled point.

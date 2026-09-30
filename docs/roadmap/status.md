@@ -8,9 +8,9 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
-## Current handoff — `v0.0.13` released, `v0.0.14` released (2026-09-29)
+## Current handoff — `v0.0.14` released, `v0.0.15` cut (2026-09-30)
 
-`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, and `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`. Continue with `.15` minimal server-authoritative networking per [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, and `v0.0.15` (minimal server-authoritative networking) is cut as tag `v0.0.15`. Continue with `.16` live collaboration per [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -25,10 +25,11 @@ failure semantics) remains Proposed. R-37 and R-38 are mitigated (see
 [risk-register](../reviews/risk-register.md)). R-36 remains open for
 richer lifecycle needs such as pause/reload/replacement; those are not
 a `.13` gate. `.14` authored project state and simulation snapshots
-are released as tag `v0.0.14` — see the `v0.0.14` section below.
+are released as tag `v0.0.14` — see the `v0.0.14` section below. `.15`
+minimal server-authoritative networking is cut as tag `v0.0.15` — see
+the `v0.0.15` section below.
 
-With `.14` released, the next milestones are `.15` minimal
-server-authoritative networking, `.16` the
+With `.15` cut, the next milestones are `.16` the
 first collaboration slice, then `.1.0` integration in a small sample game. The detailed sequence
 and out-of-scope items are in [`v0.1.0-plan.md`](v0.1.0-plan.md); long-term
 editor, visual scripting, and ecosystem work is in
@@ -642,6 +643,45 @@ concern per ADR 0026).
 
 Full scope: [`docs/release-notes/v0.0.14.md`](../release-notes/v0.0.14.md).
 
+## `v0.0.15` — Released as tag `v0.0.15` (2026-09-30)
+
+Single focus: minimal server-authoritative networking per
+[`v0.1.0-plan.md`](v0.1.0-plan.md#v0015--networking). Design record in
+[ADR 0027](../decisions/architecture-decision-records/0027-minimal-server-authoritative-replication.md)
+(Accepted 2026-09-30, code-match basis) and
+[`networking.md`](../architecture/networking.md#status-in-this-foundation).
+
+- [x] WP1 (boundary): `engine/canary-net` created + workspace member;
+  `src/ids.rs` (version/identity/counter newtypes), `transport.rs`
+  (`NetTransport` + `QuinnTransport`, ALPN `canary-1`, DER-bytes
+  constructors, Quinn pinning tests), `frame.rs`/`envelope.rs`
+  (length-prefix framing, SHA-256 checksums), `limits.rs`/`error.rs`
+  (bounds, typed errors/disconnects)
+- [x] WP2 (representation): `src/replication.rs` (canonical
+  snapshot/delta, base-sequence basing, validate-all-before-apply),
+  `tombstone.rs` (`TombstoneLog`, bounded + ack-gated),
+  `mapping.rs` (`NetEntityMap`), `policy.rs` (`ReplicationRegistry`),
+  `codec.rs` (`SchemaCodecs`); `engine/canary-ecs/src/replication.rs`
+  (`Replicated` marker) + `column.rs` (`Tick::get()`/`from_raw()`)
+- [x] WP3 (session): `src/handshake.rs` (typed Hello/Welcome/Reject +
+  `TemporarilyBanned`), `input.rs` (slot/window/sequence validation,
+  `InputAck`), `session.rs` (`SessionTable`, `ClientAck`, whole-record
+  disconnect), `queue.rs` (bounded, Disconnect vs DropOldest), `sequence.rs`
+  (`SequenceGate`)
+- [x] WP4 (hardening/proof): `src/policy.rs`
+  (`ConnectionPolicy`/`IdleTracker`/`HandshakeGate`, fake `u64` clock),
+  `metrics.rs` (capped per-client rows), `resync.rs`
+  (`BaselineRetention` + `ResyncPlan`; no per-delta journal, supersede
+  rationale documented), `loopback.rs` (fault injection, resync proof,
+  5-cell matrix), `tests/session_roundtrip.rs` (separate-process QUIC
+  proof over real TLS/ALPN)
+
+**Explicitly not in `v0.0.15`**: per-delta journal replay, an unreliable
+datagram lane, client prediction/reconciliation/rollback, production
+identity/matchmaking, cross-build wire compatibility — see ADR 0027.
+
+Full scope: [`docs/release-notes/v0.0.15.md`](../release-notes/v0.0.15.md).
+
 ## Full architecture-to-implementation map
 
 Every documented subsystem, and where it actually stands. "Documented"
@@ -663,7 +703,7 @@ about working code in `engine/`.
 | Rendering | ✅ | ✅ | RHI trait + native Vulkan backend; ECS-driven CPU bake and file-loaded mesh/texture sampling are proven. Window presentation with live lifecycle gates (steady/minimize/restore/resize→recreate/content/destruction in `present_clear.rs`; capability-rejection and fatal-error mappings unit-gated) and same-RHI scene/UI window rendering (`ui-game`, 600/600 presented) are implemented on `dev`. Depth/general materials remain open |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ✅ (2D slice) | `PhysicsBackend` trait + private rapier2d 0.35.3 backend, fixed-step system with spiral guard, first-position registration, game-plus-pixel proof; determinism is single-machine repeatability; `v0.0.11`. 3D (Jolt canonical, Rapier3D alternative) still direction, post-`v0.1.0` |
-| Networking | ✅ | ❌ | Proposed first profile in ADR 0027 and [`networking.md`](../architecture/networking.md); no transport, replication, or removal-history code yet. Planned for `.15` |
+| Networking | ✅ | ✅ (`.15` slice) | First profile Accepted in ADR 0027; `canary-net` (transport, replication, tombstone log, session, resync, loopback + separate-process proof) shipped as tag `v0.0.15`. See the `v0.0.15` section above |
 | Scripting system | ✅ | ❌ | Depends on Tier A |
 | Asset system | ✅ | ✅ (minimal) | `AssetId`/`AssetHandle<T>`/`AssetStore<T>` with sync GLB/PNG/WAV/Vorbis loaders; `AssetId` is provisional content identity. Stable `LogicalAssetId`, cooking, cache, hot reload, importers-as-plugins, and broader formats remain future work; `v0.0.10`/`.12` |
 | Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, headless default), `AudioSource`/`AudioListener` + trigger system using propagated `GlobalTransform` poses; host must insert a device backend for audible output. Custom engine stays the long-term default per ADR 0023; `v0.0.12` |
