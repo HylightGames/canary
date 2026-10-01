@@ -1,0 +1,17 @@
+[package]
+name = "canary-collab"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Server-authoritative live-collaboration operations for Canary (v0.0.16 op path)"
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-state = { path = "../canary-state" }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+serde = { version = "1", features = ["derive", "alloc"] }
+serde_json = "1"
+thiserror = "2"

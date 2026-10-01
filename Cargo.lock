@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "canary-assets"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-ecs",
  "codspeed-divan-compat",
@@ -380,7 +380,7 @@ dependencies = [
 
 [[package]]
 name = "canary-audio"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-assets",
  "canary-ecs",
@@ -393,8 +393,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "canary-collab"
+version = "0.0.16"
+dependencies = [
+ "canary-state",
+ "postcard",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "canary-core"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "thiserror 2.0.21",
  "tracing",
@@ -403,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "canary-ecs"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "codspeed-divan-compat",
  "proptest",
@@ -412,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "canary-input"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-ecs",
  "canary-platform",
@@ -421,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "canary-loc"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "codspeed-divan-compat",
  "fluent",
@@ -441,20 +452,20 @@ dependencies = [
 
 [[package]]
 name = "canary-net"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "postcard",
  "quinn",
  "rcgen",
  "serde",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
  "tokio",
 ]
 
 [[package]]
 name = "canary-physics"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-ecs",
  "canary-scheduler",
@@ -469,7 +480,7 @@ dependencies = [
 
 [[package]]
 name = "canary-platform"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "thiserror 2.0.21",
  "tracing",
@@ -483,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "canary-plugin-api"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-ecs",
  "libloading 0.9.0",
@@ -496,14 +507,14 @@ dependencies = [
 
 [[package]]
 name = "canary-render"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "canary-render-ecs"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-assets",
  "canary-ecs",
@@ -520,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "canary-render-vulkan"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "ash",
  "ash-window",
@@ -534,13 +545,15 @@ dependencies = [
 
 [[package]]
 name = "canary-runtime"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "canary-assets",
+ "canary-collab",
  "canary-core",
  "canary-ecs",
  "canary-input",
+ "canary-net",
  "canary-physics",
  "canary-platform",
  "canary-plugin-api",
@@ -549,15 +562,17 @@ dependencies = [
  "canary-state",
  "canary-transform",
  "canary-ui-core",
+ "glam 0.33.11",
  "serde_json",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
  "wat",
 ]
 
 [[package]]
 name = "canary-scheduler"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-ecs",
  "codspeed-divan-compat",
@@ -565,36 +580,37 @@ dependencies = [
 
 [[package]]
 name = "canary-state"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "getrandom 0.3.4",
  "postcard",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "canary-transform"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-ecs",
  "canary-scheduler",
  "codspeed-divan-compat",
  "glam 0.33.11",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "canary-ui-core"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-platform",
 ]
 
 [[package]]
 name = "canary-ui-egui"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-platform",
  "canary-render",
@@ -3894,7 +3910,7 @@ dependencies = [
 
 [[package]]
 name = "spinning-cube"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-assets",
  "canary-ecs",
@@ -4261,7 +4277,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ui-game"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "canary-core",
  "canary-ecs",
@@ -5393,7 +5409,7 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xtask"
-version = "0.0.15"
+version = "0.0.16"
 
 [[package]]
 name = "yasna"

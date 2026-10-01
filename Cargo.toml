@@ -17,6 +17,7 @@ members = [
     "engine/canary-render-ecs",
     "engine/canary-runtime",
     "engine/canary-state",
+    "engine/canary-collab",
     "engine/canary-net",
     "engine/canary-ui-core",
     "engine/canary-ui-egui",
@@ -26,7 +27,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.15"
+version = "0.0.16"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/HylightGames/canary"

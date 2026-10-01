@@ -33,16 +33,22 @@ pub mod codec;
 pub mod error;
 pub mod identity;
 pub mod migration;
+pub mod revisions;
 pub mod schema;
 pub mod snapshot;
 pub mod spawn_plan;
 pub mod value;
 
-pub use authored::{AuthoredChange, AuthoredDocument, Prefab};
+pub use authored::{atomic_write, AuthoredChange, AuthoredDocument, Prefab};
 pub use codec::{AuthoredFormat, SnapshotFormat};
 pub use error::StateError;
 pub use identity::{ProjectId, ProjectRegistry};
 pub use migration::{MigrationChain, MigrationError, MigrationStep};
+pub use revisions::{
+    transform_schema, AcceptedHistoryRecord, CheckpointEnvelope, DocumentHistory, LogicalEntityId,
+    ObjectRevision, OperationSequence, PendingAccept, ProjectRevision, TailGap,
+    TRANSFORM_SCHEMA_KEY, TRANSFORM_SCHEMA_VERSION,
+};
 pub use schema::{AuthoredEnvelope, EncodingVersion, SchemaId, SchemaVersion, SnapshotEnvelope};
 pub use snapshot::{
     decode_snapshot, encode_snapshot, load_snapshot, save_snapshot, snapshot_checksum, OwnedRng,

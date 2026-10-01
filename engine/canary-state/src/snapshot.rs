@@ -149,6 +149,23 @@ impl OwnedRng {
     }
 }
 
+/// Renders a SHA-256 digest as 64 lowercase hex characters.
+///
+/// Encoded by hand rather than via a `hex` dependency — it is a few
+/// lines, and a whole crate for it would be a pin to maintain against
+/// the workspace's transitive-pin policy for nothing (the same
+/// rationale as `canary-assets`' hand-rolled `AssetId::to_hex`).
+/// `sha2` 0.11's digest output carries no `LowerHex` impl,
+/// so this takes the digest as bytes.
+pub(crate) fn hex_digest(digest: &[u8]) -> String {
+    const ALPHABET: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push(ALPHABET[(byte >> 4) as usize] as char);
+        out.push(ALPHABET[(byte & 0x0F) as usize] as char);
+    }
+    out
+}
 /// Encodes `records` under `profile`: declares-check, validates values,
 /// sorts by ID, postcard-encodes, checksums. Returns the bytes plus the
 /// checksum that belongs in the envelope.
@@ -178,7 +195,7 @@ pub fn encode_snapshot(
     let mut bytes = postcard::to_allocvec(&snapshot)?;
     // Checksum covers the body with an empty checksum field, so verification
     // recomputes over identical bytes. Rewrite the envelope with the digest.
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = hex_digest(&Sha256::digest(&bytes));
     let mut snapshot: Snapshot = postcard::from_bytes(&bytes)?;
     snapshot.envelope.checksum = digest.clone();
     bytes = postcard::to_allocvec(&snapshot)?;
@@ -196,7 +213,7 @@ pub fn snapshot_checksum(snapshot: &Snapshot) -> Result<SnapshotChecksum, StateE
     canonical.records.sort_by_key(|record| record.id);
     canonical.envelope.checksum.clear();
     let bytes = postcard::to_allocvec(&canonical)?;
-    Ok(SnapshotChecksum(format!("{:x}", Sha256::digest(&bytes))))
+    Ok(SnapshotChecksum(hex_digest(&Sha256::digest(&bytes))))
 }
 
 /// Decodes and verifies: checksum first, then postcard, then envelope.
@@ -222,7 +239,7 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, StateError> {
     canonical.records.sort_by_key(|record| record.id);
     canonical.envelope.checksum.clear();
     let canonical_bytes = postcard::to_allocvec(&canonical)?;
-    let computed = format!("{:x}", Sha256::digest(&canonical_bytes));
+    let computed = hex_digest(&Sha256::digest(&canonical_bytes));
     if computed != claimed {
         return Err(StateError::ChecksumMismatch {
             expected: claimed,
@@ -372,8 +389,20 @@ impl SimStateSnapshot {
 /// from such a crash is fully overwritten by the next save, never merged.
 /// Filesystem durability varies by platform (see the authored-save notes);
 /// what this promises is atomic replacement, not a universal flush barrier.
+/// Temp suffix for snapshot saves (see [`crate::authored::atomic_write`]).
+/// Appending (not extension-replacing) keeps sibling temp names distinct
+/// per file, so a snapshot and a project file sharing a directory never
+/// collide even when their stems match.
+const SNAPSHOT_TEMP_SUFFIX: &str = ".tmp";
+
+/// Atomically persists canonical snapshot bytes: complete bytes to a sibling
+/// temporary file, platform flush, then rename over `path`. A crash before
+/// the rename leaves the previous file untouched; a stale temporary file
+/// from such a crash is fully overwritten by the next save, never merged.
+/// Filesystem durability varies by platform (see the authored-save notes);
+/// what this promises is atomic replacement, not a universal flush barrier.
 pub fn save_snapshot(path: &std::path::Path, bytes: &[u8]) -> Result<(), StateError> {
-    crate::authored::atomic_write(path, bytes)
+    crate::authored::atomic_write(path, bytes, SNAPSHOT_TEMP_SUFFIX)
 }
 
 /// Loads snapshot bytes previously written by [`save_snapshot`]. The payload
@@ -733,8 +762,10 @@ mod tests {
         save_snapshot(&path, &good_bytes).expect("first save");
 
         // Crashed writer: partial sibling temp, no rename. The committed
-        // file still loads and verifies.
-        let tmp = path.with_extension("tmp");
+        // file still loads and verifies. The temp name appends the suffix
+        // (`sim.bin.tmp`), never replacing the extension — see
+        // `crate::authored::atomic_write`.
+        let tmp = path.with_extension("bin.tmp");
         std::fs::write(&tmp, &good_bytes[..good_bytes.len() / 2]).expect("plant partial");
         let recovered = load_snapshot(&path).expect("recover");
         decode_snapshot(&recovered).expect("good file verifies");

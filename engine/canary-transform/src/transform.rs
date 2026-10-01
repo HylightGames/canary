@@ -10,6 +10,30 @@
 
 //! Local and world-space transform components.
 
+use thiserror::Error;
+
+/// Tolerance on quaternion normalization: `|len - 1| <= epsilon`.
+///
+/// Tight enough to reject garbage, loose enough for `f32` round trips
+/// through JSON authoring tools. This mirrors `canary-collab`'s
+/// `QUAT_NORM_EPSILON` by contract, not by dependency — neither crate
+/// may depend on the other, so the value and the accept/reject vectors
+/// are pinned by the parity test in `canary-runtime` instead of shared
+/// code. Change one side and the parity test fails until both agree.
+pub const QUAT_NORM_EPSILON: f32 = 1e-3;
+
+/// Why a transform failed numeric validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum TransformError {
+    /// A translation, rotation, or scale component is NaN or infinite.
+    #[error("transform has a non-finite component")]
+    NonFinite,
+    /// The rotation quaternion is not unit length within
+    /// [`QUAT_NORM_EPSILON`].
+    #[error("transform rotation is not a unit quaternion")]
+    DenormalizedRotation,
+}
+
 /// Local space position, rotation, and scale of an entity.
 ///
 /// The single, always-3D representation shared by 2D and 3D games alike (see
@@ -43,6 +67,32 @@ impl Transform {
             rotation: glam::Quat::IDENTITY,
             scale: glam::Vec3::ONE,
         }
+    }
+
+    /// Numeric validation: every translation, rotation, and scale
+    /// component finite, and the rotation a unit quaternion within
+    /// [`QUAT_NORM_EPSILON`]. Scale is content — zero and negative
+    /// values are accepted — matching the `canary-collab` stage-6 rule
+    /// exactly (same verdicts on the same values; see the
+    /// `canary-runtime` parity test). Finiteness is checked first so a
+    /// NaN rotation reports [`TransformError::NonFinite`], never a
+    /// normalization verdict computed from NaN.
+    pub fn validate(&self) -> Result<(), TransformError> {
+        for value in self
+            .translation
+            .to_array()
+            .iter()
+            .chain(self.rotation.to_array().iter())
+            .chain(self.scale.to_array().iter())
+        {
+            if !value.is_finite() {
+                return Err(TransformError::NonFinite);
+            }
+        }
+        if (self.rotation.length() - 1.0).abs() > QUAT_NORM_EPSILON {
+            return Err(TransformError::DenormalizedRotation);
+        }
+        Ok(())
     }
 
     /// Composes the local matrix as `T * R * S` (translation, then rotation,
@@ -176,5 +226,70 @@ mod tests {
     #[test]
     fn global_transform_default_is_the_identity_matrix() {
         assert_mat4_approx_eq(GlobalTransform::default().matrix(), glam::Mat4::IDENTITY);
+    }
+
+    #[test]
+    fn validate_accepts_identity_and_content_scales() {
+        Transform::identity().validate().expect("identity");
+        for scale in [
+            glam::Vec3::new(0.0, 1.0, 1.0),
+            glam::Vec3::new(-1.0, 2.0, 0.5),
+            glam::Vec3::ZERO,
+        ] {
+            Transform {
+                scale,
+                ..Transform::identity()
+            }
+            .validate()
+            .expect("scale is content, not corruption");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_non_finite_components_before_any_quaternion_math() {
+        for transform in [
+            Transform {
+                translation: glam::Vec3::new(f32::NAN, 0.0, 0.0),
+                ..Transform::identity()
+            },
+            Transform {
+                scale: glam::Vec3::new(1.0, f32::INFINITY, 1.0),
+                ..Transform::identity()
+            },
+            // NaN rotation must report NonFinite, never a normalization
+            // verdict computed from NaN.
+            Transform {
+                rotation: glam::Quat::from_xyzw(f32::NAN, 0.0, 0.0, 1.0),
+                ..Transform::identity()
+            },
+        ] {
+            assert_eq!(transform.validate(), Err(TransformError::NonFinite));
+        }
+    }
+
+    #[test]
+    fn validate_rejects_denormalized_rotations() {
+        for rotation in [
+            glam::Quat::from_xyzw(0.0, 0.0, 0.0, 0.0),
+            glam::Quat::from_xyzw(1.0, 1.0, 0.0, 0.0),
+            glam::Quat::from_xyzw(0.0, 0.0, 0.0, 2.0),
+        ] {
+            assert_eq!(
+                Transform {
+                    rotation,
+                    ..Transform::identity()
+                }
+                .validate(),
+                Err(TransformError::DenormalizedRotation),
+                "rotation {rotation:?} must be rejected"
+            );
+        }
+        let half_root = std::f32::consts::FRAC_1_SQRT_2;
+        Transform {
+            rotation: glam::Quat::from_xyzw(half_root, 0.0, 0.0, half_root),
+            ..Transform::identity()
+        }
+        .validate()
+        .expect("near-unit quaternion survives f32 round trips");
     }
 }

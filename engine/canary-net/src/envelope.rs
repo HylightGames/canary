@@ -5,7 +5,7 @@
 //! order on this path is deliberate and is the inverse of the `.14`
 //! snapshot-file path — read the `decode` docs before "simplifying" it.
 //!
-//! Integrity checksum: SHA-256 (`sha2` 0.10, the same crate and version the
+//! Integrity checksum: SHA-256 (`sha2` 0.11, the same crate and version the
 //! `.14` snapshot path in `canary-state` checksums with) computed over the
 //! protocol version, sequence, and payload bytes. That is a
 //! corruption/truncation gate, not a security boundary — a checksum cannot

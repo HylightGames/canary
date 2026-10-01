@@ -22,11 +22,15 @@ canary-physics = { path = "../canary-physics" }
 canary-render-ecs = { path = "../canary-render-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
 canary-state = { path = "../canary-state" }
+canary-collab = { path = "../canary-collab" }
+canary-net = { path = "../canary-net" }
 canary-transform = { path = "../canary-transform" }
 anyhow = "1.0.104"
 thiserror = "2.0.19"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 [dev-dependencies]
+glam = "0.33"
 serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 wat = "1"

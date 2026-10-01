@@ -2353,8 +2353,10 @@ mod tests {
         save_snapshot(&path, &good_bytes).expect("first save");
 
         // Crashed writer: partial sibling temp, no rename. The committed
-        // file still loads and verifies.
-        let tmp = path.with_extension("tmp");
+        // file still loads and verifies. The temp name appends the suffix
+        // (`sim.bin.tmp`), never replacing the extension — see
+        // `canary_state::authored::atomic_write`.
+        let tmp = path.with_extension("bin.tmp");
         std::fs::write(&tmp, &good_bytes[..good_bytes.len() / 2]).expect("plant partial");
         let recovered = load_snapshot(&path).expect("recover");
         decode_snapshot(&recovered).expect("good file verifies");

@@ -13,6 +13,8 @@ workspace = true
 canary-ecs = { path = "../canary-ecs" }
 canary-scheduler = { path = "../canary-scheduler" }
 glam = "0.33"
+# Typed validation errors (workspace convention: `thiserror`, never strings).
+thiserror = "2"
 
 [dev-dependencies]
 divan = { version = "5", package = "codspeed-divan-compat" }

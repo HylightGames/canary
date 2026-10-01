@@ -51,11 +51,16 @@ use canary_plugin_api::{
 use thiserror::Error;
 
 mod authored_spawn;
+mod collab_session;
 mod frame_driver;
 mod input_frame;
 mod simulation_snapshot;
 
 pub use authored_spawn::{AuthoredSpawner, SpawnDecoder, SpawnReport, StagedInsert};
+pub use collab_session::{
+    serve_single_frame, split_tagged_body, tag_edit_body, CollabHostError, CollabServeError,
+    CollabSessionHost, ServeOutcome, TAG_EDIT, TAG_SYNC,
+};
 pub use frame_driver::{DrivenFrame, FrameDriver, FrameParams};
 pub use input_frame::{drive_input_frame, InputFrame, InputFrameOutput};
 pub use simulation_snapshot::{

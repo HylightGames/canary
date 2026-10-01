@@ -36,4 +36,4 @@ pub use hierarchy::{despawn_subtree, remove_parent, set_parent, Children, Parent
 pub use propagation::{
     propagate_transforms, register_transform_propagation, transform_propagation_access,
 };
-pub use transform::{GlobalTransform, Transform};
+pub use transform::{GlobalTransform, Transform, TransformError, QUAT_NORM_EPSILON};

@@ -18,7 +18,7 @@
 //! or future file fails before it can poison the session.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +67,17 @@ pub struct AuthoredDocument {
     /// Append-only edit history.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub changes: Vec<AuthoredChange>,
+    /// Accepted-operation history for live collaboration (`.16` WP1).
+    ///
+    /// Additive and defaulted: documents that never saw collaboration
+    /// carry genesis counters and serialize without this section, so the
+    /// envelope stays `canary.project` version 1, encoding 1. See
+    /// [`DocumentHistory`](crate::revisions::DocumentHistory).
+    #[serde(
+        default,
+        skip_serializing_if = "crate::revisions::DocumentHistory::is_empty"
+    )]
+    pub history: crate::revisions::DocumentHistory,
     /// Fields from newer versions, preserved verbatim on save.
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     pub unknown: BTreeMap<String, serde_json::Value>,
@@ -87,6 +98,7 @@ impl AuthoredDocument {
             sections: BTreeMap::new(),
             prefabs: BTreeMap::new(),
             changes: Vec::new(),
+            history: crate::revisions::DocumentHistory::genesis(),
             unknown: BTreeMap::new(),
         }
     }
@@ -121,7 +133,7 @@ impl AuthoredDocument {
     /// the interrupted-write recovery test proves.
     pub fn save(&self, path: &Path) -> Result<(), StateError> {
         let text = self.to_canonical_json()?;
-        atomic_write(path, text.as_bytes())
+        atomic_write(path, text.as_bytes(), AUTHORED_TEMP_SUFFIX)
     }
 
     /// Reads and parses a document. Callers still owe the staged checks
@@ -187,13 +199,30 @@ impl AuthoredDocument {
     }
 }
 
+/// Temp suffix for authored project saves (see [`atomic_write`]).
+const AUTHORED_TEMP_SUFFIX: &str = ".tmp";
+
 /// Writes complete `bytes` to a sibling temporary file (flushed, then
-/// atomically renamed over `path`). Shared by authored saves and snapshot
-/// saves so both paths offer the same crash semantics. Durability details
-/// vary by filesystem and are reported by callers, not promised here.
-pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), StateError> {
+/// atomically renamed over `path`). Shared by authored saves, snapshot
+/// saves, and the collaboration permission store so every durable path
+/// offers the same crash semantics: a crash before the rename leaves the
+/// previous file untouched, and a stale temp file from such a crash is
+/// fully overwritten by the next save, never merged.
+///
+/// `temp_suffix` is appended to the file name (never substituted for the
+/// extension): two different files can never share a sibling temp name,
+/// which the old extension-replacing form could not promise for files
+/// differing only by extension (`report.json` vs `report.toml`). Callers
+/// persisting different files alongside each other pass distinct
+/// suffixes; durability details vary by filesystem and are reported by
+/// callers, not promised here.
+pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), StateError> {
     use std::io::Write as _;
-    let tmp = path.with_extension("tmp");
+    let tmp = {
+        let mut name = path.as_os_str().to_owned();
+        name.push(temp_suffix);
+        PathBuf::from(name)
+    };
     let mut file = std::fs::File::create(&tmp).map_err(|error| StateError::File {
         path: tmp.clone(),
         reason: error.to_string(),
@@ -398,7 +427,9 @@ mod tests {
 
         // Simulate a writer killed mid-stream: a partial sibling temp file
         // with no rename. The committed file must still load as v1.
-        let tmp = path.with_extension("tmp");
+        // The temp name appends the suffix (`project.json.tmp`), never
+        // replacing the extension — see `atomic_write`.
+        let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, b"{partial").expect("plant partial tmp");
         let recovered = AuthoredDocument::load(&path).expect("recover v1");
         assert_eq!(recovered.sections, first.sections);
@@ -413,6 +444,35 @@ mod tests {
         assert!(!tmp.exists(), "rename consumes the temp file");
         let loaded = AuthoredDocument::load(&path).expect("recover v2");
         assert_eq!(loaded.sections, second.sections);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn appended_suffix_keeps_same_stem_files_apart() {
+        // Proof for the shared-helper unification: the old
+        // extension-replacing form aimed both of these files at the same
+        // `report.tmp`. The appended form must keep them apart, and a
+        // stale temp from a killed writer must be overwritten, never
+        // merged.
+        let dir = scratch_dir("suffix");
+        let first = dir.join("report.json");
+        let second = dir.join("report.toml");
+        atomic_write(&first, b"one", ".tmp").expect("first save");
+        atomic_write(&second, b"two", ".tmp").expect("second save");
+        assert_eq!(std::fs::read(&first).expect("read first"), b"one");
+        assert_eq!(std::fs::read(&second).expect("read second"), b"two");
+        assert!(
+            !dir.join("report.tmp").exists(),
+            "no extension-replaced temp may ever appear"
+        );
+
+        // A stale appended temp is fully overwritten by the next save.
+        let stale = dir.join("report.json.tmp");
+        std::fs::write(&stale, b"{partial").expect("plant stale tmp");
+        atomic_write(&first, b"uno", ".tmp").expect("overwrite save");
+        assert!(!stale.exists(), "rename consumes the temp file");
+        assert_eq!(std::fs::read(&first).expect("read again"), b"uno");
+        assert_eq!(std::fs::read(&second).expect("neighbor untouched"), b"two");
         std::fs::remove_dir_all(&dir).ok();
     }
 

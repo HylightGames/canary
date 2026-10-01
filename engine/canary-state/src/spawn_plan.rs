@@ -31,14 +31,14 @@ use crate::value::SnapshotValue;
 /// Prefix marking an authored section as a spawnable entity. The rest of
 /// the section name is the entity's local (authored) name, stable across
 /// runs no matter which runtime IDs the world hands out.
-const ENTITY_PREFIX: &str = "entity.";
+pub(crate) const ENTITY_PREFIX: &str = "entity.";
 
 /// Section-level key naming the prefab an entity instance bakes: the value
 /// must be a string prefab name from the document's prefab table. Sibling
 /// keys are component schemas whose fields override the baked prefab fields
 /// per field. Prefab tables never nest instances: a `prefab` key inside a
 /// prefab's own overrides is rejected.
-const PREFAB_KEY: &str = "prefab";
+pub(crate) const PREFAB_KEY: &str = "prefab";
 
 /// Single-key object marking an asset reference inside component data:
 /// `{ "$asset": "<logical-id>" }`. Planning resolves every marker before
