@@ -8,9 +8,9 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
-## Current handoff — `v0.0.14` released, `v0.0.15` cut (2026-09-30)
+## Current handoff — `v0.0.15` released, `v0.0.16` cut (2026-10-01)
 
-`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, and `v0.0.15` (minimal server-authoritative networking) is cut as tag `v0.0.15`. Continue with `.16` live collaboration per [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. Continue with `v0.1.0` integration per [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -26,11 +26,11 @@ failure semantics) remains Proposed. R-37 and R-38 are mitigated (see
 richer lifecycle needs such as pause/reload/replacement; those are not
 a `.13` gate. `.14` authored project state and simulation snapshots
 are released as tag `v0.0.14` — see the `v0.0.14` section below. `.15`
-minimal server-authoritative networking is cut as tag `v0.0.15` — see
-the `v0.0.15` section below.
+minimal server-authoritative networking is released as tag `v0.0.15` —
+see the `v0.0.15` section below. `.16` live collaboration is cut as
+tag `v0.0.16` — see the `v0.0.16` section below.
 
-With `.15` cut, the next milestones are `.16` the
-first collaboration slice, then `.1.0` integration in a small sample game. The detailed sequence
+With `.16` cut, the next milestone is `v0.1.0` integration in a small sample game. The detailed sequence
 and out-of-scope items are in [`v0.1.0-plan.md`](v0.1.0-plan.md); long-term
 editor, visual scripting, and ecosystem work is in
 [`future-roadmap.md`](future-roadmap.md).
@@ -682,6 +682,43 @@ identity/matchmaking, cross-build wire compatibility — see ADR 0027.
 
 Full scope: [`docs/release-notes/v0.0.15.md`](../release-notes/v0.0.15.md).
 
+## `v0.0.16` — Released as tag `v0.0.16` (2026-10-01)
+
+Single focus: live collaboration per
+[`v0.1.0-plan.md`](v0.1.0-plan.md#v0016--live-collaboration). Design record in
+[ADR 0028](../decisions/architecture-decision-records/0028-authoritative-live-collaboration-operations.md)
+(Accepted, code-match basis) and
+[`live-collaboration.md`](../architecture/live-collaboration.md).
+
+- [x] WP1 (operation contract): ADR 0028 WP1 selections closed (target-ID
+      type, additive in-document history/version-lineage model, prefab-veto
+      owner, numeric-validation owner); stable `(actor, client-op-id)`
+      idempotency, server-assigned sequences, target-scoped compare-and-set
+      conflicts, resync-or-reject recovery
+- [x] WP2 (edit surface): one operation — complete local-transform
+      replacement on an existing authored entity (`op.rs`, numeric
+      validation owned by `canary-collab`); owner/editor/reader roles
+      provisioned out-of-protocol (`permissions.rs`, fencing epoch)
+- [x] WP3 (authoritative session): `engine/canary-collab/src/session.rs`
+      (stages 1–11, durable commit before ack/broadcast, ordered outbox)
+      composed in `engine/canary-runtime/src/collab_session.rs` over
+      `canary-net` framing; two-client proof over the transport plus
+      restart fencing (epoch bump, no sequence reuse or double apply)
+- [x] WP4 (recovery/limits): retained-history tail or checkpointed-snapshot
+      resync, 1 MB snapshot ceiling with typed `TooLarge` (content gate +
+      encoded-reply gate, typed on every path), clone-ceiling revisit
+      trigger (p99 over 2 ms on a 1 MB project), break-it suites
+      (`canary-collab/tests/break_it.rs`,
+      `canary-runtime/tests/collab_break.rs`)
+
+**Explicitly not in `v0.0.16`**: peer-to-peer authority, CRDT merge,
+offline operation queues, generic component patches, prefab-graph rewrites,
+editor UI, presence/cursors, locks, hosted identity, unbounded history,
+history rewriting, gameplay `World` replication — see the exclusions in
+`live-collaboration.md`.
+
+Full scope: [`docs/release-notes/v0.0.16.md`](../release-notes/v0.0.16.md).
+
 ## Full architecture-to-implementation map
 
 Every documented subsystem, and where it actually stands. "Documented"
@@ -709,7 +746,7 @@ about working code in `engine/`.
 | Audio | ✅ | ✅ (bootstrap) | `AudioBackend` trait + private rodio 0.22.2 backend (decode-only MIT/Apache features, headless default), `AudioSource`/`AudioListener` + trigger system using propagated `GlobalTransform` poses; host must insert a device backend for audible output. Custom engine stays the long-term default per ADR 0023; `v0.0.12` |
 | `CanaryUI` (UI toolkit) | ✅ | ✅ (first-game slice) | ADR 0011 plus first-game contract in [`ui-toolkit.md`](../architecture/ui-toolkit.md); `canary-ui-core` (backend-neutral traits) + `canary-ui-egui` (egui 0.36 adapter, tessellate → RHI soup + scissor) implemented on `dev`, with same-window, same-RHI game HUD and shared input capture proven by `ui-game`. Full theming/layout/shaping remain future work |
 | Project state & versioning (`canary-state`) | ✅ | ✅ (`.14` slice) | Product boundary and migration/snapshot rules in [`state-and-versioning.md`](../architecture/state-and-versioning.md) and ADR 0026 (Accepted); `canary-state` implements canonical-JSON project files (deterministic order, unknown preservation, one-level prefabs, change log, atomic save/staged load), linear migration chains with a `migrate_fields` bridge, postcard snapshots with SHA-256 checksums, and dep-free prefab bake (`SpawnPlan::from_document`); `canary-runtime` composes staged spawn (`AuthoredSpawner`) and the simulation boundary (`SnapshotRegistry` capture/checksum/restore, `Simulation::step`, `SimClock`, RNG/clock via the reserved sim-core record with no wire break). Presentation exclusion, migration/unknown fixtures, and interrupted-write recovery are proven; released as tag `v0.0.14` |
-| Live collaboration | ✅ | ❌ | ADR 0013 accepts topology only. Proposed operation, permission, conflict, history, and recovery contract is in [`live-collaboration.md`](../architecture/live-collaboration.md) and ADR 0028; no protocol code |
+| Live collaboration | ✅ | ✅ (`.16` slice) | ADR 0028 (Accepted) + [`live-collaboration.md`](../architecture/live-collaboration.md); `canary-collab` (op, actor, permissions, wire, session) composed in `canary-runtime` (`CollabSessionHost`) over `canary-net` framing; two-client + restart/reconnect proof; cut as tag `v0.0.16`. See the `v0.0.16` section above |
 | Editor | ⚠️ Partial (vision-level) | ❌ | Post-`v0.1.0`; build on the validated consumer runtime, project-state formats, `CanaryUI`, plugin lifecycle, and windowed rendering. See [`future-roadmap.md`](future-roadmap.md) |
 | CLI/headless operation (editor) | ✅ (principle recorded) | N/A yet | No editor exists to apply it to; proven in spirit by `canary-runtime`/`xtask` today |
 | 2D/3D & non-game applicability | ✅ (vision + physics + rendering) | N/A | Positioning + architectural constraint, not a standalone feature |

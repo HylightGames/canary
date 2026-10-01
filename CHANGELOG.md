@@ -92,6 +92,41 @@ Full scope: [`docs/release-notes/v0.0.15.md`](docs/release-notes/v0.0.15.md).
 
 [v0.0.15]: https://github.com/HylightGames/canary/releases/tag/v0.0.15
 
+## [v0.0.16] — 2026-10-01
+
+### Server-authoritative live-collaboration operations
+
+`v0.0.16` adds the first shared-authored-state slice built directly on
+`.14`'s stable IDs/codecs and `.15`'s server-authoritative transport: a
+new `canary-collab` crate owning a single authored-transform operation
+with an 11-stage validation pipeline, server-assigned ordering,
+`(actor, client-op-id)` idempotency, a server-side permission store with
+restart fencing, bounded retained history with checkpoint envelopes, and
+`postcard` wire codecs with 1 MiB ceilings and typed `TooLarge`
+failures. The machine history is the ordering truth — no dual-write
+into the human change log (ADR 0028 Accepted). Two clients can edit one
+shared authored entity through an authoritative session with
+permissions, conflict, persistence, and reconnect recovery all
+observable; CRDTs, offline merge, and editor UI stay explicitly out of
+scope.
+
+### Added
+
+* **Collaboration operation crate** — new crate `canary-collab`: the one operation (`op.rs`: complete local-transform replacement on an existing authored entity, `TransformPayload::validate` with finite floats and quaternion normalization within `QUAT_NORM_EPSILON`; zero/negative scale is content, not an error), server-minted actor identity (`actor.rs`: `ActorId`, owner/editor/reader `Role`, `ClientOpId` bounded to 128 bytes — no client-supplied identity is ever trusted), and the authoritative `Session` (`session.rs`: fixed validation stages 1–11, durable commit before ack, ordered FIFO broadcast outbox capped at 1024 messages).
+* **Permission store** — server-side `PermissionStore` (`permissions.rs`: roles plus fencing epoch in its own atomic-JSON file, epoch 1 at provisioning, restart bumps the epoch, the file wins for known actors) provisioned out-of-protocol from pre-shared credentials; stage-4 role checks deny with the connection kept alive.
+* **Ordering, idempotency, and history** — server-assigned sequences monotonic across restarts via the durable store (never reused after restart); stable `(actor, client-op-id)` idempotency where an identical replay returns the prior outcome and evicted IDs follow the resync-or-reject path, never silent re-execution; target-scoped compare-and-set conflicts (no global CAS, no LWW, no history rewrite); bounded retained history (`MAX_RETAINED_OPERATIONS` 128) where each trim records a checkpoint envelope (project revision, last retained op sequence, history marker) so a client behind the checkpoint takes the snapshot-plus-checkpoint path, never a partial tail.
+* **Revisions and document gates** — `canary-state` gains `revisions.rs`: `LogicalEntityId` (the validated `entity.<local>` suffix; a rename is delete-plus-create, never a silent retarget), `ProjectRevision`/`ObjectRevision`/`OperationSequence`, the additive in-document `history` section (`DocumentHistory`: same canonical JSON and atomic save as the state it versions, `#[serde(default)]` and skipped while empty so files that never saw collaboration are byte-identical to pre-history files, genesis at project 0 / next-sequence 1 regardless of the human log), `trim_retained`, and `tail_since`/`TailGap`; plus document gates (`entity_section_exists`, `transform_override_allowed` prefab veto reusing the one-level prefab rules, `entity_transform`/`set_entity_transform`). `canary-runtime` composes the `CollabSessionHost` (`collab_session.rs`) over `canary-net` framing.
+* **Wire codecs and ceilings** — bounded `postcard` request/response/sync codecs with an owned frame-tag registry (`wire.rs`: `TAG_EDIT`/`TAG_SYNC`, versioned with `COLLAB_PROTOCOL_VERSION`) and the limit gate before any allocation: 8 KiB requests, 512 B sync requests, 1 MiB responses and snapshots (`MAX_SNAPSHOT_BYTES`). Oversize fails typed (`CollabError::TooLarge` on the content gate, the encoded-reply gate, and every frame-body path), never truncated and never a generic `Malformed`. The 1 MiB snapshot ceiling is the `.16`-and-`.1.0` contract; the revisit trigger is the first real project whose canonical snapshot exceeds 512 KiB (chunked transfer wins over a silent bump), and the accept-path clone revisit trigger is p99 accept latency over 2 ms on a 1 MB project measured on real hardware.
+* **Proofs** — stage-gated unit coverage (each rejection stage pins its stable code) plus break-it suites (`canary-collab/tests/break_it.rs`, `canary-runtime/tests/collab_break.rs`): two clients converge through the session, duplicates/conflicts/denials behave per the written rules, restart fencing bumps the epoch with no sequence reuse or double apply, and reconnect resync recovers through the retained tail or a checkpointed snapshot.
+
+### Explicitly not in `v0.0.16`
+
+Peer-to-peer authority, CRDT merge, offline operation queues, generic component patches, prefab-graph rewrites, editor UI, presence/cursors, locks, hosted identity, unbounded history, history rewriting, and gameplay `World` replication. Carried forward per ADR 0028 and `live-collaboration.md`: in-protocol grant/revoke, a JSON depth/size budget on project and permission files (local operator-owned input for now), signed sync checkpoints (single-operator trust for now), and per-property LWW (deferred, not rejected — a possible future refinement inside the target revision check).
+
+Full scope: [`docs/release-notes/v0.0.16.md`](docs/release-notes/v0.0.16.md).
+
+[v0.0.16]: https://github.com/HylightGames/canary/releases/tag/v0.0.16
+
 ## [v0.0.12] — 2026-09-28
 
 ### Audio playback

@@ -229,6 +229,19 @@ Scoped truths this slice holds (and stops at):
   snapshots + tombstones), an unreliable datagram lane (needs measured
   evidence), production identity (certificate pinning is proof-only).
 
+## Live collaboration (`.16`) shares the transport, not the state model
+
+The `.16` collaboration slice
+([`live-collaboration.md`](live-collaboration.md),
+[ADR 0028](../decisions/architecture-decision-records/0028-authoritative-live-collaboration-operations.md))
+moves its tagged frames across the same `canary-net` transport,
+length-prefix framing, and bounded-postcard codec conventions proven in
+`.15`. It shares nothing else: `OperationSequence` is not `NetSequence`,
+the authored snapshot/history model is not gameplay replication state, and
+ECS `Tick`, `NetEntityId`, `ProjectRevision`, and `ObjectRevision` remain
+distinct domains. History retention, conflict policy, and permission checks
+live in `canary-collab`/`canary-runtime`, never in `canary-net`.
+
 Pre-wire preconditions: the separate-process server/client proof now exists
 in-tree (`tests/session_roundtrip.rs`), so that half of the acceptance gate
 is met pending validation; API review is still outstanding. ADR 0027 is

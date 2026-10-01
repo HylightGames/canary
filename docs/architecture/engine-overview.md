@@ -57,12 +57,13 @@ or through explicit, documented interfaces — never through ad hoc globals.
 | Scripting / language-agnostic runtime | *(planned: `canary-script`)* | [scripting-system.md](scripting-system.md) |
 | Rendering (RHI + Vulkan backend + ECS bridge) | `canary-render`, `canary-render-vulkan`, `canary-render-ecs` | [rendering.md](rendering.md) |
 | Physics | `canary-physics` (2D slice) | [physics.md](physics.md) |
-| Networking | *(planned: `canary-net`)* | [networking.md](networking.md) |
+| Networking | `canary-net` (.15 slice: server-authoritative replication transport — versioned envelope, bounded framing, QUIC behind a Canary-owned trait) | [networking.md](networking.md) |
 | Asset pipeline | `canary-assets` (minimal synchronous loaders) | [asset-system.md](asset-system.md) |
 | UI toolkit (`CanaryUI`) | `canary-ui-core`, `canary-ui-egui` (first-game slice) | [ui-toolkit.md](ui-toolkit.md) |
 | Audio (`CanaryAudio`) | `canary-audio` (bootstrap) | [audio.md](audio.md) |
 | Localization (`CanaryLoc`) | `canary-loc` | [localization.md](localization.md) |
-| Project state & versioning | *(planned: `canary-state`)* | [state-and-versioning.md](state-and-versioning.md) |
+| Project state & versioning | `canary-state` (.14 slice: canonical authored project files plus deterministic checksummed snapshots) | [state-and-versioning.md](state-and-versioning.md) |
+| Live collaboration operations | `canary-collab` (new .16 slice: authoritative transform-replacement op path, bounded wire codecs, ordered session with durable history) | [live-collaboration.md](live-collaboration.md) |
 
 "Planned" crates are architected in this document set but not implemented
 yet. Some implemented crates provide only a narrow bootstrap slice; see

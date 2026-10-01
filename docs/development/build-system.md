@@ -163,6 +163,14 @@ flexibility an uncommitted lockfile would give a pure library.
 > reframed to point at the standing policy they became; the rest
 > untouched).
 
+History note: workspace members are aligned on `sha2 0.11`
+(`canary-state`, `canary-net`, `canary-assets` — same SHA-256 algorithm
+either way, so no hash-stability impact). `wasmtime` still pulls `sha2
+0.10.9` transitively via `cranelift-codegen`, which is outside workspace
+control and unaffected by the workspace line (see the `canary-net`
+manifest comment and `Cargo.lock`, which resolves both `0.10.9` and
+`0.11.0`).
+
 `rust-toolchain.toml` pins `channel = "stable"`, deliberately left
 unpinned to an exact version — see that file's own comment for why. Some
 implementation sessions, though, had only network access to this

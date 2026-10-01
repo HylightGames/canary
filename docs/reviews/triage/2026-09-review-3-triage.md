@@ -341,3 +341,16 @@ separate roots, profiles, and bytes ("never the same bytes" —
 `engine/canary-state/src/lib.rs`), and ADR 0026's consequences leave
 stable wire compatibility to `.15` networking. No verdict change — the
 deferred item landing as filed.
+
+## `v0.0.15` cut + `v0.0.16` note (2026-10-01, docs lane; `.16` engine work on `dev`, uncommitted)
+
+`v0.0.15` is cut (`tag v0.0.15`; replication vocabulary including
+`TombstoneLog` committed in `de35cf5`) — the "leaves ... to `.15`
+networking" framing above now points at committed work. The `.16` op path
+(uncommitted `canary-collab` crate on `dev`) builds on the `.14`
+stable-ID/codec boundary and `.15` transport authority without merging the
+formats: authored-operation history lives in-document in `canary-state`
+(`revisions.rs`), separate from replication's `TombstoneLog`, which the op
+path explicitly does not touch ("No `TombstoneLog` ... anywhere in this op
+path," `engine/canary-collab/src/lib.rs:32-34`). The primitives-vs-format
+split stands as filed. No verdict change.

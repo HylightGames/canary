@@ -100,3 +100,17 @@ register honestly records progress rather than closure. No triage verdict
 above changes: replication sidesteps the `Tick`-shape concern (R-32 stays
 Open, narrowed) and defers prediction/rollback per plan, consistent with
 the prior triage positions. Nothing here re-opens a settled point.
+
+## `v0.0.15` cut + `v0.0.16` note (2026-10-01, docs lane; `.16` engine work on `dev`, uncommitted)
+
+`v0.0.15` is cut (`tag v0.0.15`; replication vocabulary including
+`TombstoneLog` committed in `de35cf5`) — the "on `dev`, uncommitted"
+framing above now describes committed work. R-33 stays In Progress, not
+Mitigated: the commit condition in its risk-register clause is met, but
+gates/API-review evidence is not recorded there. The `.16` op path
+(uncommitted `canary-collab` crate on `dev`) changes neither concern:
+server-assigned op sequences plus fencing epoch plus target-revision
+compare-and-set, explicitly "not client timestamps or ECS ticks," with
+"No `TombstoneLog`, `NetSequence`, or `Tick` anywhere in this op path"
+(`engine/canary-collab/src/lib.rs:32-34`) — R-32 stays Open (narrowed),
+R-33 still rests on the `.15` `TombstoneLog`. No verdict above changes.

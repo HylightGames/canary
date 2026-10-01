@@ -182,6 +182,31 @@ whole `World`” operation is not the contract. The snapshot API remains
   detection. The `.14` change set is not the accepted-operation history
   introduced by collaboration in `.16`.
 
+#### Accepted-operation history (`.16`)
+
+The collaboration operation history is an additive in-document `history`
+section on the authored document (`canary-state` `revisions.rs`), not a
+sidecar file and not an extension of the human `changes` log. It holds the
+project revision, the next assignable operation sequence, per-target
+object revisions keyed by local entity name, the bounded retained tail of
+accepted records (actor, client op ID, target, expected revision,
+assigned sequence, resulting revisions, schema, canonical payload), the
+checkpoint envelope from the most recent trim (project revision, last
+retained sequence, SHA-256 marker), and the lifetime evicted count.
+
+Rules that follow from the placement: state plus history persist in one
+atomic save, so a durable commit is indivisible; the section is
+`#[serde(default)]` and skipped while empty, so collaboration-naive files
+stay byte-identical and legacy files open at genesis (project 0, every
+target 0, next sequence 1) no matter how long their `changes` log is; and
+the envelope stays `canary.project` version 1, encoding 1. Trim keeps at
+most `MAX_RETAINED_OPERATIONS` records and advances the checkpoint, so a
+client behind the horizon resyncs from snapshot-plus-checkpoint, never
+from a partial tail. Rejected requests never enter this history. Undo, if
+it comes later, appends a compensating operation here — history is never
+rewritten. See ADR 0028 (WP1 selections amendment) for the target-ID,
+history-placement, and veto-location decisions this section implements.
+
 #### Simulation snapshots
 
 - Snapshot participation is explicit. Each deterministic subsystem/resource
