@@ -7,3 +7,12 @@
 *.bin filter=lfs diff=lfs merge=lfs -text
 *.ogg filter=lfs diff=lfs merge=lfs -text
 *.flac filter=lfs diff=lfs merge=lfs -text
+
+# Small fixtures stay as regular blobs to save LFS bandwidth (path-specific
+# entries win over the extension patterns above).
+engine/canary-assets/tests/fixtures/tone-mono-8k.wav -filter -diff -merge -text
+engine/canary-assets/tests/fixtures/tone-stereo-8k.ogg -filter -diff -merge -text
+examples/collectathon/assets/box.glb -filter -diff -merge -text
+examples/collectathon/assets/quad.glb -filter -diff -merge -text
+examples/collectathon/assets/rgba2x2.png -filter -diff -merge -text
+examples/collectathon/assets/tone-mono-8k.wav -filter -diff -merge -text
