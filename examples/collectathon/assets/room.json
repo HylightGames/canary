@@ -1,0 +1,57 @@
+{
+  "envelope": {
+    "schema": "canary.project",
+    "version": 1,
+    "encoding": 1
+  },
+  "project": "123e4567-e89b-42d3-a456-426614174000",
+  "sections": {
+    "entity.goal": {
+      "collectathon.pickup@1": {
+        "x": 100.0,
+        "y": -80.0,
+        "collected": false,
+        "is_goal": true
+      }
+    },
+    "entity.pickup_a": {
+      "collectathon.pickup@1": {
+        "x": -60.0,
+        "y": 20.0,
+        "collected": false,
+        "is_goal": false
+      }
+    },
+    "entity.pickup_b": {
+      "collectathon.pickup@1": {
+        "x": 40.0,
+        "y": 60.0,
+        "collected": false,
+        "is_goal": false
+      }
+    },
+    "entity.pickup_c": {
+      "collectathon.pickup@1": {
+        "x": -20.0,
+        "y": -70.0,
+        "collected": false,
+        "is_goal": false
+      }
+    },
+    "entity.player": {
+      "collectathon.player@1": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "collectathon.score@1": {
+        "points": 0
+      }
+    }
+  },
+  "changes": [
+    {
+      "sequence": 1,
+      "description": "Seed room: player plus three shards plus the goal."
+    }
+  ]
+}

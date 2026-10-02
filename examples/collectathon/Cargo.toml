@@ -1,0 +1,45 @@
+[package]
+name = "collectathon"
+description = "Example: a one-room 2D collectathon proving Canary's runtime, assets, audio, UI, state, networking, collaboration, and plugin boundaries together."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+canary-assets = { path = "../../engine/canary-assets" }
+canary-audio = { path = "../../engine/canary-audio" }
+canary-collab = { path = "../../engine/canary-collab" }
+canary-core = { path = "../../engine/canary-core" }
+canary-ecs = { path = "../../engine/canary-ecs" }
+canary-input = { path = "../../engine/canary-input" }
+canary-net = { path = "../../engine/canary-net" }
+canary-physics = { path = "../../engine/canary-physics" }
+canary-platform = { path = "../../engine/canary-platform", features = ["winit-backend"] }
+canary-plugin-api = { path = "../../engine/canary-plugin-api" }
+canary-render = { path = "../../engine/canary-render" }
+canary-render-ecs = { path = "../../engine/canary-render-ecs" }
+canary-render-vulkan = { path = "../../engine/canary-render-vulkan", features = ["presentation"] }
+canary-runtime = { path = "../../engine/canary-runtime" }
+canary-scheduler = { path = "../../engine/canary-scheduler" }
+canary-state = { path = "../../engine/canary-state" }
+canary-transform = { path = "../../engine/canary-transform" }
+canary-ui-core = { path = "../../engine/canary-ui-core" }
+canary-ui-egui = { path = "../../engine/canary-ui-egui" }
+glam = "0.33"
+rcgen = "0.13"
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+
+# WGSL -> SPIR-V for the scene shader and the UI paint shader: the same
+# confirmed-minimal pin set as ui-game (see that example's Cargo.toml)
+# — PipelineDescriptor takes precompiled SPIR-V, not WGSL.
+naga = { version = "30", features = ["wgsl-in", "spv-out"] }
+
+[build-dependencies]
+wat = "1"

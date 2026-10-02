@@ -23,6 +23,7 @@ members = [
     "engine/canary-ui-egui",
     "examples/spinning-cube",
     "examples/ui-game",
+    "examples/collectathon",
     "tools/xtask",
 ]
 
