@@ -8,9 +8,9 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
-## Current handoff — `v0.0.15` released, `v0.0.16` cut (2026-10-01)
+## Current handoff — `v0.0.16` cut, `v0.1.0` proof sample on `dev` (2026-10-01)
 
-`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. Continue with `v0.1.0` integration per [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag and no `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample is committed as `387ba00` on `dev` (unpushed), covering WP1 (consumer project), WP2 (complete runtime), and WP3 (integration boundaries); WP4 (docs closeout + live-device matrix) is in progress. Continue with the `v0.1.0` proof per [`v0.1.0-plan.md`](v0.1.0-plan.md#v010--integration-proof). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -718,6 +718,83 @@ history rewriting, gameplay `World` replication — see the exclusions in
 `live-collaboration.md`.
 
 Full scope: [`docs/release-notes/v0.0.16.md`](../release-notes/v0.0.16.md).
+
+## `v0.1.0-proof` — Sample committed as `387ba00` on `dev` (NOT released, 2026-10-01)
+
+The `v0.1.0` integration proof is a sample, not a release: no `v0.1.0`
+tag exists, no `docs/release-notes/v0.1.0.md` exists (deliberately — see
+below), and no engine code changed for it. The sample lives entirely in
+`examples/collectathon/` (committed as `387ba00`, unpushed): a one-room
+2D collectathon played only against documented public APIs, per
+[`v0.1.0-plan.md`](v0.1.0-plan.md#v010--integration-proof). Proof record:
+[`examples/collectathon/README.md`](../../examples/collectathon/README.md).
+
+- [x] WP1 (consumer project): `examples/collectathon/` builds and runs
+      only against documented public APIs — `cargo build -p collectathon`
+      from a fresh checkout; asset files plus source licenses in
+      `examples/collectathon/assets/` (`LICENSES.md`; mesh/texture/audio
+      fixtures are byte copies of the `canary-assets` fixtures,
+      `room.json` + `guest.wat` are original, all MIT); expected
+      interaction in the sample README (player at room center, score 0;
+      touch or collect-press gathers shards at extended range; all three
+      shards plus the goal completes the room, `Goal: done`).
+- [x] WP2 (complete runtime): mesh/texture/audio assets load from disk
+      through the public asset APIs (`src/assets.rs`: `quad.glb`,
+      `box.glb`, `rgba2x2.png`, `tone-mono-8k.wav`); audio brings up the
+      OS default device with a decode-only headless fallback, never a
+      panic (`src/bin/collectathon.rs`); live window via
+      `canary-runtime` `FrameDriver` (`drive_frame`: event pump → UI
+      routing → tick → schedule); mapped digital actions drive a
+      physics body (`src/game.rs`: velocity writes, solver-integrated);
+      HUD derived from ECS state trails the scene by one frame
+      (`src/hud.rs`); pickup state triggers the loaded sound; authored
+      room saves/reloads through stable IDs
+      (`assets/room.json`: `entity.player`, three shards, goal);
+      simulation snapshot captures the deterministic boundary separately
+      (`src/state.rs`: `snapshot_registry`, byte-stable
+      capture→restore→recapture); Tier A guest reads the game `World`
+      through the scoped `OnLoad`/`OnUnload` contract only
+      (`assets/guest.wat`, `src/plugin.rs`, no per-frame hooks).
+- [x] WP3 (integration boundaries): repeatable separate-process
+      server/client replication over real QUIC
+      (`src/bin/collectathon_server.rs` /
+      `src/bin/collectathon_client.rs`: handshake → snapshot → delta →
+      frame-tagged input → ack → clean disconnect; 6 snapshot entries
+      across 5 entities, 5-change/1-removal delta, `score=Some(1)`,
+      `ack seq=1 applied_tick=3`; no prediction or rollback per ADR
+      0027); two-client shared-authored-edit path
+      (`src/bin/collectathon_collab_client.rs`: owner accept seq=1/rev=1,
+      reader deny `Forbidden`, stale-editor `RevisionConflict` with
+      refresh, rebased accept seq=2/rev=2, reader sync tail of 2 ops with
+      no snapshot; gameplay schemas asserted absent from the project
+      file); live-window/audio/device checks that CI cannot host remain
+      manual — see the unchecked items in the sample README checklist.
+- [ ] WP4 (docs closeout + live-device matrix): this section plus the
+      sample README refresh (run commands and evidence claims verified
+      against the binaries, manual-evidence checklist mapped to the
+      plan's exit evidence). Still open: the live-device evidence rows
+      (windowed playthrough platform/command/result, headless
+      deterministic run evidence, audio-device playback
+      platform/command/result) need a real machine run before `v0.1.0`
+      can be cut.
+
+**Explicitly untouched non-goals** (per
+[`v0.1.0-plan.md`](v0.1.0-plan.md#explicitly-not-required-for-v010)):
+editor, visual scripting, community marketplace, console support, AI/ML
+integration, client prediction/rollback netcode, full asset-cooking
+pipeline with hot reload, beginner-friendly tooling/workflow. None of
+these was started, and none gates the proof.
+
+**Remaining before push/release**: the user's own follow-up scope ("lot
+more") beyond this lane — this lane commits nothing and pushes nothing.
+When that scope lands: record the live-device evidence rows, re-run all
+four gates on the final tree, then cut `v0.1.0` (tag +
+`docs/release-notes/v0.1.0.md`) as a separate release action. No
+release-notes file is created for the proof itself: per the
+`docs/release-notes/` convention (one file per cut release, `v0.0.1.md`
+through `v0.0.16.md`), an uncut milestone gets no note, and there is no
+pre-release-evidence convention elsewhere in `docs/` to follow instead —
+the proof record is the sample README plus this section.
 
 ## Full architecture-to-implementation map
 

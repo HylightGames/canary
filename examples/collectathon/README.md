@@ -7,14 +7,16 @@ the goal, and shows score/goal status in a `CanaryUI` HUD. One HUD button
 sends game intent through the documented simulation boundary; pickup state
 triggers a sound loaded from disk.
 
-Skeleton status (WP2): playable game logic is in — physics-driven
+Skeleton status (WP2–WP3 done, WP4 in progress): playable game logic is in — physics-driven
 movement on mapped actions, touch plus collect-edge pickup collection
 with a pickup voice, HUD score/goal with a reset button, asset loading
 into stores, windowed presentation with audio-device bring-up (headless
-fallback), and the deterministic headless twin. WP3 adds the
-multi-process harnesses: the authoritative replication server/client, the
+fallback), and the deterministic headless twin. The multi-process
+harnesses are also in: the authoritative replication server/client, the
 two-client collaboration CLI, the Tier A guest probe, and the snapshot
-determinism proof.
+determinism proof (checklist below). What remains is WP4: the
+live-device evidence rows (platform/command/result) need a real machine
+run before `v0.1.0` can be cut — `v0.1.0` itself is NOT released.
 
 ## Setup
 
@@ -28,11 +30,11 @@ cargo build -p collectathon
 
 | Binary | Command | Role |
 | --- | --- | --- |
-| Windowed game | `cargo run -p collectathon --bin collectathon` | Full game |
+| Windowed game | `cargo run -p collectathon --bin collectathon` (append ` -- 600` for a 600-frame scripted run) | Full game |
 | Headless twin | `cargo run -p collectathon --bin collectathon_headless` | Deterministic scripted run |
-| Server | `cargo run -p collectathon --bin collectathon_server` | Authoritative replication (QUIC handshake → snapshot → delta → input → ack) |
+| Server | `cargo run -p collectathon --bin collectathon_server` (options: `--bind 127.0.0.1:0`, `--identity-dir DIR`; `--help` prints usage) | Authoritative replication (QUIC handshake → snapshot → delta → input → ack) |
 | Client | `cargo run -p collectathon --bin collectathon_client -- --server ADDR --cert CERT` | Replication client (converge, frame-tagged input, ack) |
-| Collab CLI | `cargo run -p collectathon --bin collectathon_collab_client` | Shared-authored-edit CLI (accept/deny/conflict/sync over `CollabSessionHost`) |
+| Collab CLI | `cargo run -p collectathon --bin collectathon_collab_client` (options: `--project PATH`, `--permissions PATH`; `--help` prints usage) | Shared-authored-edit CLI (accept/deny/conflict/sync over `CollabSessionHost`) |
 
 ## Controls
 
@@ -59,8 +61,17 @@ are original to this example. Everything is MIT.
 
 ## Live-evidence checklist (WP3 paths run; WP4 owns the platform matrix)
 
-- [ ] Windowed playthrough on <platform>: command, expected result, evidence.
-- [ ] Headless deterministic run: command, expected result, evidence.
+Each item maps to the [`v0.1.0-plan.md`](../../docs/roadmap/v0.1.0-plan.md#v010--integration-proof)
+exit evidence: a developer on the documented consumer path can build and
+play the sample without private harness APIs (setup/launch/controls
+above); the per-subsystem checklist (physics, rendering, assets, audio,
+UI, state, networking, collaboration, plugins) is demonstrated in that
+game (checked items below); CI covers the deterministic checks while the
+unchecked items are the required live-device evidence, named per
+platform rather than implied verified.
+
+- [ ] Windowed playthrough on <platform>: `cargo run -p collectathon --bin collectathon` (or append ` -- 600` for a bounded run); expected: live window plays (move/collect/reset per Controls, HUD trails scene by one frame, pickup sound on collection); evidence: <to record>.
+- [ ] Headless deterministic run: `cargo run -p collectathon --bin collectathon_headless`; expected: `collectathon_headless: score … collected …/… player (…)` after 90 scripted frames (hold-left from frame 0, collect edge frame 33, release frame 60; decode-only audio); evidence: <to record>.
 - [x] Server/client replication run: the server prints `READY <addr>
   <identity-dir>`, serves one session (handshake → snapshot → delta →
   input → ack), and exits after a clean disconnect; the client converges
@@ -107,4 +118,4 @@ are original to this example. Everything is MIT.
   cargo test -p collectathon --lib state
   # capture_restore_recapture_is_byte_stable … ok
   ```
-- [ ] Audio-device playback on <platform>: command, expected result, evidence.
+- [ ] Audio-device playback on <platform>: run the windowed game above on a machine with an OS default audio device; expected: `audio device opened (audible backend)` in the log and the loaded `tone-mono-8k.wav` audible on each collection (silent machines log `no audio device … continuing headless` and play decode-only — a supported configuration, not a failure); evidence: <to record>.
