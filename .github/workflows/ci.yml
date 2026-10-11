@@ -95,6 +95,130 @@ jobs:
       - name: cargo test --locked --workspace --features winit-backend
         run: cargo test --locked --workspace --features canary-platform/winit-backend
 
+  release-gate:
+    name: v0.1.0 release gate (headless proof)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Linux-only automated release gate for the v0.1.0 integration proof:
+    # every step here is display-free (no GPU, no X server, no audio
+    # device). The windowed software-Vulkan/Xvfb smoke
+    # (`cargo run -p collectathon --bin collectathon -- 600`) and the
+    # real-device/audio evidence stay manual by design -- this gate must
+    # not fail on a headless runner.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Collectathon fixtures are regular blobs (see .gitattributes);
+          # kept so every job checks out the same tree.
+          lfs: true
+      - name: Install Rust
+        run: rustup toolchain install stable
+      # Same compile-time deps as lint-and-test: collectathon builds on
+      # canary-platform/winit-backend (X11/Wayland headers) and
+      # canary-audio (ALSA headers, ADR 0023) even for headless runs.
+      # No Xvfb, no Vulkan ICD: nothing here opens a display or device.
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev
+      - name: Asset fixture check (fail fast on missing/corrupt bytes)
+        # Fail-fast guard ahead of the loader runs: every fixture the
+        # public loaders read must exist, must not be a Git-LFS pointer
+        # (the PNG-class regression that motivated this gate), and must
+        # carry its format magic. The decoders themselves run for real in
+        # the headless/server steps below (`load_game_assets` + `load_room`
+        # exit nonzero on any undecodable file via typed
+        # AssetError/StateError), so this guard plus those runs is the
+        # full missing/corrupt-fixture gate.
+        run: |
+          set -euo pipefail
+          dir=examples/collectathon/assets
+          for fixture in quad.glb box.glb rgba2x2.png tone-mono-8k.wav room.json; do
+            test -f "$dir/$fixture" || { echo "::error ::missing fixture $dir/$fixture"; exit 1; }
+            if head -c 128 "$dir/$fixture" | grep -q "git-lfs.github.com"; then
+              echo "::error ::$dir/$fixture holds a Git-LFS pointer, not fixture bytes"
+              exit 1
+            fi
+          done
+          python3 - <<"EOF"
+          import json
+          from pathlib import Path
+          root = Path("examples/collectathon/assets")
+          def magic(name, want):
+              data = (root / name).read_bytes()
+              assert data[: len(want)] == want, f"{name}: bad magic {data[:16]!r}"
+              print(f"{name}: {len(data)} bytes, magic ok")
+          magic("rgba2x2.png", b"\x89PNG\r\n\x1a\n")
+          magic("quad.glb", b"glTF")
+          magic("box.glb", b"glTF")
+          wav = (root / "tone-mono-8k.wav").read_bytes()
+          assert wav[:4] == b"RIFF" and wav[8:12] == b"WAVE", "tone-mono-8k.wav: bad RIFF/WAVE magic"
+          print(f"tone-mono-8k.wav: {len(wav)} bytes, RIFF/WAVE ok")
+          room = json.loads((root / "room.json").read_text())
+          print(f"room.json: parses as JSON ({len(room)} top-level keys)")
+          EOF
+      - name: Deterministic headless smoke (90 frames, score 1, 1/4)
+        # The headless twin IS the public-loader run over
+        # examples/collectathon/assets, and it needs no display or sound
+        # card (HeadlessWindow, NullBackend, decode-only audio). The
+        # summary-line asserts pin the deterministic baseline (hold-left
+        # from frame 0, collect edge frame 33, release frame 60).
+        run: |
+          set -eu
+          cargo run --locked -p collectathon --bin collectathon_headless 2>&1 | tee headless.log
+          test "${PIPESTATUS[0]}" -eq 0
+          grep -q "score 1 collected 1/4" headless.log
+          grep -q "after 90 frames" headless.log
+      - name: Server/client loopback (QUIC handshake to ack)
+        # Display-free (UDP loopback only, no window/GPU/audio): the
+        # server binds 127.0.0.1:0, prints `READY <addr> <identity-dir>`,
+        # serves one session, and exits; the client converges on the
+        # snapshot, applies the delta, submits frame-tagged input, awaits
+        # the ack, and disconnects. Pre-built first so the READY wait
+        # below measures serve time, not compile time.
+        run: |
+          set -eu
+          cargo build --locked -p collectathon --bins
+          id_dir="$RUNNER_TEMP/collectathon-id"
+          mkdir -p "$id_dir"
+          rm -f server.log client.log server.pid
+          cargo run --locked -p collectathon --bin collectathon_server -- --bind 127.0.0.1:0 --identity-dir "$id_dir" > server.log 2>&1 &
+          echo $! > server.pid
+          ready=""
+          for _ in $(seq 1 120); do
+            if grep -q "^READY " server.log 2>/dev/null; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$(cat server.pid)" 2>/dev/null; then
+              echo "::error ::replication server exited before printing READY"
+              cat server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          test -n "$ready" || { echo "::error ::replication server never printed READY"; cat server.log; exit 1; }
+          server_addr="$(grep "^READY " server.log | head -n 1 | awk '{print $2}')"
+          test -n "$server_addr"
+          cargo run --locked -p collectathon --bin collectathon_client -- --server "$server_addr" --cert "$id_dir/server.der" 2>&1 | tee client.log
+          test "${PIPESTATUS[0]}" -eq 0
+          grep -q "snapshot converged" client.log
+          grep -q "delta applied" client.log
+          grep -q "ack seq=1" client.log
+          grep -q "clean disconnect" client.log
+          wait "$(cat server.pid)"
+      - name: Collab CLI (two-client shared edit, in-process)
+        # Display-free (in-process CollabSessionHost over temp files: no
+        # window/GPU/audio/network): owner accept, reader deny, stale
+        # conflict with refresh, rebased accept, sync tail, plus the
+        # gameplay-separation assert -- all inside the binary, which exits
+        # nonzero on any deviation.
+        run: |
+          set -eu
+          cargo run --locked -p collectathon --bin collectathon_collab_client 2>&1 | tee collab.log
+          test "${PIPESTATUS[0]}" -eq 0
+          grep -q "two-client run converged" collab.log
+
   windowing-integration:
     name: Real windowing integration test (Xvfb)
     runs-on: ubuntu-latest
