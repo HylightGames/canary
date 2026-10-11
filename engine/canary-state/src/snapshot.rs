@@ -762,20 +762,31 @@ mod tests {
         save_snapshot(&path, &good_bytes).expect("first save");
 
         // Crashed writer: partial sibling temp, no rename. The committed
-        // file still loads and verifies. The temp name appends the suffix
-        // (`sim.bin.tmp`), never replacing the extension — see
-        // `crate::authored::atomic_write`.
+        // file still loads and verifies. Temp names are unique per call
+        // (`sim.bin.tmp.<pid>.<n>`), so a stale temp from a killed writer
+        // is never read back; the fixed-suffix name below stands in for
+        // any such leftover.
         let tmp = path.with_extension("bin.tmp");
         std::fs::write(&tmp, &good_bytes[..good_bytes.len() / 2]).expect("plant partial");
         let recovered = load_snapshot(&path).expect("recover");
         decode_snapshot(&recovered).expect("good file verifies");
 
-        // Next save overwrites the stale temp and renames; a truncated
+        // Next save writes a fresh unique temp and renames; a truncated
         // final file then fails typed at the checksum gate.
         let (next_bytes, _) =
             encode_snapshot(&profile(), vec![record(0), record(1)]).expect("encode");
         save_snapshot(&path, &next_bytes).expect("second save");
-        assert!(!tmp.exists(), "rename consumes the temp file");
+        let residue: Vec<_> = std::fs::read_dir(&dir)
+            .expect("list dir")
+            .map(|entry| entry.expect("dir entry").file_name())
+            .collect();
+        assert!(
+            residue.iter().all(|name| {
+                let name = name.to_string_lossy();
+                name == "sim.bin" || name == "sim.bin.tmp"
+            }),
+            "unique temps leave no residue: {residue:?}"
+        );
         std::fs::write(&path, &next_bytes[..next_bytes.len() / 2]).expect("truncate");
         let broken = load_snapshot(&path).expect("truncated file still reads");
         assert!(matches!(

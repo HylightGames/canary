@@ -61,7 +61,7 @@ const ENTITY_REF_KEY: &str = "$entity";
 /// Assigns (or reuses) `entity`'s canonical snapshot-local ID through
 /// `table` — keyed by the full `(index, generation)` tuple so recycled
 /// slots never alias — and wraps it in the reserved
-/// [`ENTITY_REF_KEY`] map shape. Call from
+/// `ENTITY_REF_KEY` map shape. Call from
 /// [`SimComponent::write_snapshot`]; the matching restore side is
 /// [`decode_entity_ref`], fed by the restore's canonical-to-fresh map.
 pub fn encode_entity_ref(table: &mut RemapTable, entity: Entity) -> SnapshotValue {
@@ -859,7 +859,7 @@ impl RestoreReport {
 }
 
 /// Recursively validates entity references inside one field value: any map
-/// holding the reserved [`ENTITY_REF_KEY`] must be exactly
+/// holding the reserved `ENTITY_REF_KEY` must be exactly
 /// `{ "$entity": U64(id) }` with `id` present in the snapshot's record set.
 /// Ordinary maps and lists recurse; every other value holds no references.
 fn check_value_refs(
@@ -2370,7 +2370,41 @@ mod tests {
             StateError::ChecksumMismatch { .. } | StateError::SnapshotCodec(_)
         ));
         save_snapshot(&path, &good_bytes).expect("second save");
-        assert!(!tmp.exists(), "rename consumes the temp file");
+        // Unique-temp contract (F-19): the second save writes a fresh
+        // `sim.bin.tmp.<pid>.<counter>` temp and renames it; the planted
+        // legacy fixed-suffix leftover is never read or consumed.
+        assert_eq!(
+            std::fs::read(&tmp)
+                .expect("legacy leftover stays")
+                .as_slice(),
+            &good_bytes[..good_bytes.len() / 2],
+            "unique-temp saves leave the legacy fixed-suffix leftover untouched"
+        );
+        assert_eq!(
+            std::fs::read(&path).expect("read committed").as_slice(),
+            good_bytes.as_slice(),
+            "committed bytes must be the complete second save"
+        );
+        let residue: Vec<String> = std::fs::read_dir(&dir)
+            .expect("list dir")
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert!(
+            residue
+                .iter()
+                .all(|name| name == "sim.bin" || name == "sim.bin.tmp"),
+            "only the planted legacy leftover may sit beside the save: {residue:?}"
+        );
+        assert!(
+            !residue.iter().any(|name| name.starts_with("sim.bin.tmp.")),
+            "unique temps leave no residue: {residue:?}"
+        );
 
         // The recovered file continues deterministically: restore into a
         // wrong-seeded simulation, step both, compare.

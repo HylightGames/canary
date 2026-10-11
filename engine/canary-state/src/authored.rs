@@ -1,7 +1,7 @@
 //! Authored project files: canonical pretty JSON, deterministic ordering.
 //!
-//! An [`AuthoredDocument`] is the on-disk project: an [`AuthoredEnvelope`](crate::schema::AuthoredEnvelope),
-//! the [`ProjectId`](crate::identity::ProjectId), named sections of structured
+//! An [`AuthoredDocument`] is the on-disk project: an [`AuthoredEnvelope`],
+//! the [`ProjectId`], named sections of structured
 //! data, an optional prefab table, and a change log. Sections and prefab
 //! fields live in [`BTreeMap`]s and serialize with `serde_json::to_string_pretty`,
 //! so two saves of the same document are byte-identical and diffs stay clean.
@@ -206,39 +206,104 @@ const AUTHORED_TEMP_SUFFIX: &str = ".tmp";
 /// atomically renamed over `path`). Shared by authored saves, snapshot
 /// saves, and the collaboration permission store so every durable path
 /// offers the same crash semantics: a crash before the rename leaves the
-/// previous file untouched, and a stale temp file from such a crash is
-/// fully overwritten by the next save, never merged.
+/// previous file untouched.
 ///
 /// `temp_suffix` is appended to the file name (never substituted for the
 /// extension): two different files can never share a sibling temp name,
 /// which the old extension-replacing form could not promise for files
 /// differing only by extension (`report.json` vs `report.toml`). Callers
 /// persisting different files alongside each other pass distinct
-/// suffixes; durability details vary by filesystem and are reported by
-/// callers, not promised here.
+/// suffixes.
+///
+/// Durable-commit semantics (F-19):
+/// - The temp name is unique per call (`<suffix>.<pid>.<counter>`), so two
+///   concurrent savers of one file never share a temp path (the old fixed
+///   name let the second `File::create` truncate the first's in-flight
+///   bytes), and a symlink pre-planted at the temp path fails closed:
+///   the temp is created with `create_new`, which refuses any existing
+///   path instead of following it.
+/// - After the rename the parent directory is fsynced (Unix), so the
+///   rename itself survives a crash — a file `sync_all` alone does not
+///   promise that on POSIX filesystems.
 pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), StateError> {
     use std::io::Write as _;
-    let tmp = {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let parent = path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    // Bounded collision retry: the temp name is unique per call, so a hit
+    // only happens against a leftover temp from a killed earlier process
+    // that reused this pid.
+    for _ in 0..8 {
+        let unique = format!(
+            "{}.{}.{}",
+            temp_suffix,
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
         let mut name = path.as_os_str().to_owned();
-        name.push(temp_suffix);
-        PathBuf::from(name)
-    };
-    let mut file = std::fs::File::create(&tmp).map_err(|error| StateError::File {
-        path: tmp.clone(),
-        reason: error.to_string(),
-    })?;
-    file.write_all(bytes).map_err(|error| StateError::File {
-        path: tmp.clone(),
-        reason: error.to_string(),
-    })?;
-    file.sync_all().map_err(|error| StateError::File {
-        path: tmp.clone(),
-        reason: error.to_string(),
-    })?;
-    drop(file);
-    std::fs::rename(&tmp, path).map_err(|error| StateError::File {
+        name.push(unique.as_str());
+        let tmp = PathBuf::from(name);
+        // `create_new` refuses any existing path (including a pre-planted
+        // symlink) instead of truncating or following it: concurrent
+        // savers and symlink plants fail this attempt rather than
+        // corrupting each other.
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(StateError::File {
+                    path: tmp,
+                    reason: error.to_string(),
+                });
+            }
+        };
+        let outcome: Result<(), StateError> = (|| {
+            file.write_all(bytes).map_err(|error| StateError::File {
+                path: tmp.clone(),
+                reason: error.to_string(),
+            })?;
+            file.sync_all().map_err(|error| StateError::File {
+                path: tmp.clone(),
+                reason: error.to_string(),
+            })?;
+            drop(file);
+            std::fs::rename(&tmp, path).map_err(|error| StateError::File {
+                path: path.to_path_buf(),
+                reason: error.to_string(),
+            })?;
+            // Persist the rename itself: without a directory fsync a crash
+            // may lose the directory entry update even though the file
+            // bytes were synced.
+            #[cfg(unix)]
+            {
+                let dir = std::fs::File::open(&parent).map_err(|error| StateError::File {
+                    path: parent.clone(),
+                    reason: error.to_string(),
+                })?;
+                dir.sync_all().map_err(|error| StateError::File {
+                    path: parent.clone(),
+                    reason: error.to_string(),
+                })?;
+            }
+            Ok(())
+        })();
+        if outcome.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+            return outcome;
+        }
+        return Ok(());
+    }
+    Err(StateError::File {
         path: path.to_path_buf(),
-        reason: error.to_string(),
+        reason: "atomic_write: temp-name collision after 8 attempts".to_string(),
     })
 }
 
@@ -427,21 +492,34 @@ mod tests {
 
         // Simulate a writer killed mid-stream: a partial sibling temp file
         // with no rename. The committed file must still load as v1.
-        // The temp name appends the suffix (`project.json.tmp`), never
-        // replacing the extension — see `atomic_write`.
+        // Temp names are unique per call (`project.json.tmp.<pid>.<n>`),
+        // so a stale temp from a killed writer is simply never read back;
+        // the old fixed-suffix name below stands in for any such leftover.
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, b"{partial").expect("plant partial tmp");
         let recovered = AuthoredDocument::load(&path).expect("recover v1");
         assert_eq!(recovered.sections, first.sections);
 
-        // The next save fully overwrites the stale temp file, renames, and
-        // loads as v2 — the crash left no residue behind.
+        // The next save writes a fresh unique temp and renames it; the
+        // committed file loads as v2 and the unique temp leaves no
+        // residue behind (only the planted legacy leftover, which no save
+        // ever reads, remains).
         let mut second = first.clone();
         second
             .sections
             .insert("entity.hero".to_owned(), serde_json::json!({"hp": 2}));
         second.save(&path).expect("second save");
-        assert!(!tmp.exists(), "rename consumes the temp file");
+        let residue: Vec<_> = std::fs::read_dir(&dir)
+            .expect("list dir")
+            .map(|entry| entry.expect("dir entry").file_name())
+            .collect();
+        assert!(
+            residue.iter().all(|name| {
+                let name = name.to_string_lossy();
+                name == "project.json" || name == "project.json.tmp"
+            }),
+            "unique temps leave no residue: {residue:?}"
+        );
         let loaded = AuthoredDocument::load(&path).expect("recover v2");
         assert_eq!(loaded.sections, second.sections);
         std::fs::remove_dir_all(&dir).ok();
@@ -466,13 +544,69 @@ mod tests {
             "no extension-replaced temp may ever appear"
         );
 
-        // A stale appended temp is fully overwritten by the next save.
+        // A stale fixed-suffix temp from a killed writer is never read or
+        // merged: the next save writes its own unique temp, and the
+        // committed file holds exactly the new bytes.
         let stale = dir.join("report.json.tmp");
         std::fs::write(&stale, b"{partial").expect("plant stale tmp");
         atomic_write(&first, b"uno", ".tmp").expect("overwrite save");
-        assert!(!stale.exists(), "rename consumes the temp file");
         assert_eq!(std::fs::read(&first).expect("read again"), b"uno");
         assert_eq!(std::fs::read(&second).expect("neighbor untouched"), b"two");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn concurrent_savers_never_share_a_temp_path() {
+        // Proof for unique temp names: N threads saving one file
+        // concurrently must all succeed, and the committed file must hold
+        // exactly one writer's complete bytes (never a truncation splice
+        // of two in-flight writes, which the old fixed temp name allowed).
+        let dir = scratch_dir("concurrent");
+        let path = dir.join("shared.json");
+        let payloads: Vec<Vec<u8>> = (0..8u8)
+            .map(|i| format!("{{\"writer\":{i}}}").into_bytes())
+            .collect();
+        std::thread::scope(|scope| {
+            for payload in &payloads {
+                scope.spawn(|| {
+                    atomic_write(&path, payload, ".tmp").expect("concurrent save");
+                });
+            }
+        });
+        let committed = std::fs::read(&path).expect("read committed");
+        assert!(
+            payloads.contains(&committed),
+            "committed bytes must be one complete write: {committed:?}"
+        );
+        let residue: Vec<_> = std::fs::read_dir(&dir)
+            .expect("list dir")
+            .map(|entry| entry.expect("dir entry").file_name())
+            .collect();
+        assert_eq!(
+            residue,
+            vec![std::ffi::OsString::from("shared.json")],
+            "unique temps leave no residue: {residue:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn preplanted_symlink_at_legacy_temp_name_is_ignored() {
+        // Proof for exclusive temp creation: a symlink planted at the old
+        // fixed temp name must neither be followed nor break the save —
+        // unique temps never touch that path.
+        let dir = scratch_dir("symlink");
+        let path = dir.join("project.json");
+        let legacy = dir.join("project.json.tmp");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/definitely/not/here", &legacy).expect("plant symlink");
+        #[cfg(not(unix))]
+        std::fs::write(&legacy, b"{partial").expect("plant legacy tmp");
+        atomic_write(&path, b"{\"ok\":true}", ".tmp").expect("save beside symlink");
+        assert_eq!(
+            std::fs::read(&path).expect("read committed"),
+            b"{\"ok\":true}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

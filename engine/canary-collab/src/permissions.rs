@@ -142,7 +142,7 @@ impl PermissionStore {
     }
 
     /// Atomically persists the store through the shared
-    /// [`atomic_write`](canary_state::atomic_write) helper: complete bytes
+    /// [`atomic_write`] helper: complete bytes
     /// to a sibling temp file, flush, then rename. A crash before the
     /// rename leaves the previous file untouched. The temp suffix is
     /// permission-specific so this file can never share a sibling temp
@@ -158,7 +158,7 @@ impl PermissionStore {
 }
 
 /// Temp suffix for the permission file (see
-/// [`atomic_write`](canary_state::atomic_write)): distinct from the
+/// [`atomic_write`]): distinct from the
 /// project-file suffix so the two files never share a sibling temp name.
 const PERMISSION_TEMP_SUFFIX: &str = ".permissions-tmp";
 
@@ -304,8 +304,9 @@ mod tests {
         // The permission store persists through the shared
         // `canary-state` atomic-write helper with its own temp suffix:
         // a project file saved in the same directory must never collide
-        // with it, and a stale temp from a killed writer is overwritten,
-        // never merged.
+        // with it, and a stale temp from a killed writer is ignored,
+        // never read or merged (unique `<suffix>.<pid>.<counter>` temps
+        // per save — see `appended_suffix_keeps_same_stem_files_apart`).
         let path = scratch("shared-tmp");
         let dir = path.parent().expect("parent").to_path_buf();
         let project_path = dir.join("project.json");
@@ -313,12 +314,17 @@ mod tests {
 
         let (store, _) =
             PermissionStore::provision(&credentials()).expect("distinct test actors provision");
-        // A killed writer's partial temp: the next save must consume it.
+        // A killed writer's legacy fixed-suffix partial temp: the next
+        // save writes its own unique temp and never reads this path.
         let stale = dir.join("permissions.json.permissions-tmp");
         std::fs::write(&stale, b"{partial").expect("plant stale tmp");
         store.save(&path).expect("save");
 
-        assert!(!stale.exists(), "rename consumes the temp file");
+        assert_eq!(
+            std::fs::read(&stale).expect("legacy stale temp is ignored, not consumed"),
+            b"{partial",
+            "unique-temp saves leave the legacy fixed-suffix leftover untouched"
+        );
         canary_state::atomic_write(&project_path, b"{}", ".tmp").expect("project save");
         assert_eq!(
             std::fs::read(&project_path).expect("read project"),
@@ -338,8 +344,19 @@ mod tests {
         names.sort();
         assert_eq!(
             names,
-            vec!["permissions.json", "project.json"],
-            "no stray temp file may survive beside the two saves: {names:?}"
+            vec![
+                "permissions.json",
+                "permissions.json.permissions-tmp",
+                "project.json"
+            ],
+            "only the planted legacy leftover may sit beside the two saves: {names:?}"
+        );
+        assert!(
+            names.iter().all(|name| {
+                !name.starts_with("permissions.json.permissions-tmp.")
+                    && !name.starts_with("project.json.tmp.")
+            }),
+            "unique temps leave no residue: {names:?}"
         );
         let (reopened, _) =
             PermissionStore::open_or_provision(&path, &credentials()).expect("reopen");

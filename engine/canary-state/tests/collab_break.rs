@@ -73,12 +73,18 @@ fn all_three_durable_suffixes_keep_same_stem_files_apart() {
         "no extension-replaced temp may ever appear"
     );
 
-    // A stale temp from a killed writer is fully overwritten by the next
-    // save of the same file and never leaks into the neighbor.
+    // A stale temp from a killed writer is ignored, never read or
+    // merged: the next save writes its own unique temp
+    // (`save.json.tmp.<pid>.<counter>`), and the committed file holds
+    // exactly the new bytes.
     let stale = dir.join("save.json.tmp");
     std::fs::write(&stale, b"{partial").expect("plant stale temp");
     atomic_write(&project, b"{\"v\":2}", ".tmp").expect("overwrite save");
-    assert!(!stale.exists(), "rename consumes the temp file");
+    assert_eq!(
+        std::fs::read(&stale).expect("legacy stale temp is ignored, not consumed"),
+        b"{partial",
+        "unique-temp saves leave the legacy fixed-suffix leftover untouched"
+    );
     assert_eq!(std::fs::read(&project).expect("read again"), b"{\"v\":2}");
     assert_eq!(
         std::fs::read(&snapshot).expect("neighbor untouched"),
@@ -96,16 +102,39 @@ fn all_three_durable_suffixes_keep_same_stem_files_apart() {
         })
         .collect();
     names.sort();
-    assert_eq!(
-        names,
-        vec![
-            "report.json",
-            "report.toml",
-            "save-permissions.json",
-            "save.bin",
-            "save.json",
-        ],
-        "no stray temp file may survive: {names:?}"
+    assert!(
+        names.iter().all(|name| {
+            name == "report.json"
+                || name == "report.toml"
+                || name == "save-permissions.json"
+                || name == "save.bin"
+                || name == "save.json"
+                || name == "save.json.tmp"
+        }),
+        "only the planted legacy leftover may sit beside the five saves: {names:?}"
+    );
+    for expected in [
+        "report.json",
+        "report.toml",
+        "save-permissions.json",
+        "save.bin",
+        "save.json",
+        "save.json.tmp",
+    ] {
+        assert!(
+            names.contains(&expected.to_owned()),
+            "expected file missing: {expected} in {names:?}"
+        );
+    }
+    assert!(
+        names.iter().all(|name| {
+            !name.starts_with("report.json.tmp.")
+                && !name.starts_with("report.toml.tmp.")
+                && !name.starts_with("save-permissions.json.permissions-tmp.")
+                && !name.starts_with("save.bin.tmp.")
+                && !name.starts_with("save.json.tmp.")
+        }),
+        "unique temps leave no residue: {names:?}"
     );
     std::fs::remove_dir_all(&dir).ok();
 }
