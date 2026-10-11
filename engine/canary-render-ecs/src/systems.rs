@@ -26,9 +26,11 @@ use canary_scheduler::{Schedule, SystemAccess};
 use canary_transform::GlobalTransform;
 
 use crate::{
-    bake_scene_to_vertices, bake_scene_to_vertices_into, bake_textured_scene_to_vertices,
-    extract_mesh_scene, extract_scene_into, extract_textured_scene, BakeScratch, BakedFrame,
-    BakedTexturedFrame, ExtractScratch, MeshRenderable, Renderable, TexturedRenderable,
+    bake_scene_to_vertices, bake_scene_to_vertices_into, bake_scene_to_vertices_ortho_into,
+    bake_textured_scene_to_vertices, bake_textured_scene_to_vertices_ortho_into,
+    extract_mesh_scene, extract_scene_into, extract_textured_scene, resolve_ortho_camera,
+    ActiveCamera, BakeScratch, BakedFrame, BakedTexturedFrame, ExtractScratch, MeshRenderable,
+    OrthographicCamera, Renderable, TexturedRenderable,
 };
 
 /// Declares the bake system's data access: reads the `GlobalTransform` +
@@ -325,6 +327,143 @@ pub fn bake_textured_scene_system(world: &mut World) {
 /// `engine/canary-runtime/src/main.rs`.
 pub fn register_textured_render_bake(schedule: &mut Schedule) {
     schedule.add_write_system(bake_textured_access(), bake_textured_scene_system);
+}
+
+/// Declares the ortho-soup bake's data access: reads the
+/// `GlobalTransform` + `Renderable` + `MeshRenderable` components and the
+/// mesh store (the soup-plus-mesh composition it overwrites with), reads
+/// the camera selection, writes the `BakedFrame` plus the shared
+/// `ExtractScratch`.
+///
+/// Every clause earns its place:
+/// - `reads::<GlobalTransform>()` conflicts with propagation's
+///   `writes::<GlobalTransform>`, so — like every earlier bake — this
+///   system can never merge into propagation's stage and always sees
+///   fresh globals.
+/// - `reads::<OrthographicCamera>()` plus
+///   `reads_resource::<ActiveCamera>()` name the
+///   [`resolve_ortho_camera`] inputs: documentation-as-code for the
+///   selection dependency.
+/// - `writes_resource::<BakedFrame>()` makes this a solo-write stage of
+///   its own, registered AFTER the mesh bake — so it runs strictly after
+///   it and may overwrite the soup-plus-mesh frame it leaves behind.
+pub fn bake_ortho_access() -> SystemAccess {
+    SystemAccess::new()
+        .reads::<GlobalTransform>()
+        .reads::<Renderable>()
+        .reads::<MeshRenderable>()
+        .reads::<OrthographicCamera>()
+        .reads_resource::<AssetStore<Mesh>>()
+        .reads_resource::<ActiveCamera>()
+        .writes_resource::<BakedFrame>()
+        .writes_resource::<ExtractScratch>()
+}
+
+/// Bakes the ortho soup-plus-mesh scene into the
+/// [`BakedFrame`](crate::BakedFrame) resource, OVERWRITING the legacy
+/// soup-plus-mesh frame — or returns early, touching nothing, when no
+/// valid camera resolves.
+///
+/// Overwrite (not append) because the legacy frame holds perspective
+/// pixels: keeping them alongside ortho pixels would mix two cameras in
+/// one buffer. The overwrite composes soup ([`extract_scene_into`]) plus
+/// file-loaded meshes ([`extract_mesh_scene`]) through
+/// [`bake_scene_to_vertices_ortho_into`] at the square aspect, so a
+/// camera-less world never reaches the overwrite and stays byte-identical.
+///
+/// Takes `&mut World` and nothing else, for the same
+/// GPU-stays-out-of-the-`Schedule` reason [`bake_scene_system`]
+/// documents. The square aspect is the scheduled default; binaries
+/// drawing to non-square targets bake explicitly with the real ratio
+/// (see `collectathon`'s frame path) instead of routing target size
+/// through the schedule.
+pub fn bake_ortho_scene_system(world: &mut World) {
+    let Some(camera) = resolve_ortho_camera(world) else {
+        return;
+    };
+    let mut extract_scratch = world
+        .remove_resource::<ExtractScratch>()
+        .map(|scratch| scratch.0)
+        .unwrap_or_default();
+    extract_scene_into(world, &mut extract_scratch);
+    let mut combined = extract_scratch.clone();
+    combined.extend(extract_mesh_scene(world));
+    let mut vertices = world
+        .remove_resource::<BakedFrame>()
+        .map(|frame| frame.vertices)
+        .unwrap_or_default();
+    bake_scene_to_vertices_ortho_into(&combined, camera, 1.0, &mut vertices);
+    world.insert_resource(ExtractScratch(extract_scratch));
+    world.insert_resource(BakedFrame { vertices });
+}
+
+/// Registers [`bake_ortho_scene_system`] on `schedule` as a write system
+/// with [`bake_ortho_access`]'s declaration.
+///
+/// Must be called *after* [`register_textured_render_bake`]: the
+/// canonical per-tick chain is propagation → soup → mesh → textured →
+/// ortho-soup → ortho-textured, and every writer takes its own
+/// solo-write stage in registration order. The subsystem constructor
+/// owns this order.
+pub fn register_ortho_render_bake(schedule: &mut Schedule) {
+    schedule.add_write_system(bake_ortho_access(), bake_ortho_scene_system);
+}
+
+/// Declares the ortho-textured bake's data access: reads the
+/// `GlobalTransform` + `TexturedRenderable` components, both asset
+/// stores, and the camera selection; writes the `BakedTexturedFrame`
+/// resource.
+///
+/// The mirror of [`bake_ortho_access`] for the textured frame: same
+/// fresh-global conflict, same selection documentation, same solo-write
+/// stage — registered after the ortho-soup bake so the canonical chain
+/// ends here.
+pub fn bake_ortho_textured_access() -> SystemAccess {
+    SystemAccess::new()
+        .reads::<GlobalTransform>()
+        .reads::<TexturedRenderable>()
+        .reads::<OrthographicCamera>()
+        .reads_resource::<AssetStore<Mesh>>()
+        .reads_resource::<AssetStore<Texture>>()
+        .reads_resource::<ActiveCamera>()
+        .writes_resource::<BakedTexturedFrame>()
+}
+
+/// Bakes the ortho textured scene into the
+/// [`BakedTexturedFrame`](crate::BakedTexturedFrame) resource,
+/// OVERWRITING the legacy textured frame — or returns early, touching
+/// nothing, when no valid camera resolves.
+///
+/// Same overwrite/early-return contract as [`bake_ortho_scene_system`]:
+/// perspective pixels and ortho pixels never mix in one buffer, and a
+/// camera-less world keeps its legacy textured frame byte-identical.
+/// Square aspect, same explicit-bake escape hatch for non-square
+/// targets.
+pub fn bake_ortho_textured_scene_system(world: &mut World) {
+    let Some(camera) = resolve_ortho_camera(world) else {
+        return;
+    };
+    let items = extract_textured_scene(world);
+    let mut vertices = world
+        .remove_resource::<BakedTexturedFrame>()
+        .map(|frame| frame.vertices)
+        .unwrap_or_default();
+    bake_textured_scene_to_vertices_ortho_into(&items, camera, 1.0, &mut vertices);
+    world.insert_resource(BakedTexturedFrame { vertices });
+}
+
+/// Registers [`bake_ortho_textured_scene_system`] on `schedule` as a
+/// write system with [`bake_ortho_textured_access`]'s declaration.
+///
+/// Must be called *after* [`register_ortho_render_bake`]: the terminal
+/// stage of the canonical per-tick chain (propagation → soup → mesh →
+/// textured → ortho-soup → ortho-textured). The subsystem constructor
+/// owns this order.
+pub fn register_ortho_textured_render_bake(schedule: &mut Schedule) {
+    schedule.add_write_system(
+        bake_ortho_textured_access(),
+        bake_ortho_textured_scene_system,
+    );
 }
 
 #[cfg(test)]
@@ -1343,6 +1482,146 @@ mod tests {
             third,
             bake_scene_to_vertices(std::slice::from_ref(&fresh)),
             "the third frame must equal a fresh bake, proving sequential reuse is stateless"
+        );
+    }
+
+    /// Spawns a valid ortho camera (identity transform, `half_height` 2)
+    /// and selects it: the shared ortho-systems fixture.
+    fn spawn_ortho_camera(world: &mut World) {
+        let camera = world.spawn();
+        world
+            .insert(camera, Transform::from_translation(glam::Vec3::ZERO))
+            .unwrap();
+        world
+            .insert(camera, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        world
+            .insert(camera, crate::OrthographicCamera::new(2.0, 0.0, 1000.0))
+            .unwrap();
+        world.insert_resource(crate::ActiveCamera(camera));
+    }
+
+    #[test]
+    fn ortho_accesses_are_not_read_only() {
+        for access in [bake_ortho_access(), bake_ortho_textured_access()] {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut schedule = Schedule::new();
+                schedule.add_read_system(access, |_| {});
+            }));
+            assert!(
+                result.is_err(),
+                "ortho accesses must declare writes, so registering them as read systems must fail"
+            );
+        }
+    }
+
+    #[test]
+    fn ortho_bake_overwrites_with_fresh_global() {
+        // Given: one soup triangle moved to x = -1 with a stale identity
+        // global, plus a valid camera, through the canonical chain.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(
+                entity,
+                Transform::from_translation(glam::Vec3::new(-1.0, 0.0, 0.0)),
+            )
+            .unwrap();
+        world.insert(entity, red_triangle()).unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        spawn_ortho_camera(&mut world);
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        register_textured_render_bake(&mut schedule);
+        register_ortho_render_bake(&mut schedule);
+        register_ortho_textured_render_bake(&mut schedule);
+        schedule.run(&mut world);
+
+        // Then: the soup frame holds the ORTHO bake (not the legacy
+        // perspective one) through the fresh global — and the textured
+        // frame exists (empty: no textured entities).
+        let frame = world
+            .resource::<BakedFrame>()
+            .expect("ortho bake must leave a BakedFrame resource");
+        let fresh = crate::RenderItem {
+            global: GlobalTransform::from_matrix(glam::Mat4::from_translation(glam::Vec3::new(
+                -1.0, 0.0, 0.0,
+            ))),
+            vertices: red_triangle().vertices.clone(),
+            color: red_triangle().color,
+        };
+        let view = crate::resolve_ortho_camera(&world).expect("camera resolves");
+        let expected = crate::bake_scene_to_vertices_ortho(std::slice::from_ref(&fresh), view, 1.0);
+        assert_eq!(
+            frame.vertices, expected,
+            "the ortho system must overwrite the legacy frame with the ortho bake"
+        );
+        assert_ne!(
+            frame.vertices,
+            bake_scene_to_vertices(std::slice::from_ref(&fresh)),
+            "the ortho output must differ from the legacy perspective bake"
+        );
+        assert!(
+            world
+                .resource::<BakedTexturedFrame>()
+                .expect("ortho-textured bake must leave its frame")
+                .is_empty(),
+            "no textured entities means an empty ortho textured frame"
+        );
+    }
+
+    #[test]
+    fn camera_less_world_leaves_legacy_frames_untouched() {
+        // Given: a soup-only world WITHOUT any camera, run through the
+        // full chain including both ortho systems.
+        let mut world = World::new();
+        let entity = world.spawn();
+        world
+            .insert(entity, Transform::from_translation(glam::Vec3::ZERO))
+            .unwrap();
+        world.insert(entity, red_triangle()).unwrap();
+        world
+            .insert(entity, GlobalTransform::from_matrix(glam::Mat4::IDENTITY))
+            .unwrap();
+        let mut schedule = Schedule::new();
+        register_transform_propagation(&mut schedule);
+        register_render_bake(&mut schedule);
+        register_mesh_render_bake(&mut schedule);
+        register_textured_render_bake(&mut schedule);
+        register_ortho_render_bake(&mut schedule);
+        register_ortho_textured_render_bake(&mut schedule);
+        schedule.run(&mut world);
+        let soup = world
+            .resource::<BakedFrame>()
+            .expect("legacy bake must insert the frame")
+            .vertices
+            .clone();
+
+        // When: both ortho systems run again directly (still no camera).
+        bake_ortho_scene_system(&mut world);
+        bake_ortho_textured_scene_system(&mut world);
+
+        // Then: both frames are byte-identical — the early return must
+        // not rewrite (or clear) the legacy output.
+        assert_eq!(
+            world
+                .resource::<BakedFrame>()
+                .expect("frame must still exist")
+                .vertices,
+            soup,
+            "a camera-less ortho tick must leave the legacy soup frame untouched"
+        );
+        assert_eq!(
+            world
+                .resource::<BakedFrame>()
+                .expect("frame must still exist")
+                .vertices,
+            bake_scene_to_vertices(&crate::extract_scene(&world)),
+            "the untouched frame must still equal a fresh legacy bake"
         );
     }
 }

@@ -32,18 +32,32 @@
 //! scheduler. File-loaded meshes ride the same path via
 //! [`MeshRenderable`]; file-loaded textures ride the single-texture
 //! sampled path ([`TexturedRenderable`], [`TEXTURED_WGSL`],
-//! [`pipeline::draw_textured_frame`]). Still deferred: any further RHI
+//! [`pipeline::draw_textured_frame`]). A 2D orthographic camera
+//! ([`OrthographicCamera`], [`ActiveCamera`], [`resolve_ortho_camera`])
+//! projects through [`camera::bake_scene_to_vertices_ortho`] once a valid
+//! camera resolves; camera-less worlds keep the legacy fixed-perspective
+//! bake byte-identically (see [`camera`] for the fallback contract).
+//! Still deferred: any further RHI
 //! upgrades — push constants, depth, `write_buffer`, multi-texture
 //! materials, swapchain — all v0.0.10+.
 //! Known target limits: convex-only painter sort (concave self-occlusion
-//! needs a depth buffer) and a fixed camera (no camera component yet).
+//! needs a depth buffer) and, on the legacy path, the fixed perspective
+//! constants (the ortho bake replaces them only where a valid camera
+//! resolves).
 
+mod camera;
 mod extract;
 mod mesh_renderable;
 mod pipeline;
 mod renderable;
 mod systems;
 mod textured_renderable;
+
+pub use camera::{
+    bake_scene_to_vertices_ortho, bake_scene_to_vertices_ortho_into,
+    bake_textured_scene_to_vertices_ortho, bake_textured_scene_to_vertices_ortho_into,
+    resolve_ortho_camera, ActiveCamera, OrthoView, OrthographicCamera,
+};
 
 pub use extract::{
     bake_scene_to_vertices, bake_scene_to_vertices_into, bake_scene_to_vertices_with_aspect,
@@ -58,8 +72,10 @@ pub use pipeline::{
 };
 pub use renderable::Renderable;
 pub use systems::{
-    bake_access, bake_mesh_access, bake_mesh_scene_system, bake_scene_system, bake_textured_access,
-    bake_textured_scene_system, register_mesh_render_bake, register_render_bake,
+    bake_access, bake_mesh_access, bake_mesh_scene_system, bake_ortho_access,
+    bake_ortho_scene_system, bake_ortho_textured_access, bake_ortho_textured_scene_system,
+    bake_scene_system, bake_textured_access, bake_textured_scene_system, register_mesh_render_bake,
+    register_ortho_render_bake, register_ortho_textured_render_bake, register_render_bake,
     register_textured_render_bake,
 };
 pub use textured_renderable::{
