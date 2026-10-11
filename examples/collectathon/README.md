@@ -26,6 +26,95 @@ From a fresh checkout, with the `stable` toolchain from `rust-toolchain.toml`:
 cargo build -p collectathon
 ```
 
+### Linux native packages
+
+Compiling the windowed game needs the same system libraries CI
+installs — the Rust toolchain alone is not enough on a fresh Linux
+checkout. All names below are the exact `apt` package names from
+`.github/workflows/ci.yml` (build leg at `ci.yml:75`; Xvfb/llvmpipe
+legs at `ci.yml:122,154,159,210`):
+
+```sh
+# Required to build the windowed game (winit X11/Wayland backends +
+# cpal ALSA audio probe, same set as CI's lint-and-test job):
+sudo apt-get update
+sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev
+
+# Only needed to reproduce the Xvfb / software-Vulkan CI legs locally
+# (windowing-integration + rendering-integration jobs):
+sudo apt-get install -y libxkbcommon-x11-0 xvfb mesa-vulkan-drivers
+```
+
+macOS and Windows need no `apt` step (their backends ship with the
+OS/toolkit SDKs). `scripts/setup-check.sh` reports which of the above
+are missing as `[warn]` rows — warnings only, never failures.
+
+### Depending on Canary from your own crate (git/path route)
+
+Canary is pre-`1.0` and `canary-runtime` is `publish = false`, so
+there is currently no supported `crates.io` consumer route — do not
+expect `cargo add canary-runtime` to resolve. The supported route is
+a workspace-external crate depending through `git` (or a local
+`path` checkout), pinning the same way this sample does in
+`examples/collectathon/Cargo.toml`:
+
+```toml
+[dependencies]
+canary-runtime = { git = "<this repository>", rev = "<pinned commit>" }
+canary-ecs = { git = "<this repository>", rev = "<pinned commit>" }
+# ... add only the `canary-*` crates your game uses; there is no
+# facade or prelude crate, so each dependency is selected explicitly.
+```
+
+Replace `rev` with the `dev` commit you tested against. There is no
+facade crate (deliberately — speculative surface is out of scope).
+
+### Branch and tag policy
+
+Work happens on `dev`; `stable` only receives reviewed release merges
+(`feature/<name> --PR--> dev --release--> stable`), per
+`docs/development/git-workflow.md`. Tags (`vX.Y.Z`) mark the release
+commit and trigger `docs/release-notes/<tag>.md` publication via
+`.github/workflows/release.yml`. `v0.1.0` itself is NOT released —
+this note states the documented policy without claiming any tag
+exists.
+
+## First-game guide (dependency selection + boot order)
+
+Starting from this sample when writing your own game:
+
+1. **Select dependencies explicitly.** Copy the `canary-*` entries you
+   need from `Cargo.toml` — not the whole list by default. Minimal
+   headless simulation needs `canary-ecs`, `canary-scheduler`,
+   `canary-runtime`, and `canary-state`; add `canary-physics` /
+   `canary-transform` for movement, `canary-assets` / `canary-audio`
+   for files and sound, `canary-platform` (`winit-backend`) +
+   `canary-render-vulkan` (`presentation`) + `canary-ui-*` only for
+   the windowed game. No facade re-exports these for you.
+2. **Boot in this order** (see `src/bin/collectathon_headless.rs` for
+   the headless spelling; the windowed `src/bin/collectathon.rs`
+   follows the same order with a live window, Vulkan presentation,
+   and audio-device bring-up):
+   1. `assets` — `load_game_assets()` (mesh/texture/sound stores)
+      first, so handles exist before anything references them.
+   2. `room` — `load_room()` the authored `room.json`, then
+      `AuthoredSpawner::new(&CollectathonDecoder,
+      &resolve_asset).spawn(&mut world, &room)` to stage typed
+      inserts.
+   3. `world` — `register_game_components()`,
+      `attach_simulation_components()` (wiring the loaded sound
+      handle in), plus `world.insert_resource(sounds)`.
+   4. `schedule` — `Schedule::new()` then register in this order:
+      `register_physics_step`, `register_transform_propagation`,
+      `register_gameplay(&actions)`, `register_audio_trigger`.
+   5. `presentation` — `RuntimeBuilder::new().build(world)` plus the
+      frame driver (`FrameDriver::new(backend, mapper)`; `NullBackend`
+      headless, live Vulkan presenter windowed). One `drive_frame`
+      per outer frame with a `FrameDelta` bridge for the physics
+      step. Window close is the exit condition; a missing audio
+      device logs `no audio device … continuing headless` and plays
+      decode-only — a supported configuration, not a failure.
+
 ## Launch
 
 | Binary | Command | Role |

@@ -53,6 +53,33 @@ if command -v rustup >/dev/null 2>&1; then
     fi
 fi
 
+# --- Linux native dev libraries (warn only, never fail) ----------------
+# The windowed game compiles winit's X11/Wayland backends and the cpal
+# ALSA audio probe, which need OS packages no Rust toolchain provides.
+# Exact apt names from .github/workflows/ci.yml (lint-and-test leg,
+# ci.yml:75); the Xvfb/llvmpipe legs (ci.yml:122,154,159,210) add the
+# extended set. See examples/collectathon/README.md "Setup".
+# Warn-only by design: macOS/Windows don't use apt, and headless-only
+# builds may not need every package.
+if [ "$(uname -s)" = "Linux" ] && command -v dpkg-query >/dev/null 2>&1; then
+    for pkg in libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev; do
+        if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            pass "$pkg installed (Linux windowed/audio build)"
+        else
+            warning "$pkg not installed — windowed build may fail; run: sudo apt-get install -y $pkg"
+        fi
+    done
+    for pkg in libxkbcommon-x11-0 xvfb mesa-vulkan-drivers; do
+        if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            pass "$pkg installed (Xvfb/software-Vulkan CI legs)"
+        else
+            warning "$pkg not installed — only needed to reproduce the Xvfb/llvmpipe CI legs locally"
+        fi
+    done
+elif [ "$(uname -s)" = "Linux" ]; then
+    warning "dpkg-query not found — skipping Linux native-library checks (see examples/collectathon/README.md 'Linux native packages')"
+fi
+
 echo "=================================="
 echo "ok: $ok   warn: $warn   fail: $fail"
 
