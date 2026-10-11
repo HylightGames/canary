@@ -10,16 +10,17 @@
 //! touches the world; the intent lands here, in the pass.
 //!
 //! Registration order is load-bearing and owned by the binaries (see
-//! [`register_gameplay`]): physics steps first, transform propagation
+//! [`register_gameplay`](crate::game::register_gameplay)): physics steps first, transform propagation
 //! recomputes globals from just-stepped locals, gameplay writers run
 //! next, and the audio trigger actuates last so it never plays
 //! one-tick-stale intents.
 
-use canary_assets::{AssetHandle, Sound};
+use canary_assets::{AssetHandle, Mesh, Sound, Texture};
 use canary_audio::{AudioSource, SourceState};
 use canary_ecs::{EcsError, World};
 use canary_input::{ActionId, SimulationInput};
 use canary_physics::{Collider, GravityScale, RigidBody, Velocity};
+use canary_render_ecs::{MeshRenderable, TexturedRenderable};
 use canary_runtime::SpawnReport;
 use canary_scheduler::{Schedule, SystemAccess};
 use canary_transform::{GlobalTransform, Transform};
@@ -29,8 +30,9 @@ use crate::hud::RESET_BUTTON;
 use crate::state::GameStats;
 use crate::{Actions, Pickup, Player, Score};
 
-/// Fixed simulation step: one pass per outer frame, no fixed-step runner
-/// (deferred past `.13` by the roadmap).
+/// Fixed simulation step in milliseconds. The windowed game accumulates
+/// measured wall time into whole steps (bounded per presentation frame);
+/// the headless twin runs one explicit step per frame, deterministically.
 pub const STEP_MS: u64 = 16;
 /// Player speed in logical pixels per second, written as a velocity — the
 /// solver integrates it, so diagonal input is axis-composed, not
@@ -374,6 +376,114 @@ pub fn attach_simulation_components(
     Ok(stats)
 }
 
+/// World-space scale of the player's file-loaded quad: the fixtures are
+/// unit quads (half-extent `0.5`), while the arena half-extent is
+/// [`ARENA_HALF_PX`] — so the ortho bake maps this to an NDC half-height
+/// of `0.5 * 16 / 140 ≈ 0.057`, the legacy player quad's `0.06` read
+/// through the bridge.
+pub const PLAYER_MESH_SCALE: f32 = 16.0;
+
+/// World-space scale of each pickup's file-loaded mesh: bakes to an NDC
+/// half-height of `0.5 * 10 / 140 ≈ 0.036`, the legacy pickup diamond's
+/// `0.035` read through the bridge.
+pub const PICKUP_MESH_SCALE: f32 = 10.0;
+
+/// Disk handles the windowed sample binds to renderables: the same
+/// [`load_game_assets`](crate::assets::load_game_assets) outputs the
+/// simulation seam already consumes, repackaged so the render attachment
+/// names exactly which bytes each entity draws.
+///
+/// Kept separate from [`SimHandles`] on purpose: the headless twin, the
+/// replication server, and the collab harnesses construct [`SimHandles`]
+/// literally, and none of them draws — growing that struct would break
+/// every non-render consumer for pixels only the windowed game shows.
+#[derive(Debug, Clone, Copy)]
+pub struct RenderHandles {
+    /// Player sprite geometry ([`QUAD_MESH`](crate::assets::QUAD_MESH)).
+    pub player_mesh: AssetHandle<Mesh>,
+    /// Goal marker geometry ([`BOX_MESH`](crate::assets::BOX_MESH)).
+    pub goal_mesh: AssetHandle<Mesh>,
+    /// Sprite image ([`SPRITE_PNG`](crate::assets::SPRITE_PNG)) sampled by
+    /// the player's textured quad.
+    pub sprite: AssetHandle<Texture>,
+}
+
+/// Attaches the file-loaded renderables the spawner cannot decode: the
+/// player draws its quad mesh (flat amber beneath, sprite-textured over
+/// it) and every spawned pickup draws a mesh — the goal its box marker
+/// in gold, each shard the quad in cyan.
+///
+/// Pickups also gain the static pose the bridge extracts through: a
+/// [`Transform`] copied from their authored position plus the matching
+/// [`GlobalTransform`]. They carry no [`RigidBody`], so the physics step
+/// never touches them and propagation simply refreshes their globals
+/// every tick. The player's solver pose is widened to
+/// [`PLAYER_MESH_SCALE`] (physics preserves scale across steps), with `z`
+/// scale pinned to `1.0` so the goal box's depth keeps straddling the
+/// room plane instead of stretching out of the camera's `[near, far]`.
+///
+/// `report` is the same spawner placement map
+/// [`attach_simulation_components`] takes. A missing `"player"` (or a
+/// player without a solver pose) is a content error reported as
+/// [`EcsError::StaleOrUnknownEntity`]; missing pickups are tolerated and
+/// simply draw nothing, mirroring the simulation seam.
+pub fn attach_render_components(
+    world: &mut World,
+    report: &SpawnReport,
+    handles: &RenderHandles,
+) -> Result<(), EcsError> {
+    let player = report
+        .entity("player")
+        .ok_or(EcsError::StaleOrUnknownEntity)?;
+    // Widen the solver pose so the unit quad reads at the legacy quad's
+    // size: physics preserves scale across steps, so this survives the
+    // simulation untouched. `z` scale stays `1.0` so pickup box depth
+    // keeps straddling the room plane (see below).
+    let mut pose = world
+        .get::<Transform>(player)
+        .copied()
+        .ok_or(EcsError::StaleOrUnknownEntity)?;
+    pose.scale = glam::Vec3::new(PLAYER_MESH_SCALE, PLAYER_MESH_SCALE, 1.0);
+    world.insert(player, pose)?;
+    // Amber flat quad beneath the sprite: the textured draw covers it when
+    // the sprite resolves, and it carries the player when it does not.
+    world.insert(
+        player,
+        MeshRenderable::new(handles.player_mesh, [1.0, 0.6, 0.0]),
+    )?;
+    world.insert(
+        player,
+        TexturedRenderable::new(handles.player_mesh, handles.sprite),
+    )?;
+
+    for (local, mesh, color) in [
+        ("goal", handles.goal_mesh, [1.0, 0.85, 0.2]),
+        ("pickup_a", handles.player_mesh, [0.2, 0.9, 0.9]),
+        ("pickup_b", handles.player_mesh, [0.2, 0.9, 0.9]),
+        ("pickup_c", handles.player_mesh, [0.2, 0.9, 0.9]),
+    ] {
+        let Some(entity) = report.entity(local) else {
+            continue;
+        };
+        let Some(pickup) = world.get::<Pickup>(entity) else {
+            continue;
+        };
+        let (x, y) = (pickup.x, pickup.y);
+        // Static pose from the authored position: no rigid body, so the
+        // physics step never touches it and propagation simply refreshes
+        // the global every tick.
+        let pose = Transform {
+            translation: glam::Vec3::new(x, y, 0.0),
+            rotation: glam::Quat::IDENTITY,
+            scale: glam::Vec3::new(PICKUP_MESH_SCALE, PICKUP_MESH_SCALE, 1.0),
+        };
+        world.insert(entity, pose)?;
+        world.insert(entity, GlobalTransform::from_matrix(pose.to_matrix()))?;
+        world.insert(entity, MeshRenderable::new(mesh, color))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -699,6 +809,138 @@ mod tests {
                 .points,
             1,
             "touch collection must survive a quiet UI frame"
+        );
+    }
+
+    /// Builds the live room world through the real binary seams: game
+    /// schemas, disk assets, authored room spawn, simulation attachments,
+    /// asset stores as resources, then the render attachment under test.
+    fn live_room_world() -> World {
+        let mut world = World::new();
+        register_game_components(&mut world).expect("game schemas register");
+        let game_assets = crate::assets::load_game_assets().expect("game assets load from disk");
+        let room =
+            crate::assets::load_room(&crate::assets::asset_dir().join(crate::assets::ROOM_FILE))
+                .expect("room document loads");
+        let decoder = crate::state::CollectathonDecoder;
+        let spawner = canary_runtime::AuthoredSpawner::new(&decoder, &crate::assets::resolve_asset);
+        let report = spawner.spawn(&mut world, &room).expect("room spawns");
+        attach_simulation_components(
+            &mut world,
+            &report,
+            &SimHandles {
+                pickup_sound: game_assets.pickup_sound,
+            },
+        )
+        .expect("simulation attaches");
+        let render = RenderHandles {
+            player_mesh: game_assets.player_mesh,
+            goal_mesh: game_assets.goal_mesh,
+            sprite: game_assets.sprite,
+        };
+        world.insert_resource(game_assets.meshes);
+        world.insert_resource(game_assets.textures);
+        world.insert_resource(game_assets.sounds);
+        attach_render_components(&mut world, &report, &render).expect("renderables attach");
+        world
+    }
+
+    /// Window aspect used by the windowed sample (960x600).
+    const WINDOW_ASPECT: f32 = 960.0 / 600.0;
+
+    #[test]
+    fn live_room_bakes_through_the_bridge_at_window_aspect_not_legacy() {
+        let mut world = live_room_world();
+        // Fresh globals, exactly like the windowed schedule order:
+        // propagation before any bake.
+        let mut schedule = Schedule::new();
+        canary_transform::register_transform_propagation(&mut schedule);
+        schedule.run(&mut world);
+
+        let view = crate::scene::collectathon_view(WINDOW_ASPECT).expect("window aspect resolves");
+        let mesh_items = canary_render_ecs::extract_mesh_scene(&world);
+        assert_eq!(
+            mesh_items.len(),
+            5,
+            "player plus goal plus three shards must all extract through live disk handles"
+        );
+        let ortho =
+            canary_render_ecs::bake_scene_to_vertices_ortho(&mesh_items, view, WINDOW_ASPECT);
+        assert!(
+            !ortho.is_empty(),
+            "the live mesh scene must bake to real vertices"
+        );
+        let legacy =
+            canary_render_ecs::bake_scene_to_vertices_with_aspect(&mesh_items, WINDOW_ASPECT);
+        assert_ne!(
+            ortho, legacy,
+            "the live bake must ride the ortho camera, not the legacy perspective fallback"
+        );
+        let textured_items = canary_render_ecs::extract_textured_scene(&world);
+        assert_eq!(
+            textured_items.len(),
+            1,
+            "the player's textured quad must extract through its live mesh-plus-sprite handles"
+        );
+        let textured = canary_render_ecs::bake_textured_scene_to_vertices_ortho(
+            &textured_items,
+            view,
+            WINDOW_ASPECT,
+        );
+        assert!(
+            !textured.is_empty(),
+            "the live textured scene must bake to real vertices"
+        );
+    }
+
+    #[test]
+    fn moved_player_transform_rebakes_through_propagation() {
+        let mut world = live_room_world();
+        let view = crate::scene::collectathon_view(WINDOW_ASPECT).expect("window aspect resolves");
+        let bake_live = |world: &World| {
+            let items = canary_render_ecs::extract_mesh_scene(world);
+            canary_render_ecs::bake_scene_to_vertices_ortho(&items, view, WINDOW_ASPECT)
+        };
+        let mut schedule = Schedule::new();
+        canary_transform::register_transform_propagation(&mut schedule);
+        schedule.run(&mut world);
+        let before = bake_live(&world);
+        assert!(
+            !before.is_empty(),
+            "the live scene must bake before the move"
+        );
+
+        // Move the player's local pose 10px in x; the cached global stays
+        // stale until propagation runs, exactly like a tick boundary.
+        let player = world
+            .query::<crate::Player>()
+            .map(|(entity, _)| entity)
+            .next()
+            .expect("player exists");
+        world
+            .get_mut::<canary_transform::Transform>(player)
+            .expect("player carries a Transform")
+            .translation
+            .x += 10.0;
+        schedule.run(&mut world);
+        let after = bake_live(&world);
+        assert_ne!(
+            before, after,
+            "a moved Transform must rebake to new vertices once propagation refreshes the global"
+        );
+        // A rigid +10px x-step shifts NDC x by exactly
+        // `10 / half_height / aspect` through the ortho camera; the
+        // player's soup vertices must carry that shift, proving the bake
+        // follows the propagated pose instead of echoing stale floats.
+        let step_ndc = 10.0 / ARENA_HALF_PX / WINDOW_ASPECT;
+        let shifted = before
+            .iter()
+            .step_by(5)
+            .zip(after.iter().step_by(5))
+            .any(|(a, b)| (b - a - step_ndc).abs() < 1e-5);
+        assert!(
+            shifted,
+            "some baked soup vertex must shift by one +10px x-step in NDC ({step_ndc})"
         );
     }
 }
