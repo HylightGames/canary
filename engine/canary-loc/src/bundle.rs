@@ -236,27 +236,12 @@ impl LocaleBundle {
 }
 
 #[cfg(test)]
-// clippy::cloned_ref_to_slice_refs (added in clippy for rustc 1.98,
-// newer than this sandbox's own clippy -- caught by CI, not locally)
-// suggests `std::slice::from_ref(&x)` in place of `&[x.clone()]`
-// throughout this module. Confirmed empirically, not just argued
-// abstractly, that the suggestion doesn't compile for these specific
-// call sites: every occurrence here clones a locale that's *also*
-// moved by value as a later argument to the same `LocaleBundle::new`
-// call (e.g. `&[en.clone()], &[en.clone()], en`), and
-// `std::slice::from_ref(&en)` would borrow `en` for the duration of
-// that call while the third argument simultaneously tries to move it
-// -- a real E0505 borrow-checker conflict, not a style preference. The
-// clone is genuinely necessary here, not merely idiomatic.
-//
-// `unknown_lints` is also allowed, deliberately: this sandbox's own
-// (older) clippy doesn't recognize `cloned_ref_to_slice_refs` at all
-// yet, and without this, the bare `#[allow(clippy::...)]` below would
-// itself become a hard error locally under `-D warnings` (confirmed
-// the direct way -- it did, before this line was added) even though
-// it's exactly what's needed for CI's newer clippy.
-#[allow(unknown_lints)]
-#[allow(clippy::cloned_ref_to_slice_refs)]
+// Test call sites below pass one-element locale slices (`&[locale]`) where
+// the same locale value is also moved as a later argument to the same
+// `LocaleBundle::new` call. Each slice element is a `let`-bound clone made
+// before the call, so no temporary borrow overlaps the move (a real E0505
+// conflict if written as `std::slice::from_ref(&x)` inline) and no
+// `clippy::cloned_ref_to_slice_refs` pattern (`&[x.clone()]`) remains.
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
@@ -323,6 +308,33 @@ mod tests {
             .expect("test mutex should not be poisoned")
     }
 
+    /// Runs `f` under a `tracing` default that enables every event but
+    /// records nothing -- the mirror image of [`capture_events`], for the
+    /// tests below that trigger `LocaleBundle`'s warn callsites without
+    /// asserting on the events themselves.
+    ///
+    /// WHY THESE CALLERS NEED THIS (do not "simplify" them back to bare
+    /// `resolve`): `tracing-core` caches a single process-global
+    /// `Interest` per `warn!`/`debug!` callsite, decided by whichever
+    /// dispatcher first touches it -- and with no dispatcher installed
+    /// that answer is `NoSubscriber`'s `Interest::never()`. If such a
+    /// bare `resolve` first-touches a shared callsite (the
+    /// formatting-errors warn at `LocaleBundle::resolve`, the missing-key
+    /// warn) after a `capture_events` test has built its subscriber but
+    /// before that test's own event fires, the capturing test's event is
+    /// skipped and it fails with `captured events: []` -- a ~1%,
+    /// parallel-only flake (the rebuild that `Dispatch::new` performs
+    /// cannot heal a callsite that was never registered yet, so ordering
+    /// alone decides). Scoping every emitting test under an enabling
+    /// default makes each possible first touch answer
+    /// `Interest::always()`, closing the race for any thread order --
+    /// without serializing the suite and without weakening any
+    /// assertion's intent.
+    fn with_enabling_test_default<T>(f: impl FnOnce() -> T) -> T {
+        let subscriber = Registry::default();
+        tracing::subscriber::with_default(subscriber, f)
+    }
+
     fn resource(ftl: &str) -> FluentResource {
         FluentResource::try_new(ftl.to_string()).expect("test .ftl content should be valid")
     }
@@ -335,7 +347,9 @@ mod tests {
     #[test]
     fn resolves_a_plain_message() {
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_5 = en.clone();
+        let en_slice_4 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_5], &[en_slice_4], en, |_| {
             vec![resource("main-menu-start-game = Start Game")]
         });
 
@@ -346,7 +360,9 @@ mod tests {
     #[test]
     fn resolves_a_pluralized_message_across_multiple_counts() {
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_7 = en.clone();
+        let en_slice_6 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_7], &[en_slice_6], en, |_| {
             vec![resource(
                 "items-remaining = { $count ->\n    [one] { $count } item remaining\n   *[other] { $count } items remaining\n}",
             )]
@@ -374,7 +390,9 @@ mod tests {
     #[test]
     fn resolves_a_message_with_string_interpolation() {
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_9 = en.clone();
+        let en_slice_8 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_9], &[en_slice_8], en, |_| {
             vec![resource("welcome-player = Welcome, { $name }!")]
         });
 
@@ -390,11 +408,15 @@ mod tests {
     #[test]
     fn a_missing_key_returns_the_raw_key_not_a_panic_or_blank_string() {
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_11 = en.clone();
+        let en_slice_10 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_11], &[en_slice_10], en, |_| {
             vec![resource("real-key = Real Text")]
         });
 
-        let resolved = bundle.resolve(&crate::key!("this-key-does-not-exist"), None);
+        let resolved = with_enabling_test_default(|| {
+            bundle.resolve(&crate::key!("this-key-does-not-exist"), None)
+        });
         assert_eq!(resolved, "this-key-does-not-exist");
     }
 
@@ -403,7 +425,8 @@ mod tests {
         let requested = langid("fr-FR");
         let default = langid("en-US");
         // Only en-US content actually exists.
-        let bundle = LocaleBundle::new(&[requested], &[default.clone()], default, |_| {
+        let default_slice_12 = default.clone();
+        let bundle = LocaleBundle::new(&[requested], &[default_slice_12], default, |_| {
             vec![resource("greeting = Hello!")]
         });
 
@@ -420,16 +443,20 @@ mod tests {
         // the loader has nothing for it (e.g. a missing/renamed
         // directory) -- this must not panic.
         let default = langid("en-US");
-        let bundle = LocaleBundle::new(&[default.clone()], &[], default, |_| vec![]);
+        let default_slice_13 = default.clone();
+        let bundle = LocaleBundle::new(&[default_slice_13], &[], default, |_| vec![]);
 
-        let resolved = bundle.resolve(&crate::key!("anything"), None);
+        let resolved =
+            with_enabling_test_default(|| bundle.resolve(&crate::key!("anything"), None));
         assert_eq!(resolved, "anything");
     }
 
     #[test]
     fn a_missing_key_actually_emits_a_warn_event_not_just_a_correct_return_value() {
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_15 = en.clone();
+        let en_slice_14 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_15], &[en_slice_14], en, |_| {
             vec![resource("real-key = Real Text")]
         });
 
@@ -458,10 +485,13 @@ mod tests {
         let requested = langid("de-DE");
         let de = langid("de-DE");
         let en = langid("en-US");
+        let de_fallback = de.clone();
+        let en_fallback = en.clone();
+        let en_default = en.clone();
         let bundle = LocaleBundle::new(
             &[requested],
-            &[de.clone(), en.clone()],
-            en.clone(),
+            &[de_fallback, en_fallback],
+            en_default,
             |locale| {
                 if *locale == de {
                     // de-DE has no translation for "greeting" at all.
@@ -493,7 +523,9 @@ mod tests {
         // *lower-priority* locale actually served the key -- not on
         // every successful resolution.
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_18 = en.clone();
+        let en_slice_17 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_18], &[en_slice_17], en, |_| {
             vec![resource("greeting = Hello!")]
         });
 
@@ -530,11 +562,13 @@ mod tests {
         // runs debug and catches it) instead of shipping `Welcome,
         // {$name}!` to a player.
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_20 = en.clone();
+        let en_slice_19 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_20], &[en_slice_19], en, |_| {
             vec![resource("welcome-player = Welcome, { $name }!")]
         });
 
-        let _ = bundle.resolve(&crate::key!("welcome-player"), None);
+        let _ = with_enabling_test_default(|| bundle.resolve(&crate::key!("welcome-player"), None));
     }
 
     #[cfg(debug_assertions)]
@@ -546,13 +580,17 @@ mod tests {
         // caller bug through the "incomplete" rather than the "none" door
         // and must fail just as loudly.
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_22 = en.clone();
+        let en_slice_21 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_22], &[en_slice_21], en, |_| {
             vec![resource("welcome-player = Welcome, { $name }!")]
         });
 
         let mut args = FluentArgs::new();
         args.set("title", "Captain");
-        let _ = bundle.resolve(&crate::key!("welcome-player"), Some(&args));
+        let _ = with_enabling_test_default(|| {
+            bundle.resolve(&crate::key!("welcome-player"), Some(&args))
+        });
     }
 
     #[cfg(not(debug_assertions))]
@@ -567,7 +605,9 @@ mod tests {
         // it pins; run it locally with
         // `cargo test --release -p canary-loc`.
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_24 = en.clone();
+        let en_slice_23 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_24], &[en_slice_23], en, |_| {
             vec![resource("welcome-player = Welcome, { $name }!")]
         });
 
@@ -586,7 +626,9 @@ mod tests {
         // warn-and-return-best-effort path even in debug builds, where the
         // test suite itself would fail if the assert over-reached.
         let en = langid("en-US");
-        let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+        let en_slice_26 = en.clone();
+        let en_slice_25 = en.clone();
+        let bundle = LocaleBundle::new(&[en_slice_26], &[en_slice_25], en, |_| {
             vec![resource("dangling = { missing-message }")]
         });
 
@@ -620,7 +662,9 @@ mod tests {
         // turn the warn path into an error or a dropped key.
         let en = langid("en-US");
         let events = capture_events(|| {
-            let bundle = LocaleBundle::new(&[en.clone()], &[en.clone()], en, |_| {
+            let en_slice_28 = en.clone();
+            let en_slice_27 = en.clone();
+            let bundle = LocaleBundle::new(&[en_slice_28], &[en_slice_27], en, |_| {
                 vec![
                     resource("shared-key = First Definition"),
                     resource("shared-key = Second Definition"),
@@ -680,9 +724,12 @@ mod tests {
         );
 
         let pseudo_ftl = format!("greeting = {pseudo_text}");
+        let pseudo_fallback = pseudo_locale.clone();
+        let en_available = en.clone();
+        let pseudo_available = pseudo_locale.clone();
         let bundle = LocaleBundle::new(
-            &[pseudo_locale.clone()],
-            &[en.clone(), pseudo_locale.clone()],
+            &[pseudo_fallback],
+            &[en_available, pseudo_available],
             en,
             |locale| {
                 if *locale == pseudo_locale {
