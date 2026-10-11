@@ -94,7 +94,14 @@ async fn server_main(cert_der: Vec<u8>, key_der: Vec<u8>) -> Result<(), NetError
     let limits = NetLimits::default();
     let server =
         QuinnTransport::server(SocketAddr::from(([127, 0, 0, 1], 0)), &cert_der, &key_der)?;
-    println!("READY {}", server.local_addr()?);
+    // Leading newline: under libtest single-threaded scheduling
+    // (`--test-threads=1`, 1-CPU runners) the harness prints
+    // `test child_server_main ... ` with no trailing newline before the
+    // test body runs, so a bare `READY ...` would share that line and a
+    // prefix match would miss it. The newline guarantees `READY` starts
+    // its own line; the parent also matches `READY ` as a substring, so
+    // either side alone fixes the race (both are kept deliberately).
+    println!("\nREADY {}", server.local_addr()?);
     std::io::stdout().flush().map_err(|error| {
         NetError::Transport(format!(
             "proof server failed to announce its address: {error}"
@@ -418,8 +425,17 @@ fn read_ready_line(
         let mut tailed: Vec<String> = Vec::new();
         for line in lines.by_ref() {
             match line {
-                Ok(line) if !ready_sent && line.starts_with("READY ") => {
-                    let _ = ready_sender.send(Ok(line));
+                // Substring (not prefix) match: the libtest harness shares
+                // this pipe under `--nocapture`, and at concurrency 1 its
+                // `test ... ... ` prefix lands on the same line as READY
+                // (see the leading-newline note at the print site — this
+                // is the second half of that revert-proof pair).
+                Ok(line) if !ready_sent && line.contains("READY ") => {
+                    let ready = match line.find("READY ") {
+                        Some(index) => line[index..].to_string(),
+                        None => line,
+                    };
+                    let _ = ready_sender.send(Ok(ready));
                     ready_sent = true;
                 }
                 Ok(line) => {
