@@ -1,12 +1,12 @@
 //! Ordered spawn plans: the `SchemaId`-to-fields vocabulary at the simulation boundary.
 //!
-//! [`SpawnPlan::from_document`] translates an [`AuthoredDocument`](crate::authored::AuthoredDocument)
+//! [`SpawnPlan::from_document`] translates an [`AuthoredDocument`]
 //! into an ordered, fully validated plan without touching any live world: it
 //! scans `entity.<local>` sections, bakes any `prefab` reference (one level:
 //! prefab base fields first, then the instance's own fields win per field),
 //! resolves every `{ "$asset": "<id>" }` marker through the caller-supplied
 //! resolver, converts each component body into canonical
-//! [`SnapshotValue`](crate::value::SnapshotValue) fields, and validates every
+//! [`SnapshotValue`] fields, and validates every
 //! value. A non-object section, an unknown prefab, an unresolvable asset, or
 //! a non-canonical value fails here — before any caller spawns.
 //!

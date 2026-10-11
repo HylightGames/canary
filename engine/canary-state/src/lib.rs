@@ -10,12 +10,12 @@
 //!   SHA-256 over the encoded payload.
 //!
 //! Both layers speak [`serde`] through versioned envelopes ([`schema`]) keyed
-//! by [`SchemaId`](schema::SchemaId), [`SchemaVersion`](schema::SchemaVersion),
-//! and [`EncodingVersion`](schema::EncodingVersion). Unknown fields survive a
+//! by [`SchemaId`], [`SchemaVersion`],
+//! and [`EncodingVersion`]. Unknown fields survive a
 //! load→save round trip as version-tagged [`serde_json::Value`]. Schema drift
 //! is repaired by the linear per-schema chains in [`migration`].
 //!
-//! Identity ([`identity`]) keeps three domains apart: [`ProjectId`](identity::ProjectId)
+//! Identity ([`identity`]) keeps three domains apart: [`ProjectId`]
 //! (stable GUID for the authored project), canonical snapshot-local IDs
 //! (deterministic per encode), and live runtime handles (never serialized).
 //!

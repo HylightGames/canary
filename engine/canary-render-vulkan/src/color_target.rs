@@ -119,8 +119,14 @@ impl VulkanColorTarget {
                 base_array_layer: 0,
                 layer_count: 1,
             });
-        let view = unsafe { device.create_image_view(&view_ci, None) }
-            .expect("failed to create color target image view");
+        let view = unsafe {
+            // SAFETY: `view_ci` references the live `image` created above on
+            // the same device, with matching COLOR_FORMAT and a single
+            // color-mip/layer subresource range; the view is destroyed in
+            // `Drop` before the image.
+            device.create_image_view(&view_ci, None)
+        }
+        .expect("failed to create color target image view");
 
         let attachments = [view];
         let framebuffer_ci = vk::FramebufferCreateInfo::default()
@@ -129,8 +135,13 @@ impl VulkanColorTarget {
             .width(desc.width)
             .height(desc.height)
             .layers(1);
-        let framebuffer = unsafe { device.create_framebuffer(&framebuffer_ci, None) }
-            .expect("failed to create color target framebuffer");
+        let framebuffer = unsafe {
+            // SAFETY: `framebuffer_ci` references the shared render pass and
+            // the live `view` above, with dimensions matching the image
+            // extent; the framebuffer is destroyed in `Drop`.
+            device.create_framebuffer(&framebuffer_ci, None)
+        }
+        .expect("failed to create color target framebuffer");
 
         Self {
             device: Rc::clone(device),
@@ -174,9 +185,18 @@ impl VulkanColorTarget {
             .size(size_u64)
             .usage(vk::BufferUsageFlags::TRANSFER_DST)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        let staging_buffer = unsafe { device.create_buffer(&staging_buffer_ci, None) }
-            .expect("failed to create readback staging buffer");
-        let requirements = unsafe { device.get_buffer_memory_requirements(staging_buffer) };
+        let staging_buffer = unsafe {
+            // SAFETY: `staging_buffer_ci` is fully specified (TRANSFER_DST,
+            // EXCLUSIVE, `size_u64` bytes) with no borrowed handles; the
+            // buffer is destroyed at the end of this function.
+            device.create_buffer(&staging_buffer_ci, None)
+        }
+        .expect("failed to create readback staging buffer");
+        let requirements = unsafe {
+            // SAFETY: `staging_buffer` is the live buffer created above on
+            // the same device; querying its requirements touches no memory.
+            device.get_buffer_memory_requirements(staging_buffer)
+        };
         let staging_memory = allocate_memory(
             device,
             &vk_device.memory_properties,
@@ -184,17 +204,33 @@ impl VulkanColorTarget {
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )
         .expect("failed to allocate readback staging memory");
-        unsafe { device.bind_buffer_memory(staging_buffer, staging_memory, 0) }
-            .expect("failed to bind readback staging memory");
+        unsafe {
+            // SAFETY: `staging_buffer`/`staging_memory` are live handles
+            // from above on the same device, offset 0; binding is done
+            // once before any use of the buffer.
+            device.bind_buffer_memory(staging_buffer, staging_memory, 0)
+        }
+        .expect("failed to bind readback staging memory");
 
         let command_buffer_ai = vk::CommandBufferAllocateInfo::default()
             .command_pool(vk_device.command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
-        let command_buffer = unsafe { device.allocate_command_buffers(&command_buffer_ai) }
-            .expect("failed to allocate readback command buffer")[0];
+        let command_buffer = unsafe {
+            // SAFETY: `command_buffer_ai` references the live command pool
+            // with a count of 1; allocated buffers are freed below after the
+            // waited-on submit (or at the end on failure paths).
+            device.allocate_command_buffers(&command_buffer_ai)
+        }
+        .expect("failed to allocate readback command buffer")[0];
 
         unsafe {
+            // SAFETY: `command_buffer` was just allocated from the live pool
+            // and is begun before recording; `self.image`/`staging_buffer`
+            // are live, the copy region matches the target extent, the
+            // image is in TRANSFER_SRC_OPTIMAL (see comment below), and
+            // `queue_wait_idle` completes the submit before the readback
+            // maps the memory; buffers are freed before return.
             let begin_info = vk::CommandBufferBeginInfo::default();
             device
                 .begin_command_buffer(command_buffer, &begin_info)

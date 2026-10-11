@@ -15,7 +15,7 @@
 //! drops older entries regardless. A client whose cursor falls behind a
 //! dropped prefix cannot be caught up incrementally — it resynchronizes
 //! from a fresh snapshot under the gap→resync rule, never from a partial
-//! apply ([`NetError::TombstoneGap`](crate::error::NetError::TombstoneGap)).
+//! apply ([`NetError::TombstoneGap`]).
 
 use std::collections::VecDeque;
 

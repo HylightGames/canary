@@ -50,7 +50,7 @@ pub trait UiBuilder {
     fn label(&mut self, text: &str);
     /// Shows a button; returns `true` when the button was activated this
     /// frame. The adapter converts activation into
-    /// [`UiIntent::ButtonPressed`](crate::intent::UiIntent::ButtonPressed).
+    /// [`UiIntent::ButtonPressed`].
     fn button(&mut self, id: UiId, label: &str) -> bool;
 }
 

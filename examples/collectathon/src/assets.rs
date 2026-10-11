@@ -1,7 +1,7 @@
 //! Asset file names and room loading.
 //!
 //! Mesh, texture, and audio bytes load from disk through the public asset
-//! APIs into one [`GameAssets`] value; the binaries move each store into
+//! APIs into one [`GameAssets`](crate::assets::GameAssets) value; the binaries move each store into
 //! the world as a resource, so the audio trigger resolves pickup voices
 //! against the world's [`AssetStore<Sound>`](canary_assets::AssetStore)
 //! every tick. The room document loads through the authored-state seam.

@@ -1,10 +1,10 @@
 //! Project-state seam: authored decoding plus the snapshot boundary.
 //!
-//! [`CollectathonDecoder`] translates `entity.<local>` sections of the room
+//! [`CollectathonDecoder`](crate::state::CollectathonDecoder) translates `entity.<local>` sections of the room
 //! document into staged typed inserts without touching any `World`.
 //! [`Player`], [`Pickup`], and [`Score`] each implement the simulation
-//! boundary, and [`GameStats`] captures the deterministic resource side;
-//! [`snapshot_registry`] declares the full boundary in one place.
+//! boundary, and [`GameStats`](crate::state::GameStats) captures the deterministic resource side;
+//! [`snapshot_registry`](crate::state::snapshot_registry) declares the full boundary in one place.
 
 use std::collections::BTreeMap;
 

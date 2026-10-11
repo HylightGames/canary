@@ -1,9 +1,9 @@
 //! In-process loopback transport and deterministic fault injection (WP4).
 //!
-//! [`LoopbackTransport`] implements [`NetTransport`](crate::transport::NetTransport)
+//! [`LoopbackTransport`] implements [`NetTransport`]
 //! over in-process channels: same trait, same framing gates
-//! ([`encode_frame`](crate::frame::encode_frame) on send,
-//! [`decode_frame_len`](crate::frame::decode_frame_len) on receive), real
+//! ([`encode_frame`] on send,
+//! [`decode_frame_len`] on receive), real
 //! connect/accept rendezvous through a registry — but no UDP sockets, no
 //! TLS, no pinning. That path stays covered by the Quinn tests in
 //! [`crate::transport`] and `tests/session_roundtrip.rs`; this module
@@ -24,7 +24,7 @@
 //!   session layer owns.
 //!
 //! [`FaultProfile`] + [`FaultySend`] wrap any
-//! [`NetSend`](crate::transport::NetSend) with deterministic, counter-based
+//! [`NetSend`] with deterministic, counter-based
 //! faults: every n-th frame drops, duplicates, or inverts order with its
 //! successor (hold-one). No RNG, no wall clock (except the latency cell's
 //! fixed sleep, asserted with generous margins): every matrix cell is
@@ -155,7 +155,7 @@ impl NetRecv for LoopbackRecv {
     }
 }
 
-/// In-process [`NetTransport`](crate::transport::NetTransport): real
+/// In-process [`NetTransport`]: real
 /// connect/accept rendezvous, real framing gates, no sockets or TLS.
 ///
 /// `bind` registers a listener (accept side);
@@ -334,7 +334,7 @@ impl Default for FaultProfile {
     }
 }
 
-/// [`NetSend`](crate::transport::NetSend) wrapper injecting a
+/// [`NetSend`] wrapper injecting a
 /// [`FaultProfile`]'s deterministic faults into one direction.
 ///
 /// Ordering faults compose per frame in a fixed order — drop, then reorder

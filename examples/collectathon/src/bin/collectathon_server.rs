@@ -1,13 +1,13 @@
 //! `collectathon_server`: the authoritative replication server.
 //!
 //! Serves exactly one session over real UDP/TLS/ALPN (QUIC via
-//! [`QuinnTransport`](canary_net::QuinnTransport)): handshake → snapshot →
+//! [`QuinnTransport`]): handshake → snapshot →
 //! delta → input → ack, then a clean disconnect. The snapshot and delta
 //! carry the collectathon game codecs from
-//! [`replication`](collectathon::replication) — `SimComponent` bytes flow
+//! [`collectathon::replication`] — `SimComponent` bytes flow
 //! into [`ReplicatedEntry`](canary_net::ReplicatedEntry) payloads, the
-//! server-scoped [`NetEntityMap`](canary_net::NetEntityMap) owns identity,
-//! and a [`TombstoneLog`](canary_net::TombstoneLog) carries the pickup
+//! server-scoped [`NetEntityMap`] owns identity,
+//! and a [`TombstoneLog`] carries the pickup
 //! removal. Between snapshot and delta the server advances its own
 //! authoritative state (one pickup collected and banked, one pickup removed),
 //! so the delta is a real state progression, not an echo.

@@ -37,7 +37,7 @@ pub const MAX_RESPONSE_BYTES: usize = 1_048_576;
 ///
 /// A behind-horizon client receives the whole canonical project JSON in
 /// one reply, so the snapshot itself is bounded before the reply is
-/// built: past this ceiling [`Session::sync`] fails typed
+/// built: past this ceiling [`crate::session::Session::sync`] fails typed
 /// ([`CollabError::TooLarge`]) instead of serving a reply the 1 MB
 /// response bound would truncate. Small proof projects (kilobytes) sit
 /// orders of magnitude below it; the ceiling only ever fires on a
@@ -65,7 +65,7 @@ pub const MAX_SCHEMA_BYTES: usize = 128;
 /// [`COLLAB_PROTOCOL_VERSION`]. The composition owner (`canary-runtime`)
 /// moves tagged bytes across the transport but never mints tag values:
 /// adding a request kind means a new tag here, a dispatch arm in
-/// [`Session::handle_frame_body`](crate::session::Session::handle_frame_body),
+/// [`crate::session::Session::handle_frame_body`],
 /// and a protocol-version consideration — never a host-local constant.
 /// Tag values, once shipped, are never reused for a different kind.
 ///
@@ -75,7 +75,7 @@ pub const MAX_SCHEMA_BYTES: usize = 128;
 /// [`TAG_HOST_RESERVED_MIN`]) are reserved for transport/host-level
 /// signals and must never name a collab request.
 ///
-/// [`Session::handle_frame_body`](crate::session::Session::handle_frame_body)
+/// [`crate::session::Session::handle_frame_body`]
 /// owns dispatch over these tags; [`split_tagged_body`] and [`tag_body`]
 /// own the byte layout. Registry, layout, and governing version live
 /// together here so they cannot drift apart.

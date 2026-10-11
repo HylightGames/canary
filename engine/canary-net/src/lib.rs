@@ -65,7 +65,7 @@
 //!   idle deadlines per client enforced on tick (disconnects with
 //!   [`DisconnectReason::IdleTimeout`]), and temporary bans with expiry for
 //!   peer labels with repeated handshake rejects (refused as
-//!   [`RejectReason::TemporarilyBanned`](crate::handshake::RejectReason::TemporarilyBanned)).
+//!   [`RejectReason::TemporarilyBanned`]).
 //!   Both run on a caller-supplied `u64` clock — no wall-clock reads, so
 //!   tests drive policy on a fake clock.
 //! - Session counters with bounded label sets ([`metrics`]): exact global

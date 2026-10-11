@@ -70,7 +70,7 @@ pub enum PermissionError {
     },
 
     /// The permission file (or its in-memory rendering) was not valid
-    /// JSON for [`PermissionStore`](crate::permissions::PermissionStore).
+    /// JSON for [`crate::permissions::PermissionStore`].
     #[error("permission codec failure at {path}: {reason}")]
     Codec {
         /// The file the bytes came from or were bound for.
@@ -152,9 +152,9 @@ pub enum RejectCode {
     /// reusing the key is not.
     IdConflict,
     /// A length bound failed: an oversize request, or a reply whose
-    /// fully-encoded form exceeds [`MAX_RESPONSE_BYTES`](crate::wire::MAX_RESPONSE_BYTES).
-    /// Size failures are never [`Malformed`](RejectCode::Malformed): on the
-    /// frame path [`Session::handle_frame_body`](crate::session::Session::handle_frame_body)
+    /// fully-encoded form exceeds [`crate::wire::MAX_RESPONSE_BYTES`].
+    /// Size failures are never [`RejectCode::Malformed`]: on the
+    /// frame path [`crate::session::Session::handle_frame_body`]
     /// answers them with this code under the echoed tag, so a snapshot that
     /// passes the content ceiling but encodes past the response bound stays
     /// typed instead of collapsing to a generic reject.

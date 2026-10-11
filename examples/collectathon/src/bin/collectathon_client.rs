@@ -1,8 +1,8 @@
 //! `collectathon_client`: the replication client.
 //!
-//! Connects to a [`collectathon_server`](crate::bin::collectathon_server)
+//! Connects to a `collectathon_server`
 //! over real UDP/TLS/ALPN (QUIC via
-//! [`QuinnTransport`](canary_net::QuinnTransport)) with the pinned
+//! [`QuinnTransport`]) with the pinned
 //! development certificate, then: handshake, converge on the (shuffled)
 //! snapshot, apply the sequenced delta, send frame-tagged input, await the
 //! ack, and disconnect cleanly.

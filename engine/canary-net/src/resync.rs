@@ -6,7 +6,7 @@
 //! [`BaselineRetention`] is the minimal server-side history that makes that
 //! promise keepable: a bounded ring of recent authoritative snapshots
 //! (full post-tick states, newest first in push order) consulted alongside
-//! the [`TombstoneLog`](crate::tombstone::TombstoneLog), which already
+//! the [`TombstoneLog`], which already
 //! outlives any one session.
 //!
 //! Resync planning ([`BaselineRetention::plan`]) takes the reconnecting

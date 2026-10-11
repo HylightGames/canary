@@ -1,6 +1,6 @@
 //! Server-scoped network entity identity assignment (ADR 0027, point 5).
 //!
-//! [`NetEntityMap`] assigns one [`NetEntityId`](crate::ids::NetEntityId)
+//! [`NetEntityMap`] assigns one [`NetEntityId`]
 //! per live ECS entity for an authoritative session. The map keys on the
 //! full `(slot index, generation)` tuple — the same tuple-key discipline as
 //! `canary-state`'s `RemapTable` — so recycling a slot for a new entity

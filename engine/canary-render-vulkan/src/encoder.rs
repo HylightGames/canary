@@ -30,7 +30,7 @@ pub struct VulkanCommandEncoder<'a> {
     /// `set_pipeline` call.
     ///
     /// Descriptor sets bind against a pipeline layout, not into the
-    /// void: [`CommandEncoder::set_texture`](canary_render::CommandEncoder::set_texture)
+    /// void: [`CommandEncoder::set_texture`]
     /// needs the current pipeline's layout, so `set_pipeline` records
     /// it here. A `set_texture` before any `set_pipeline`, or after a
     /// pipeline built *without* the texture layout, is a caller
@@ -151,6 +151,12 @@ impl<'a> Drop for VulkanCommandEncoder<'a> {
     // the device first — borrowck enforces the order).
     fn drop(&mut self) {
         let device = &self.vk_device.device;
+        // SAFETY: `self.command_buffer` was allocated from
+        // `self.vk_device.command_pool` in `new()` and not yet freed (only
+        // `submit_and_wait` frees it, and that path forgets `self` so this
+        // `Drop` never runs for it); the device outlives the encoder via
+        // the `&'a VulkanDevice` borrow. `end` + free without submit is
+        // valid for an abandoned buffer.
         unsafe {
             if self.pass_open {
                 device.cmd_end_render_pass(self.command_buffer);

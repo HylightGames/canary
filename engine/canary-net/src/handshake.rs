@@ -3,10 +3,10 @@
 //! The handshake is the first exchange on a new connection, before any
 //! snapshot, delta, or input flows. The client sends one [`Hello`]
 //! announcing the four version domains it speaks and understands — the wire
-//! [`ProtocolVersion`](crate::ids::ProtocolVersion), the
-//! [`SchemaManifestVersion`](crate::ids::SchemaManifestVersion), the
-//! [`GameVersion`](crate::ids::GameVersion), and the
-//! [`PluginApiVersion`](crate::ids::PluginApiVersion) it requires — plus a
+//! [`ProtocolVersion`], the
+//! [`SchemaManifestVersion`], the
+//! [`GameVersion`], and the
+//! [`PluginApiVersion`] it requires — plus a
 //! log-only client label; the server answers with either [`Welcome`] (an
 //! assigned player slot plus the session id that binds later messages to
 //! this connection, per ADR 0027 point 9) or a typed [`Reject`] naming the

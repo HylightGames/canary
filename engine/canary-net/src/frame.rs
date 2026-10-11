@@ -3,7 +3,7 @@
 //! Wire layout: a 4-byte big-endian length prefix followed by exactly that
 //! many body bytes (one `postcard`-encoded [`crate::envelope::NetEnvelope`]
 //! in this profile). The receiver reads the prefix, checks it against
-//! [`NetLimits`](crate::limits::NetLimits), and only then allocates —
+//! [`NetLimits`], and only then allocates —
 //! `read_to_end`-style unbounded reads on untrusted bytes are never used on
 //! this path.
 

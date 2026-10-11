@@ -1,8 +1,8 @@
 //! Authoritative collaboration session seam (`.16`).
 //!
-//! [`open_host`] opens (or provisions) the serving state over the room
+//! [`open_host`](crate::collab::open_host) opens (or provisions) the serving state over the room
 //! project file: the durable project seam, the server-side permission
-//! file, and the session over both. [`PLAYER_SECTION`] names the authored
+//! file, and the session over both. [`PLAYER_SECTION`](crate::collab::PLAYER_SECTION) names the authored
 //! object the first collaboration slice edits; later work packages run the
 //! two-client edit/conflict/reconnect path against it.
 

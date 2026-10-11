@@ -3,7 +3,7 @@
 //! The reliable ordered stream already delivers bytes in order, but sessions
 //! must survive reconnects, resyncs, and (later) additional lanes where the
 //! same logical message can legitimately arrive twice. [`SequenceGate`]
-//! requires strictly increasing [`NetSequence`](crate::ids::NetSequence)
+//! requires strictly increasing [`NetSequence`]
 //! values: duplicates and reordered values are rejected, never applied twice
 //! (ADR 0027, point 10).
 //!

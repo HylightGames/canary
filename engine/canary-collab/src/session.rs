@@ -8,7 +8,7 @@
 //! Validation runs in a fixed stage order, and every stage that rejects
 //! assigns nothing, advances nothing, and records nothing:
 //!
-//! 1. bounded decode ([`wire::decode_request`], at the `*_bytes` entries);
+//! 1. bounded decode ([`crate::wire::decode_request`], at the `*_bytes` entries);
 //! 2. protocol and schema compatibility;
 //! 3. credential authentication, then idempotency lookup;
 //! 4. role permission (`Forbidden` denies; the connection stays alive
@@ -535,8 +535,8 @@ impl Session {
     /// ([`CollabError::TooLarge`]), never truncated. That content gate is
     /// necessary but not sufficient: servability is decided on the
     /// fully-encoded reply (encode-then-gate in
-    /// [`encode_sync_response`](crate::wire::encode_sync_response),
-    /// against [`MAX_RESPONSE_BYTES`](crate::wire::MAX_RESPONSE_BYTES)),
+    /// [`encode_sync_response`],
+    /// against [`crate::wire::MAX_RESPONSE_BYTES`]),
     /// so a snapshot under the content ceiling whose framed reply encodes
     /// past the response bound still fails typed [`CollabError::TooLarge`]
     /// instead of being served truncated.
@@ -589,12 +589,12 @@ impl Session {
     }
 
     /// Handles one tagged inbound frame body and returns the tagged reply
-    /// body: the dispatch arm of the [`wire`](crate::wire) frame-tag
+    /// body: the dispatch arm of the [`crate::wire`] frame-tag
     /// registry. Untaggable or undecodable input yields a generic
     /// `Malformed` reject — the caller's connection stays usable. A size
     /// bound failure ([`CollabError::TooLarge`], from an oversize request
     /// or an unservable oversize reply) keeps its typed code instead:
-    /// the reply is a [`RejectCode::TooLarge`](crate::RejectCode::TooLarge)
+    /// the reply is a [`RejectCode::TooLarge`]
     /// reject under the echoed tag, never a generic `Malformed`.
     #[must_use]
     pub fn handle_frame_body(

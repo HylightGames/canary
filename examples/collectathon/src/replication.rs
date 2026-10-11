@@ -1,9 +1,9 @@
 //! Networking seam: replicated schemas, wire codecs, opt-in marking.
 //!
-//! [`REPLICATED_SCHEMAS`] is the type-level opt-in (`.15`): a component
+//! [`REPLICATED_SCHEMAS`](crate::replication::REPLICATED_SCHEMAS) is the type-level opt-in (`.15`): a component
 //! replicates for an entity only when the entity carries [`Replicated`]
-//! *and* its schema is registered here. [`replication_codecs`] builds the
-//! matching wire-codec registry; [`mark_replicated`] marks the entity-level
+//! *and* its schema is registered here. [`replication_codecs`](crate::replication::replication_codecs) builds the
+//! matching wire-codec registry; [`mark_replicated`](crate::replication::mark_replicated) marks the entity-level
 //! half. Later work packages run the server/client processes against this
 //! mapping.
 //!

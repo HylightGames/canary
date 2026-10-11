@@ -1,6 +1,6 @@
 //! Tier A plugin seam: the guest-visible `Score` codec.
 //!
-//! [`register_game_codecs`] registers every component type the guest may
+//! [`register_game_codecs`](crate::plugin::register_game_codecs) registers every component type the guest may
 //! touch; the guest (`assets/guest.wat`) reads world state through
 //! `canary:plugin/ecs-read` and overwrites registered components through
 //! `canary:plugin/ecs-write` during its documented lifecycle boundary.

@@ -27,14 +27,14 @@ fn vertex_format_to_vk(format: VertexFormat) -> vk::Format {
 /// A graphics pipeline: two shader stages (vertex + fragment) compiled
 /// from precompiled SPIR-V, a vertex input layout, and fixed-function
 /// state — no depth/stencil, and no blending except the blended textured
-/// variant ([`VulkanPipeline::new_textured_blended`]), matching
+/// variant (`new_textured_blended`), matching
 /// [`canary_render::PipelineDescriptor`]'s scope.
 ///
 /// Uses **dynamic** viewport/scissor state (set per render pass in
 /// `VulkanCommandEncoder`'s `begin_render_pass` implementation, not
 /// baked in here) specifically because [`canary_render::PipelineDescriptor`]
 /// doesn't carry a target size — a pipeline is created independently of
-/// any specific [`crate::color_target::VulkanColorTarget`], and dynamic
+/// any specific `VulkanColorTarget`, and dynamic
 /// state is the standard Vulkan way to let one pipeline be reused across
 /// differently sized targets rather than needing a fixed size baked in
 /// at creation time.
@@ -63,7 +63,7 @@ impl VulkanPipeline {
     /// Creates the single-texture variant: identical shader/states to
     /// [`VulkanPipeline::new`] except the pipeline layout additionally
     /// includes the device's shared texture descriptor-set layout, so
-    /// [`CommandEncoder::set_texture`](canary_render::CommandEncoder::set_texture)
+    /// [`CommandEncoder::set_texture`]
     /// has a set-0 layout to bind into. No blending, depth, or second
     /// slot is added here — those are the deferred materials system's
     /// scope, and this method's whole point is to stay the minimal
@@ -227,12 +227,19 @@ impl VulkanPipeline {
 
 fn create_shader_module(device: &ash::Device, spirv: &[u32], label: &str) -> vk::ShaderModule {
     let ci = vk::ShaderModuleCreateInfo::default().code(spirv);
+    // SAFETY: `ci` borrows the live `spirv` words passed by the caller
+    // (SPIR-V produced by the shader build); the module is destroyed after
+    // pipeline creation.
     unsafe { device.create_shader_module(&ci, None) }
         .unwrap_or_else(|e| panic!("failed to create shader module for pipeline {label:?}: {e}"))
 }
 
 impl Drop for VulkanPipeline {
     fn drop(&mut self) {
+        // SAFETY: `pipeline`/`layout` were created on `self.device` in
+        // `new`/`new_textured` and not yet destroyed; destroying them here
+        // before the device is dropped (device is `Rc`-owned and outlives
+        // the pipeline handle) is sound.
         unsafe {
             self.device.destroy_pipeline(self.pipeline, None);
             self.device.destroy_pipeline_layout(self.layout, None);

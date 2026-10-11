@@ -115,7 +115,7 @@ impl ScenePipeline {
     /// after the submission that reads it — dropping it earlier is
     /// use-after-free (a second frame on the same target deterministically
     /// loses the device in practice), the same contract
-    /// [`record_baked_frame`](canary_render_ecs::record_baked_frame)
+    /// `record_baked_frame`
     /// documents.
     pub fn draw_player(
         &self,

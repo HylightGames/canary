@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn type_reinterpretation_preserves_slot_identity() {
         let mesh = AssetHandle::<Mesh>::from_raw_parts(7, 2);
-        #[allow(deprecated)]
+        #[expect(deprecated)]
         let texture: AssetHandle<Texture> = mesh.with_type();
         assert_eq!(texture.index(), 7);
         assert_eq!(texture.generation(), 2);
@@ -225,7 +225,7 @@ mod tests {
         );
 
         // When: the mesh handle is reinterpreted as a texture handle.
-        #[allow(deprecated)]
+        #[expect(deprecated)]
         let aliased: AssetHandle<Texture> = mesh_handle.with_type();
 
         // Then: it resolves — to the live, unrelated texture, not to

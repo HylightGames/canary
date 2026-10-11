@@ -1,6 +1,6 @@
 //! Linear per-schema migration chains.
 //!
-//! A [`MigrationChain`] owns one [`SchemaId`](crate::schema::SchemaId) and a
+//! A [`MigrationChain`] owns one [`SchemaId`] and a
 //! chain of version-to-version steps. Payloads advance one step at a time —
 //! skipping versions is never allowed, so every intermediate shape stays
 //! representable and testable. Each step is a pure function over the

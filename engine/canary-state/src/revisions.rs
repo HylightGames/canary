@@ -3,7 +3,7 @@
 //!
 //! This module is the `.16` WP1 answer to three open definition items from
 //! ADR 0028: the target-ID type, the revision/sequence counters and their
-//! relation to the [`AuthoredDocument`](crate::authored::AuthoredDocument)
+//! relation to the [`AuthoredDocument`]
 //! human change log, and the prefab-veto location.
 //!
 //! Selections, recorded as amendment notes in ADR 0028:

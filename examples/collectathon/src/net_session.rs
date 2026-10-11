@@ -56,7 +56,7 @@ pub const INPUT_TICK: u64 = 3;
 #[non_exhaustive]
 pub enum NetHarnessError {
     /// A `canary-net` operation failed.
-    Net(#[allow(dead_code)] NetError),
+    Net(NetError),
     /// A snapshot encode/decode step failed.
     State(StateError),
     /// An ECS operation failed.
