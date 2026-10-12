@@ -230,6 +230,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), 
     use std::sync::atomic::{AtomicU64, Ordering};
     static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+    #[cfg(unix)]
     let parent = path
         .parent()
         .map(PathBuf::from)
