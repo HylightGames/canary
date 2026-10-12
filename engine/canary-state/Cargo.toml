@@ -18,5 +18,5 @@ postcard = { version = "1", default-features = false, features = ["use-std"] }
 # resolve one `sha2` major — see `docs/development/build-system.md`
 # History for the `0.10` → `0.11` retirement).
 sha2 = "0.11"
-getrandom = "0.3"
+getrandom = "0.4"
 thiserror = "2"
