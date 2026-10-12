@@ -31,7 +31,7 @@ canary-transform = { path = "../../engine/canary-transform" }
 canary-ui-core = { path = "../../engine/canary-ui-core" }
 canary-ui-egui = { path = "../../engine/canary-ui-egui" }
 glam = "0.33"
-rcgen = "0.13"
+rcgen = "0.14"
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
