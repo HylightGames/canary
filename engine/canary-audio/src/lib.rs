@@ -26,9 +26,10 @@
 //!   Exact pin `rodio = "=0.22.2"`, `default-features = false` with
 //!   only MIT/Apache-2.0 decoder features (`hound`, `lewton` —
 //!   Symphonia is MPL-2.0 and stays out of the graph).
-//! - [`components`]: [`AudioSource`] (asset handle + trigger state +//!   volume + loop flag), [`AudioListener`] (pose marker), and the
-//!   [`AudioConfig`] resource (master volume plus `#[non_exhaustive]`
-//!   backend selection).
+//! - [`components`]: [`AudioSource`] (asset handle + trigger state +
+//!   volume + loop flag + positional flag), [`AudioListener`] (pose
+//!   marker), and the [`AudioConfig`] resource (master volume plus
+//!   `#[non_exhaustive]` backend selection).
 //! - [`systems`]: Canary-owned [`attenuation_gain`]
 //!   math, the [`AudioVoices`] table,
 //!   [`audio_trigger_system`] (play on

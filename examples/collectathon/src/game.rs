@@ -16,7 +16,7 @@
 //! one-tick-stale intents.
 
 use canary_assets::{AssetHandle, Mesh, Sound, Texture};
-use canary_audio::{AudioSource, SourceState};
+use canary_audio::{AudioListener, AudioSource, SourceState};
 use canary_ecs::{EcsError, World};
 use canary_input::{ActionId, SimulationInput};
 use canary_physics::{Collider, GravityScale, RigidBody, Velocity};
@@ -151,6 +151,7 @@ pub fn register_collect_on_touch(schedule: &mut Schedule) {
         SystemAccess::new()
             .reads::<Player>()
             .writes::<Pickup>()
+            .writes::<MeshRenderable>()
             .writes::<AudioSource>()
             .writes::<Score>()
             .writes_resource::<GameStats>(),
@@ -169,6 +170,7 @@ pub fn register_collect_on_edge(schedule: &mut Schedule, collect: ActionId) {
             .reads_resource::<SimulationInput>()
             .reads::<Player>()
             .writes::<Pickup>()
+            .writes::<MeshRenderable>()
             .writes::<AudioSource>()
             .writes::<Score>()
             .writes_resource::<GameStats>(),
@@ -185,7 +187,8 @@ pub fn register_collect_on_edge(schedule: &mut Schedule, collect: ActionId) {
     );
 }
 
-/// Shared touch/edge collector: marks pickups within `radius` taken, flips
+/// Shared touch/edge collector: marks pickups within `radius` taken,
+/// hides their drawable (keeping the entity and its voice alive), flips
 /// their voices to playing, and banks one point plus one stat per pickup.
 /// Already-taken pickups never re-fire, so holding the player inside a
 /// collected shard banks nothing further.
@@ -223,6 +226,13 @@ fn collect_within(world: &mut World, radius: f32, play_sound: bool) {
                 source.state = SourceState::Playing;
             }
         }
+        // Hide the collected pickup by dropping its drawable, never by
+        // despawning: the same entity's AudioSource must survive to play
+        // the collection chime, and reset_room re-inserts the renderable
+        // from PickupVisual. The bridge extracts whatever carries
+        // MeshRenderable, so this is the visibility filter it has no
+        // concept of.
+        let _ = world.remove::<MeshRenderable>(entity);
     }
     if newly_collected == 0 {
         return;
@@ -243,7 +253,9 @@ pub fn register_reset_on_edge(schedule: &mut Schedule, reset: ActionId) {
     schedule.add_write_system(
         SystemAccess::new()
             .reads_resource::<SimulationInput>()
+            .reads::<PickupVisual>()
             .writes::<Pickup>()
+            .writes::<MeshRenderable>()
             .writes::<AudioSource>()
             .writes::<Score>()
             .writes_resource::<GameStats>(),
@@ -268,7 +280,9 @@ pub fn register_apply_ui_intents(schedule: &mut Schedule) {
     schedule.add_write_system(
         SystemAccess::new()
             .reads_resource::<UiIntents>()
+            .reads::<PickupVisual>()
             .writes::<Pickup>()
+            .writes::<MeshRenderable>()
             .writes::<AudioSource>()
             .writes::<Score>()
             .writes_resource::<GameStats>(),
@@ -286,9 +300,11 @@ pub fn register_apply_ui_intents(schedule: &mut Schedule) {
     );
 }
 
-/// Restores the room: every pickup un-taken, every pickup voice stopped,
-/// every score zeroed, collected stats zeroed. Totals ([`GameStats::goal`])
-/// are room content, not run state, so they survive the reset.
+/// Restores the room: every pickup un-taken, every pickup drawable
+/// re-inserted from its [`PickupVisual`], every pickup voice stopped,
+/// every score zeroed, collected stats zeroed. Totals
+/// ([`GameStats::goal`]) are room content, not run state, so they
+/// survive the reset.
 pub fn reset_room(world: &mut World) {
     let pickups: Vec<_> = world.query::<Pickup>().map(|(entity, _)| entity).collect();
     for entity in pickups {
@@ -297,6 +313,9 @@ pub fn reset_room(world: &mut World) {
         }
         if let Some(source) = world.get_mut::<AudioSource>(entity) {
             source.state = SourceState::Stopped;
+        }
+        if let Some(visual) = world.get::<PickupVisual>(entity).copied() {
+            let _ = world.insert(entity, MeshRenderable::new(visual.mesh, visual.color));
         }
     }
     let scores: Vec<_> = world.query::<Score>().map(|(entity, _)| entity).collect();
@@ -327,11 +346,29 @@ pub struct SimHandles {
     pub pickup_sound: AssetHandle<Sound>,
 }
 
+/// What an uncollected pickup draws: the mesh plus its flat tint.
+///
+/// The render attachment stores this alongside [`MeshRenderable`] so
+/// collection can remove the drawable without losing the data
+/// [`reset_room`] needs to restore it. Kept in the sample, not the
+/// engine: `extract_mesh_scene` has no visibility concept and
+/// [`RenderItem`](canary_render_ecs::RenderItem) carries no entity id to
+/// filter by, so hiding a collected pickup is the scene's decision.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PickupVisual {
+    /// Mesh the pickup draws.
+    pub mesh: AssetHandle<Mesh>,
+    /// Flat RGB tint of the pickup's triangles.
+    pub color: [f32; 3],
+}
+
 /// Attaches the simulation-owned components the spawner cannot decode:
 /// the player becomes a gravity-free dynamic cuboid body with a seeded
-/// velocity and a solver pose copied from its authored position, every
-/// spawned pickup gains a stopped voice on `handles.pickup_sound`, and
-/// the run stats zero out over the spawned pickup count.
+/// velocity, a solver pose copied from its authored position, and the
+/// scene's [`AudioListener`]; every spawned pickup gains a stopped,
+/// non-positional voice on `handles.pickup_sound` (pickup chimes are
+/// non-diegetic — distance must not quiet them); and the run stats zero
+/// out over the spawned pickup count.
 ///
 /// `report` is the spawner's placement map (`"player"`, `"goal"`,
 /// `"pickup_a"` …). A missing `"player"` is a content error reported as
@@ -356,6 +393,11 @@ pub fn attach_simulation_components(
     world.insert(player, GravityScale::none())?;
     world.insert(player, pose)?;
     world.insert(player, GlobalTransform::from_matrix(pose.to_matrix()))?;
+    // The player's propagated pose is the scene's ear: the trigger reads
+    // the first listener entity's GlobalTransform (see
+    // `canary_audio::audio_trigger_system`), falling back to the origin
+    // when none exists.
+    world.insert(player, AudioListener)?;
 
     let mut total = 0u32;
     for local in ["goal", "pickup_a", "pickup_b", "pickup_c"] {
@@ -365,7 +407,10 @@ pub fn attach_simulation_components(
         if world.get::<Pickup>(entity).is_none() {
             continue;
         }
-        world.insert(entity, AudioSource::new(handles.pickup_sound))?;
+        world.insert(
+            entity,
+            AudioSource::non_positional(handles.pickup_sound).with_volume(1.0),
+        )?;
         total += 1;
     }
     let stats = GameStats {
@@ -479,7 +524,9 @@ pub fn attach_render_components(
         };
         world.insert(entity, pose)?;
         world.insert(entity, GlobalTransform::from_matrix(pose.to_matrix()))?;
-        world.insert(entity, MeshRenderable::new(mesh, color))?;
+        let visual = PickupVisual { mesh, color };
+        world.insert(entity, visual)?;
+        world.insert(entity, MeshRenderable::new(visual.mesh, visual.color))?;
     }
     Ok(())
 }
@@ -890,6 +937,122 @@ mod tests {
         assert!(
             !textured.is_empty(),
             "the live textured scene must bake to real vertices"
+        );
+    }
+
+    #[test]
+    fn collected_pickup_leaves_the_bridge_scene_and_reset_restores_it() {
+        let mut world = live_room_world();
+        let player = world
+            .query::<Player>()
+            .map(|(entity, _)| entity)
+            .next()
+            .expect("room spawns a player");
+        let shard = world
+            .query::<Pickup>()
+            .find(|(_, pickup)| !pickup.is_goal)
+            .map(|(entity, pickup)| (entity, pickup.x, pickup.y))
+            .expect("room authors a shard");
+        let mesh_count = |world: &World| canary_render_ecs::extract_mesh_scene(world).len();
+
+        let pickups: Vec<_> = world.query::<Pickup>().map(|(entity, _)| entity).collect();
+        assert_eq!(
+            pickups.len(),
+            4,
+            "the room authors the goal plus three shards"
+        );
+        for entity in pickups {
+            assert!(
+                !world
+                    .get::<AudioSource>(entity)
+                    .expect("every pickup carries a voice")
+                    .positional,
+                "pickup chimes must be non-positional so distance cannot silence them"
+            );
+        }
+
+        assert_eq!(
+            mesh_count(&world),
+            5,
+            "player plus goal plus three shards must extract from a fresh room"
+        );
+
+        // Stand the player on the shard and collect through the real
+        // touch path.
+        {
+            let player = world.get_mut::<Player>(player).expect("player exists");
+            player.x = shard.1;
+            player.y = shard.2;
+        }
+        collect_within(&mut world, COLLECT_RADIUS_PX, true);
+
+        assert!(
+            world
+                .get::<Pickup>(shard.0)
+                .expect("shard exists")
+                .collected,
+            "touch collection must mark the shard taken"
+        );
+        assert!(
+            world.get::<MeshRenderable>(shard.0).is_none(),
+            "the collected shard must lose its drawable"
+        );
+        assert_eq!(
+            mesh_count(&world),
+            4,
+            "the collected shard must leave the bridge scene"
+        );
+        assert_eq!(
+            world
+                .get::<AudioSource>(shard.0)
+                .expect("voice survives collection")
+                .state,
+            SourceState::Playing,
+            "the chime must still be armed on the surviving entity"
+        );
+        assert!(
+            world.get::<Transform>(shard.0).is_some()
+                && world.get::<GlobalTransform>(shard.0).is_some(),
+            "collection must keep the pickup's transform and global"
+        );
+
+        reset_room(&mut world);
+
+        assert!(
+            !world
+                .get::<Pickup>(shard.0)
+                .expect("shard exists")
+                .collected,
+            "reset must un-take the shard"
+        );
+        assert!(
+            world.get::<MeshRenderable>(shard.0).is_some(),
+            "reset must re-insert the shard's drawable from PickupVisual"
+        );
+        assert_eq!(
+            mesh_count(&world),
+            5,
+            "every pickup must draw again after reset"
+        );
+
+        // Collect the restored shard again: reset restores room state, so
+        // the hide path must keep working across cycles.
+        collect_within(&mut world, COLLECT_RADIUS_PX, true);
+        assert!(
+            world
+                .get::<Pickup>(shard.0)
+                .expect("shard exists")
+                .collected,
+            "the second collect must mark the restored shard taken"
+        );
+        assert!(
+            world.get::<MeshRenderable>(shard.0).is_none(),
+            "the second collect must hide the restored drawable"
+        );
+        assert_eq!(
+            mesh_count(&world),
+            4,
+            "the re-collected shard must leave the bridge scene again"
         );
     }
 

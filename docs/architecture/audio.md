@@ -84,4 +84,9 @@ does not open an output device. A game that wants audible rodio playback
 must construct `RodioBackend::try_new()` during startup and insert it as
 `Mutex<RodioBackend>` before the first audio system run. Headless mode is
 the intentional safe default. Audio reads propagated `GlobalTransform`
-poses, so transform propagation must run before audio in the schedule.
+poses, so transform propagation must run before audio in the schedule:
+the first `(AudioListener, GlobalTransform)` pair supplies the ear — a
+listener without a propagated pose is skipped, and the default pose
+(origin, facing −Z) applies when no pair exists — and only sources whose
+`AudioSource::positional` is `true` attenuate by distance — non-positional
+voices play at the full master × source gain.

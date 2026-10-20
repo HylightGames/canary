@@ -10,7 +10,7 @@ a point-in-time record — the same convention as
 
 ## Current handoff — `v0.0.16` cut, `v0.1.0` proof sample on `dev` (2026-10-01)
 
-`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag and no `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample is committed as `387ba00` on `dev` (unpushed), covering WP1 (consumer project), WP2 (complete runtime), and WP3 (integration boundaries); WP4 (docs closeout + live-device matrix) is in progress. Continue with the `v0.1.0` proof per [`v0.1.0-plan.md`](v0.1.0-plan.md#v010--integration-proof). What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag; the draft release note lives at `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample is committed on `dev` (currently at `1db8815`), covering WP1 (consumer project), WP2 (complete runtime), and WP3 (integration boundaries); WP4 (docs closeout + live-device matrix) is in progress. Continue with the `v0.1.0` proof per [`v0.1.0-plan.md`](v0.1.0-plan.md#v010--integration-proof). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -732,15 +732,16 @@ below), and no engine code changed for it. The sample lives entirely in
 - [x] WP1 (consumer project): `examples/collectathon/` builds and runs
       only against documented public APIs — `cargo build -p collectathon`
       from a fresh checkout; asset files plus source licenses in
-      `examples/collectathon/assets/` (`LICENSES.md`; mesh/texture/audio
+      `examples/collectathon/assets/` (`LICENSES.md`; mesh/texture
       fixtures are byte copies of the `canary-assets` fixtures,
-      `room.json` + `guest.wat` are original, all MIT); expected
+      `pickup.wav` is generated for the sample under CC0-1.0,
+      `room.json` + `guest.wat` are original, the rest MIT); expected
       interaction in the sample README (player at room center, score 0;
       touch or collect-press gathers shards at extended range; all three
       shards plus the goal completes the room, `Goal: done`).
 - [x] WP2 (complete runtime): mesh/texture/audio assets load from disk
       through the public asset APIs (`src/assets.rs`: `quad.glb`,
-      `box.glb`, `rgba2x2.png`, `tone-mono-8k.wav`); audio brings up the
+      `box.glb`, `rgba2x2.png`, `pickup.wav`); audio brings up the
       OS default device with a decode-only headless fallback, never a
       panic (`src/bin/collectathon.rs`); live window via
       `canary-runtime` `FrameDriver` (`drive_frame`: event pump → UI

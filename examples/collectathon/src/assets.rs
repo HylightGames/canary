@@ -21,8 +21,8 @@ pub const QUAD_MESH: &str = "quad.glb";
 pub const BOX_MESH: &str = "box.glb";
 /// Sprite texture fixture.
 pub const SPRITE_PNG: &str = "rgba2x2.png";
-/// Pickup sound fixture.
-pub const PICKUP_SOUND: &str = "tone-mono-8k.wav";
+/// Pickup sound (generated for this example, CC0-1.0).
+pub const PICKUP_SOUND: &str = "pickup.wav";
 
 /// The example's asset directory: `<crate>/assets`.
 #[must_use]
@@ -92,7 +92,7 @@ fn first_mesh(path: &Path) -> Result<Mesh, AssetError> {
 /// room document to its on-disk path string.
 ///
 /// Accepts both the short gameplay names (`player.glb`, `tile.png`,
-/// `pickup.wav`) and the real fixture file names, so authored content can
+/// `pickup.wav`) and the real on-disk file names, so authored content can
 /// speak gameplay while the loader stays honest about which bytes exist.
 /// Unknown ids resolve to `None`, which aborts the spawn before the first
 /// entity (see [`AuthoredSpawner`](canary_runtime::AuthoredSpawner)). The
@@ -103,7 +103,9 @@ pub fn resolve_asset(id: &str) -> Option<String> {
         "player.glb" | QUAD_MESH => QUAD_MESH,
         "goal.glb" | BOX_MESH => BOX_MESH,
         "tile.png" | "sprite.png" | SPRITE_PNG => SPRITE_PNG,
-        "pickup.wav" | PICKUP_SOUND => PICKUP_SOUND,
+        // `PICKUP_SOUND` is `pickup.wav`: the gameplay alias and the new
+        // asset's real file name coincide, so one arm serves both.
+        PICKUP_SOUND => PICKUP_SOUND,
         _ => return None,
     };
     Some(asset_dir().join(file).to_string_lossy().into_owned())

@@ -133,7 +133,7 @@ jobs:
         run: |
           set -euo pipefail
           dir=examples/collectathon/assets
-          for fixture in quad.glb box.glb rgba2x2.png tone-mono-8k.wav room.json; do
+          for fixture in quad.glb box.glb rgba2x2.png pickup.wav room.json; do
             test -f "$dir/$fixture" || { echo "::error ::missing fixture $dir/$fixture"; exit 1; }
             if head -c 128 "$dir/$fixture" | grep -q "git-lfs.github.com"; then
               echo "::error ::$dir/$fixture holds a Git-LFS pointer, not fixture bytes"
@@ -151,9 +151,9 @@ jobs:
           magic("rgba2x2.png", b"\x89PNG\r\n\x1a\n")
           magic("quad.glb", b"glTF")
           magic("box.glb", b"glTF")
-          wav = (root / "tone-mono-8k.wav").read_bytes()
-          assert wav[:4] == b"RIFF" and wav[8:12] == b"WAVE", "tone-mono-8k.wav: bad RIFF/WAVE magic"
-          print(f"tone-mono-8k.wav: {len(wav)} bytes, RIFF/WAVE ok")
+          wav = (root / "pickup.wav").read_bytes()
+          assert wav[:4] == b"RIFF" and wav[8:12] == b"WAVE", "pickup.wav: bad RIFF/WAVE magic"
+          print(f"pickup.wav: {len(wav)} bytes, RIFF/WAVE ok")
           room = json.loads((root / "room.json").read_text())
           print(f"room.json: parses as JSON ({len(room)} top-level keys)")
           EOF

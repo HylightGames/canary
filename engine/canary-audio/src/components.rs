@@ -50,8 +50,10 @@ pub enum SourceState {
 /// Attach alongside a [`Transform`](canary_transform::Transform) for
 /// positional playback after transform propagation has produced a
 /// [`GlobalTransform`](canary_transform::GlobalTransform) (the system
-/// attenuates by world-space source–listener distance), or standalone
-/// for a non-positional voice (full gain, no attenuation). The asset
+/// attenuates by world-space source–listener distance), or mark the
+/// source non-positional with [`AudioSource::with_positional`] for a
+/// voice at full gain regardless of pose — see [`AudioSource::positional`].
+/// The asset
 /// handle resolves against the world's
 /// [`AssetStore<Sound>`](canary_assets::AssetStore) each tick a voice
 /// is needed — a handle that is not (yet) in the store simply yields
@@ -76,6 +78,14 @@ pub struct AudioSource {
     /// Whether the voice loops. Fixed at play time: changing this
     /// mid-play takes effect on the next play, never retroactively.
     pub looping: bool,
+    /// Whether the voice is attenuated by listener distance. Positional
+    /// (`true`, the default) sources need a propagated
+    /// [`GlobalTransform`](canary_transform::GlobalTransform) and are
+    /// scaled by [`attenuation_gain`](crate::attenuation_gain);
+    /// non-positional sources ignore their pose and play at the full
+    /// `master × volume` gain — the right mode for non-diegetic UI and
+    /// pickup chimes, which should not quiet down with distance.
+    pub positional: bool,
 }
 
 impl AudioSource {
@@ -89,7 +99,19 @@ impl AudioSource {
             state: SourceState::Stopped,
             volume: 1.0,
             looping: false,
+            positional: true,
         }
+    }
+
+    /// A stopped, unity-gain, one-shot source that ignores distance
+    /// attenuation: [`AudioSource::new`] with `positional` set to
+    /// `false`.
+    ///
+    /// Prefer this over clearing [`AudioSource::positional`] after
+    /// construction when the non-diegetic intent is known at creation
+    /// time (UI clicks, pickup chimes, music).
+    pub fn non_positional(sound: AssetHandle<Sound>) -> Self {
+        Self::new(sound).with_positional(false)
     }
 
     /// Sets the source gain, returning the updated source for
@@ -103,6 +125,14 @@ impl AudioSource {
     /// builder-style construction.
     pub fn with_looping(mut self, looping: bool) -> Self {
         self.looping = looping;
+        self
+    }
+
+    /// Sets whether distance attenuates the source, returning the updated
+    /// source for builder-style construction. See
+    /// [`AudioSource::positional`].
+    pub fn with_positional(mut self, positional: bool) -> Self {
+        self.positional = positional;
         self
     }
 }
@@ -219,18 +249,36 @@ mod tests {
         assert_eq!(source.state, SourceState::Stopped);
         assert_eq!(source.volume, 1.0);
         assert!(!source.looping);
+        assert!(
+            source.positional,
+            "positional attenuation is the documented default"
+        );
     }
 
     #[test]
-    fn source_builders_set_gain_and_loop_flag() {
+    fn source_builders_set_gain_loop_flag_and_positionality() {
         let handle = AssetHandle::<Sound>::from_raw_parts(0, 0);
         let source = AudioSource::new(handle)
             .with_volume(0.25)
-            .with_looping(true);
+            .with_looping(true)
+            .with_positional(false);
 
         assert_eq!(source.volume, 0.25);
         assert!(source.looping);
+        assert!(!source.positional);
         assert_eq!(source.state, SourceState::Stopped);
+    }
+
+    #[test]
+    fn non_positional_constructor_is_stopped_unity_gain_and_non_positional() {
+        let handle = AssetHandle::<Sound>::from_raw_parts(0, 0);
+        let source = AudioSource::non_positional(handle);
+
+        assert_eq!(source.sound, handle);
+        assert_eq!(source.state, SourceState::Stopped);
+        assert_eq!(source.volume, 1.0);
+        assert!(!source.looping);
+        assert!(!source.positional);
     }
 
     #[test]

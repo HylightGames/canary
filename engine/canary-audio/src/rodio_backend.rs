@@ -268,12 +268,20 @@ impl AudioBackend for RodioBackend {
                 ..
             } => {
                 let buffer = SamplesBuffer::new(channels, rate, sound.samples().to_vec());
-                let player = rodio::Player::connect_new(sink.mixer());
+                // Queue the buffer BEFORE attaching the player to the
+                // mixer: `Mixer::add` snapshots the source metadata at
+                // attach time, and the queue reports its first queued
+                // source's channels/rate once one exists. Connecting
+                // first (`Player::connect_new`) would snapshot the empty
+                // queue's 1ch/48kHz metadata and reinterpret a buffer of
+                // any other shape.
+                let (player, queue) = rodio::Player::new();
                 if looping {
                     player.append(buffer.repeat_infinite());
                 } else {
                     player.append(buffer);
                 }
+                sink.mixer().add(queue);
                 let Some(index) = Self::next_index(next_index) else {
                     return Err(AudioError::StreamFailed {
                         message: "voice index space exhausted".to_owned(),

@@ -139,14 +139,15 @@ catching it in a collect press) collects it, arms its pickup voice, and
 banks one point; collecting all three shards plus the goal completes the
 room (`Goal: done`). The HUD shows `Score / Collected / Goal / Player`
 trailing the scene by one frame, and the pickup sound plays from the
-loaded `tone-mono-8k.wav` on each collection. Audio opens the OS default
+loaded `pickup.wav` on each collection. Audio opens the OS default
 device when one exists and plays decode-only headless otherwise.
 
 ## Asset licenses
 
-See `assets/LICENSES.md`. Mesh/texture/audio fixtures are byte copies of
-the hand-generated `canary-assets` fixtures; `room.json` and `guest.wat`
-are original to this example. Everything is MIT.
+See `assets/LICENSES.md`. Mesh/texture fixtures are byte copies of the
+hand-generated `canary-assets` fixtures; `pickup.wav` was generated for
+this example (CC0-1.0); `room.json` and `guest.wat` are original to this
+example. Everything else is MIT.
 
 ## Live-evidence checklist (WP3 paths run; WP4 owns the platform matrix)
 
@@ -207,4 +208,4 @@ platform rather than implied verified.
   cargo test -p collectathon --lib state
   # capture_restore_recapture_is_byte_stable … ok
   ```
-- [ ] Audio-device playback on <platform>: run the windowed game above on a machine with an OS default audio device; expected: `audio device opened (audible backend)` in the log and the loaded `tone-mono-8k.wav` audible on each collection (silent machines log `no audio device … continuing headless` and play decode-only — a supported configuration, not a failure); evidence: <to record>.
+- [ ] Audio-device playback on <platform>: run the windowed game above on a machine with an OS default audio device; expected: `audio device opened (audible backend)` in the log and the loaded `pickup.wav` audible on each collection (silent machines log `no audio device … continuing headless` and play decode-only — a supported configuration, not a failure); evidence: <to record>.

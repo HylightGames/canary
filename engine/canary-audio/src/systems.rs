@@ -28,8 +28,9 @@
 //!    order never depends on hardware.
 //! 2. **Snapshot** every entity carrying [`AudioSource`]
 //!    (shared borrows only), resolving source and listener poses from
-//!    propagated [`GlobalTransform`] components (a missing source pose
-//!    means non-positional: full gain, no attenuation) and the listener
+//!    propagated [`GlobalTransform`] components (a missing source pose,
+//!    or a source marked non-positional, means full gain, no
+//!    attenuation) and the listener
 //!    pose from the first
 //!    [`AudioListener`] entity (absent listener
 //!    means [`AudioListener::default_pose`]).
@@ -280,12 +281,16 @@ pub fn audio_trigger_system<B: AudioBackend + Default + 'static>(world: &mut Wor
     let records: Vec<SourceRecord> = world
         .query::<AudioSource>()
         .map(|(entity, source)| {
-            let position = world.get::<GlobalTransform>(entity).map(|transform| {
-                transform
-                    .matrix()
-                    .transform_point3(glam::Vec3::ZERO)
-                    .to_array()
-            });
+            let position = if source.positional {
+                world.get::<GlobalTransform>(entity).map(|transform| {
+                    transform
+                        .matrix()
+                        .transform_point3(glam::Vec3::ZERO)
+                        .to_array()
+                })
+            } else {
+                None
+            };
             let voice = tracked_voice(world, entity);
             let sound_data = match (source.state, voice) {
                 (SourceState::Playing, None) => world
@@ -480,8 +485,8 @@ fn tracked_voice(world: &World, entity: Entity) -> Option<VoiceEntry> {
 
 /// Folds one voice's per-tick gain: `master × source × attenuation`.
 ///
-/// Non-positional sources (no propagated `GlobalTransform`) attenuate to
-/// unity.
+/// Non-positional sources (no propagated `GlobalTransform`, or
+/// [`AudioSource::positional`] set to `false`) attenuate to unity.
 /// Non-finite products (a NaN game volume) pass through to the
 /// backend, which refuses them typed and keeps the last good gain —
 /// this function invents no clamping policy the backend would then
@@ -897,6 +902,83 @@ mod tests {
                 .all(|(actual, expected)| (actual - expected).abs() < 1e-6),
             "the listener's propagated world-forward must reach the backend: {:?}",
             listener_event.1
+        );
+    }
+
+    /// A non-positional source ignores its pose: master 0.5 × volume 0.5
+    /// stays 0.25 even a thousand world units from the listener.
+    #[test]
+    fn non_positional_source_plays_at_full_master_times_volume_gain() {
+        let (mut world, entity) = setup();
+        world.insert_resource(AudioConfig::new(0.5, AudioBackendName::Rodio));
+        world
+            .insert(
+                entity,
+                GlobalTransform::from_matrix(
+                    Transform::from_translation(glam::Vec3::new(1000.0, 0.0, 0.0)).to_matrix(),
+                ),
+            )
+            .expect("source global transform must succeed");
+        {
+            let source = world
+                .get_mut::<AudioSource>(entity)
+                .expect("source must exist");
+            source.volume = 0.5;
+            source.positional = false;
+        }
+        set_state(&mut world, entity, SourceState::Playing);
+
+        tick(&mut world);
+
+        let voice = SourceHandle::from_raw_parts(0, 0);
+        let applied = world
+            .resource::<Mutex<StubBackend>>()
+            .expect("backend must exist")
+            .lock()
+            .expect("test mutex must not be poisoned")
+            .applied_volume(voice)
+            .expect("the voice must exist");
+        assert!(
+            (applied - 0.25).abs() < 1e-9,
+            "non-positional master 0.5 × volume 0.5 must stay 0.25, got {applied}"
+        );
+    }
+
+    /// The default positional source still attenuates from the same
+    /// thousand-unit pose: its gain is the non-positional one divided by
+    /// `1 + distance`.
+    #[test]
+    fn positional_source_at_the_same_distance_still_attenuates() {
+        let (mut world, entity) = setup();
+        world.insert_resource(AudioConfig::new(0.5, AudioBackendName::Rodio));
+        world
+            .insert(
+                entity,
+                GlobalTransform::from_matrix(
+                    Transform::from_translation(glam::Vec3::new(1000.0, 0.0, 0.0)).to_matrix(),
+                ),
+            )
+            .expect("source global transform must succeed");
+        world
+            .get_mut::<AudioSource>(entity)
+            .expect("source must exist")
+            .volume = 0.5;
+        set_state(&mut world, entity, SourceState::Playing);
+
+        tick(&mut world);
+
+        let voice = SourceHandle::from_raw_parts(0, 0);
+        let applied = world
+            .resource::<Mutex<StubBackend>>()
+            .expect("backend must exist")
+            .lock()
+            .expect("test mutex must not be poisoned")
+            .applied_volume(voice)
+            .expect("the voice must exist");
+        let expected = 0.25 / 1001.0;
+        assert!(
+            (applied - expected).abs() < 1e-9,
+            "positional master 0.5 × volume 0.5 × attenuation(1000) must be {expected}, got {applied}"
         );
     }
 
