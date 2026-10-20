@@ -166,11 +166,16 @@ whole `World`” operation is not the contract. The snapshot API remains
   validates each result, and fails with a typed error if a required step is
   absent or rejects the data. A migration runs on staged data; a failed load
   or save never replaces the last good project file.
-- Saves write a complete canonical replacement to a sibling temporary file,
-  flush it, and atomically replace the previous file where the platform
-  supports that operation. Errors retain the prior file and name the failed
-  operation/path. Durability details that vary by filesystem are reported,
-  not silently promised as universal.
+- Saves (`atomic_write`) write a complete canonical replacement to a sibling
+  temporary file, flush it, and atomically replace the previous file where the
+  platform supports that operation. Errors before the rename retain the prior
+  file and name the failed operation/path. An `Err` returned *after* the rename
+  (the post-rename directory sync) is commit-then-report: the new bytes may
+  already be live under the path, so the error means "committed but
+  unverified", never "nothing was written". A retry must re-issue the same
+  bytes (idempotent) and must not assume the old content survived or
+  substitute a different payload. Durability details that vary by filesystem
+  are reported, not silently promised as universal.
 - Prefab instances retain a stable prefab reference and stable-keyed
   overrides. Explicit instance overrides win over prefab defaults; baking
   resolves the chain into runtime components without destroying the authored

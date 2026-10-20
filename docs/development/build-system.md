@@ -244,26 +244,25 @@ including two **critical** (9.0) Wasmtime sandbox-escape bugs
 filesystem sandbox escape (`RUSTSEC-2026-0269`) — serious for the one
 crate whose entire job is sandboxing untrusted plugin code.
 
-**`wasmtime = "=36.0.15"`** replaces that pin: the earliest `36.x`
-patch closing every advisory `cargo audit` found (checked against each
-advisory's own patched-version range, not just the newest available),
-and — thanks to the rustc-1.91 discovery above — still validatable in
-this sandbox, since `36.x` declares `rust-version = "1.86.0"`,
-comfortably under 1.91 (confirmed with a real `cargo build`, not just
-the declared field). This pin is no longer a *floor* pin the way
-`21.0.2` was — it's pinned so the version stays human-verified against
-`cargo audit` (see `.github/dependabot.yml`), not because anything
-newer fails to compile here. (`wasmtime-wasi` is deliberately *not* a
-dependency at all — nothing in `canary-plugin-api/src/` references it;
-see that crate's `Cargo.toml`. An earlier draft of this paragraph named
-a `wasmtime-wasi = "=36.0.15"` lockstep pin; that entry was removed
-along with the dependency.) Bumping past `36.x` (e.g. once a future session
-can reach rustc 1.94 for `46.x`+) is a "re-verify against `cargo audit`
-and this sandbox's current toolchain ceiling" task, not a security
-requirement — `36.0.15` has no known open advisories as of this
-writing.
+**The `36.x` exact pin that replaced `21.0.2` has itself since been
+retired.** It was an exact pin on the earliest `36.x` patch closing every
+advisory `cargo audit` found at the time, and still validatable under the
+rustc-1.91 sandbox. The 2026-09 modernization
+(see the History note above) replaced it with the ordinary caret
+requirement `wasmtime = "49"` in `engine/canary-plugin-api/Cargo.toml`,
+with the committed `Cargo.lock` pinning the exact resolution: currently
+`49.0.4`, after the lockfile-only `fix(deps)` bump that cleared
+`RUSTSEC-2026-0379` (and the `49.0.1`-era advisories before it). That is
+the standing pin policy in action — caret plus committed lockfile, not a
+source-level exact pin — so no expiry note is owed. (`wasmtime-wasi` is
+deliberately *not* a dependency at all — nothing in
+`canary-plugin-api/src/` references it; see that crate's `Cargo.toml`.
+An earlier draft of this paragraph named a lockstep `wasmtime-wasi`
+exact pin; that entry was removed along with the dependency.) Re-verify
+against `cargo audit` on each `wasmtime` major bump rather than pinning
+a patch by hand.
 
-Two real API breaks came with the `21.0.2` → `36.0.15` jump, both in
+Two real API breaks came with the `21.0.2` → `36.x` jump, both in
 `tier_a.rs`, both simple signature follows rather than behavior
 changes: the bindgen-generated `instantiate()` now returns just the
 bindings struct instead of a `(bindings, Instance)` tuple (the discarded
@@ -377,8 +376,8 @@ as the incidents that taught them):
   that declared the range was published. Confirming a pin actually
   works means a real `cargo build`, not just reading one `rust-version`
   field. All five of those transitive pins are gone now too, along with
-  the old `21.0.2` pin that needed them (the current
-  `wasmtime = "=36.0.15"` pin needs no transitive floor pins) — but the
+  the old `21.0.2` pin that needed them (the current caret
+  `wasmtime = "49"` requirement needs no transitive floor pins) — but the
   lesson applies to whatever pin gets added next.
 - **These pins were bumped opportunistically, not on a schedule — and
   the 2026-09 modernization finished the job.** Any session with access
