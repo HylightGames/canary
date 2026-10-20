@@ -50,6 +50,8 @@ type WireFrame = Vec<u8>;
 
 /// Server halves waiting on a bound listener for the next `accept`.
 struct PendingSocket {
+    /// Dialing endpoint's address: the admission key for this connection.
+    peer: SocketAddr,
     /// Server's sending half (server→client direction).
     send: LoopbackSend,
     /// Server's receiving half (client→server direction).
@@ -244,6 +246,9 @@ impl NetTransport for LoopbackTransport {
             let (server_tx, client_rx) = mpsc::unbounded_channel();
             listener
                 .send(PendingSocket {
+                    // The dialing endpoint's registry address plays the
+                    // QUIC remote address role for admission tests.
+                    peer: self.addr,
                     send: LoopbackSend {
                         tx: Some(server_tx),
                     },
@@ -261,7 +266,7 @@ impl NetTransport for LoopbackTransport {
         }
     }
 
-    async fn accept(&self) -> Result<(Self::Send, Self::Recv), NetError> {
+    async fn accept_with_peer(&self) -> Result<(SocketAddr, Self::Send, Self::Recv), NetError> {
         let Some(incoming) = self.incoming.as_ref() else {
             return Err(NetError::TransportAccept {
                 detail: "loopback endpoint is not bound".to_string(),
@@ -274,7 +279,7 @@ impl NetTransport for LoopbackTransport {
             .ok_or_else(|| NetError::TransportAccept {
                 detail: "loopback listener closed".to_string(),
             })?;
-        Ok((pending.send, pending.recv))
+        Ok((pending.peer, pending.send, pending.recv))
     }
 
     fn local_addr(&self) -> Result<SocketAddr, NetError> {

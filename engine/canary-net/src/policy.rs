@@ -21,21 +21,24 @@
 //!
 //! - Idle eviction ([`IdlePolicy`] + [`IdleTracker`]): every connected
 //!   client owes inbound activity at least once per `max_idle_ticks`. The
-//!   driver calls [`IdleTracker::sweep_idle`] on its tick and disconnects
-//!   each returned client with
+//!   driver calls [`ConnectionGuard::maintain`](crate::admission::ConnectionGuard::maintain)
+//!   on its tick and disconnects each returned client with
 //!   [`DisconnectReason::IdleTimeout`](crate::error::DisconnectReason::IdleTimeout).
 //! - Handshake abuse backoff ([`BanPolicy`] + [`HandshakeGate`]):
-//!   consecutive handshake rejects from one peer label accrue toward a
+//!   consecutive handshake rejects from one peer address accrue toward a
 //!   temporary ban. While banned the server answers
 //!   [`RejectReason::TemporarilyBanned`](crate::handshake::RejectReason::TemporarilyBanned)
 //!   instead of re-running admission, and a successful handshake forgives
-//!   the label's history.
+//!   the address's history.
 //!
-//! Both guards run on a caller-supplied `u64` clock (server tick count,
-//! millisecond counter — any monotonic unit). This crate never reads
-//! wall-clock time, so tests drive policy on a fake clock with zero
-//! flakiness. `saturating_*` arithmetic throughout means a clock that jumps
-//! backward can delay enforcement but never false-trigger it.
+//! The host-facing wiring lives in [`crate::admission::ConnectionGuard`]:
+//! it owns these guards, keys them by the transport peer address, and
+//! exposes the accept, handshake-result, and tick entry points. Both guards
+//! run on a caller-supplied `u64` clock (server tick count, millisecond
+//! counter — any monotonic unit). This crate never reads wall-clock time,
+//! so tests drive policy on a fake clock with zero flakiness.
+//! `saturating_*` arithmetic throughout means a clock that jumps backward
+//! can delay enforcement but never false-trigger it.
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap};

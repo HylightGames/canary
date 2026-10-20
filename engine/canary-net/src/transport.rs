@@ -83,9 +83,35 @@ pub trait NetTransport: Send + Sync {
     /// needed beyond that). Connection acceptance and stream acceptance
     /// stay fused in this profile: the handshake vocabulary kept the
     /// client-speaks-first pattern, so no split was needed.
+    ///
+    /// Address-less convenience: hosts enforcing
+    /// [`ConnectionGuard`](crate::admission::ConnectionGuard) must use
+    /// [`NetTransport::accept_with_peer`], because admission and bans are
+    /// keyed by the transport peer address.
     fn accept(
         &self,
-    ) -> impl std::future::Future<Output = Result<(Self::Send, Self::Recv), NetError>> + Send + '_;
+    ) -> impl std::future::Future<Output = Result<(Self::Send, Self::Recv), NetError>> + Send + '_
+    {
+        async move {
+            let (_peer, send, recv) = self.accept_with_peer().await?;
+            Ok((send, recv))
+        }
+    }
+
+    /// Accepts the next inbound connection, its session stream, and the
+    /// transport peer address.
+    ///
+    /// The address is the connection's admission key: pass it to
+    /// [`ConnectionGuard::admit`](crate::admission::ConnectionGuard::admit)
+    /// before reading the hello, and record handshake outcomes against the
+    /// same address. It is transport identity for policy only, never game
+    /// authority (ADR 0027, point 9) — and it is not the log-only client
+    /// label.
+    fn accept_with_peer(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(SocketAddr, Self::Send, Self::Recv), NetError>>
+           + Send
+           + '_;
 
     /// Local address this endpoint is bound to.
     fn local_addr(&self) -> Result<SocketAddr, NetError>;
@@ -219,7 +245,7 @@ impl NetTransport for QuinnTransport {
         }
     }
 
-    async fn accept(&self) -> Result<(Self::Send, Self::Recv), NetError> {
+    async fn accept_with_peer(&self) -> Result<(SocketAddr, Self::Send, Self::Recv), NetError> {
         let incoming = self
             .endpoint
             .accept()
@@ -229,8 +255,12 @@ impl NetTransport for QuinnTransport {
             })?;
         let connecting = incoming.accept().map_err(accept_error)?;
         let connection = connecting.await.map_err(accept_error)?;
+        // Capture the peer before accepting the stream: the accept loop's
+        // admission key must name the same connection the halves belong to.
+        let peer = connection.remote_address();
         let (send, recv) = connection.accept_bi().await.map_err(accept_error)?;
         Ok((
+            peer,
             QuinnSendStream { inner: send },
             QuinnRecvStream { inner: recv },
         ))
@@ -370,7 +400,7 @@ mod tests {
         )
         .expect("bind server");
         let server_addr = server.local_addr().expect("server address");
-        let server_task = tokio::spawn(async move { server.accept().await });
+        let server_task = tokio::spawn(async move { server.accept_with_peer().await });
 
         let client = QuinnTransport::client(&certificate_der).expect("bind client");
         let (mut client_send, mut client_recv) = tokio::time::timeout(
@@ -392,12 +422,14 @@ mod tests {
             .await
             .expect("send");
 
-        let (mut server_send, mut server_recv) =
+        let (peer, mut server_send, mut server_recv) =
             tokio::time::timeout(Duration::from_secs(10), server_task)
                 .await
                 .expect("accept did not hang")
                 .expect("accept task")
                 .expect("inbound handshake");
+        // The admission key is the real remote UDP address, not a label.
+        assert!(peer.ip().is_loopback(), "unexpected peer address {peer}");
 
         // Client -> server: sealed envelope over the framed stream.
         let inbound = server_recv.recv_frame(&limits).await.expect("receive");

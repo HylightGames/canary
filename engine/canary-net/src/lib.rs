@@ -64,10 +64,17 @@
 //! - Connection admission and liveness policy ([`policy`]): configurable
 //!   idle deadlines per client enforced on tick (disconnects with
 //!   [`DisconnectReason::IdleTimeout`]), and temporary bans with expiry for
-//!   peer labels with repeated handshake rejects (refused as
+//!   peer addresses with repeated handshake rejects (refused as
 //!   [`RejectReason::TemporarilyBanned`]).
 //!   Both run on a caller-supplied `u64` clock — no wall-clock reads, so
 //!   tests drive policy on a fake clock.
+//! - Connection admission wiring ([`admission`]): [`ConnectionGuard`] owns
+//!   the idle and ban guards, keys them by the transport peer address from
+//!   [`NetTransport::accept_with_peer`], and exposes the accept check
+//!   ([`ConnectionGuard::admit`]), handshake-result recording
+//!   ([`ConnectionGuard::note_reject`] / [`ConnectionGuard::note_accepted`]),
+//!   and periodic [`ConnectionGuard::maintain`] entry point. Hosts call
+//!   these beside [`SessionTable`]; no background task is spawned.
 //! - Session counters with bounded label sets ([`metrics`]): exact global
 //!   aggregates plus a capped per-client breakdown, evicted on disconnect.
 //!   Past the cap new clients count globally but earn no row, so churn
@@ -98,6 +105,7 @@
 //! and production identity (certificate pinning remains a proof-only peer
 //! policy — see [`transport::QuinnTransport::client`]).
 
+pub mod admission;
 pub mod codec;
 pub mod envelope;
 pub mod error;
@@ -118,6 +126,7 @@ pub mod session;
 pub mod tombstone;
 pub mod transport;
 
+pub use admission::{reject_banned, ConnectionGuard, IdleClient, PeerAdmission};
 pub use codec::{identity_codec, DecodeFn, EncodeFn, SchemaCodec, SchemaCodecs};
 pub use envelope::NetEnvelope;
 pub use error::{DisconnectReason, NetError};
