@@ -18,7 +18,9 @@ principles. Concretely, that means every architecture document in
 
 "First principles" does not mean "reinvent everything." Where an existing
 tool already solves a problem well and its tradeoffs match Canary's goals
-(wgpu for cross-API graphics, Rapier/Jolt for physics, Wasmtime for the WASM
+(direct Vulkan bindings via `ash` for native rendering backends — see
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md),
+Rapier/Jolt for physics, Wasmtime for the WASM
 component runtime), Canary depends on it rather than rewriting it, and says so
 in an ADR. Reasoning from first principles about *architecture* is orthogonal
 to a NIH ("not invented here") reflex about *implementation* — the latter is
@@ -40,8 +42,10 @@ appear in compile times, binary size, or API surface. Concretely:
   continuously tested by the project's own tooling (see
   `docs/ui/editor-design.md`).
 - Replacing a subsystem should not require forking the engine. If a
-  contributor wants Jolt instead of Rapier, or a custom RHI instead of the
-  wgpu-backed one, that should be a new crate implementing an existing trait,
+  contributor wants Jolt instead of Rapier, or a custom RHI backend alongside
+  the `ash`-direct Vulkan one (see
+  [ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md)),
+  that should be a new crate implementing an existing trait,
   not a patch to core.
 
 ## Decisions are owned, not deferred
@@ -135,7 +139,9 @@ between the ECS's fast *runtime* entity identity and a project's stable
 
 ## Subsystems bind through interfaces, never call each other — or a third party — directly
 
-Every replaceable-backend pattern in this project (RHI/`wgpu`, physics/
+Every replaceable-backend pattern in this project (RHI/`ash`-direct Vulkan per
+[ADR 0016](../decisions/architecture-decision-records/0016-native-rendering-backends.md),
+physics/
 Rapier, `CanaryUI`/`egui`) is a specific instance of one general rule,
 worth stating on its own: **no Canary crate calls a third-party library,
 or another Canary subsystem's internals, directly.** It goes through a
@@ -144,7 +150,7 @@ requires, not just implies:
 
 1. **No direct third-party calls.** Engine and gameplay code call
    `PhysicsBackend`, never `rapier3d` directly; the render graph calls
-   the RHI trait, never `wgpu` directly. This is already how
+   the RHI trait, never `ash` directly. This is already how
    [`rendering.md`](../architecture/rendering.md) and
    [`physics.md`](../architecture/physics.md) are designed.
 2. **No direct peer-subsystem calls, either — and this is the part

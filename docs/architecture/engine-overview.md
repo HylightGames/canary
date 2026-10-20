@@ -48,7 +48,7 @@ or through explicit, documented interfaces — never through ad hoc globals.
 |---|---|---|
 | Platform abstraction | `canary-platform` | [platform-abstraction.md](platform-abstraction.md) |
 | Core runtime (App, logging, error conventions) | `canary-core` | [core-runtime.md](core-runtime.md) |
-| Game runtime composition | `canary-runtime` library owns the active `World`, `RunContext`, and scoped Tier A lifecycle calls; full game frame driver and harness migration remain pending | [runtime-composition.md](runtime-composition.md) |
+| Game runtime composition | `canary-runtime` library owns the active `World`, `RunContext`, and scoped Tier A lifecycle calls; `Runtime::drive_frame` owns pump→routing→tick→schedule and the headless harness is migrated (see [status.md](../roadmap/status.md)) | [runtime-composition.md](runtime-composition.md) |
 | ECS | `canary-ecs` | [core-runtime.md](core-runtime.md) |
 | Scheduler (stage-based system execution) | `canary-scheduler` | [execution-model.md](execution-model.md) |
 | Input and simulation boundary | `canary-platform` normalizes keyboard transitions, pointer position/buttons, pointer-leave, and focus-loss; `canary-input` maps those normalized events to named actions and produces frame-tagged `SimulationInput` | [input-and-simulation.md](input-and-simulation.md) |
@@ -99,19 +99,22 @@ The current scheduler is a stage-based `Schedule` (`canary-scheduler`,
 since `v0.0.8`): compatible read-only systems can run concurrently, and
 every writer runs alone in registration order. Access declarations are manual
 metadata and are not checked against closure access; keep the solo-writer
-policy until access can be enforced (R-24). A persistent job-stealing pool,
-concurrent disjoint writes, and the full `canary-runtime` frame driver remain
-future work; measure game-shaped workloads before selecting a pool design.
+policy until access can be enforced (R-24). A persistent job-stealing pool and
+concurrent disjoint writes remain future work; measure game-shaped workloads
+before selecting a pool design. The `canary-runtime` frame driver
+(`Runtime::drive_frame`) is implemented (see [runtime-composition.md](runtime-composition.md)
+and [status.md](../roadmap/status.md)).
 See [ADR discussion in core-runtime.md](core-runtime.md#threading--the-job-system).
 
 ## Target frame flow
 
-The R-34 runtime foundation is implemented, and window-to-Vulkan presentation
-work is present in the current working tree. The full input/action path,
-game-runtime frame driver, and UI integration are not yet complete. Network
-and UI stages are optional until their corresponding subsystems are built.
-The sequence below describes the target integration order, not the current
-runtime.
+The R-34 runtime foundation is implemented: `Runtime::drive_frame` owns
+pump→routing→tick→schedule with the headless harness migrated (see
+[runtime-composition.md](runtime-composition.md)), and windowed presentation
+with UI integration is proven by the `ui-game` sample (600/600 presented; see
+[status.md](../roadmap/status.md)). Network
+and UI stages are optional per consumer (e.g. headless omits presentation).
+The sequence below describes the integration order the runtime owns.
 
 ```mermaid
 sequenceDiagram
