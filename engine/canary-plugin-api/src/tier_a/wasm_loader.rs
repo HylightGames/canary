@@ -12,6 +12,7 @@
 //! capability linking, and the fallible scoped-load seam.
 
 use std::collections::HashSet;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -53,6 +54,23 @@ pub enum PluginOutcome {
         cause: PluginError,
     },
 }
+
+/// Maximum bytes the Tier A loader reads from any single plugin
+/// file (or accepts from an in-memory byte slice): 16 MiB comfortably
+/// covers this slice's kilobyte fixtures and any realistic near-term
+/// component (toolchain-compiled components measure in low megabytes
+/// even with debug info) while bounding a hostile file's pre-parse
+/// allocation before a byte of it is compiled.
+///
+/// The value is **provisional** pending measured calibration against
+/// real plugin content, exactly like [`ResourceBudget::default`]'s 64
+/// MiB memory budget and `canary-assets`' `MAX_ASSET_FILE_BYTES`. The
+/// parse itself ([`wasmtime::component::Component::new`]) can
+/// transiently allocate past the input size while compiling, so this
+/// is a coarse input gate, not a total-allocation bound — the
+/// fuel/memory budget still bounds what the instantiated plugin can do
+/// once running.
+pub const MAX_PLUGIN_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Loads Tier A (sandboxed WASM Component Model) plugins. See the
 /// module-level docs above for exactly what this does and does not yet
@@ -119,6 +137,12 @@ impl WasmPluginLoader {
     /// mix the two on one instance (a scoped call on an instance
     /// still holding its owned world is refused with
     /// [`crate::PluginError::WorldUnavailable`]).
+    ///
+    /// Files past [`MAX_PLUGIN_BYTES`] are refused before parsing (see
+    /// [`WasmPluginLoader::instantiate_from_bytes`] for why the parse
+    /// itself must never see unbounded input); a missing or unreadable
+    /// file reports the underlying I/O failure in the same
+    /// [`crate::PluginError::WasmParse`] shape.
     pub fn load(
         &self,
         path: impl AsRef<Path>,
@@ -127,11 +151,8 @@ impl WasmPluginLoader {
         world: World,
     ) -> Result<WasmComponentPlugin, PluginError> {
         let path = path.as_ref();
-        let component =
-            Component::from_file(&self.engine, path).map_err(|source| PluginError::WasmParse {
-                path: path.to_path_buf(),
-                source: source.into(),
-            })?;
+        let bytes = Self::read_component_bytes(path)?;
+        let component = self.parse_bounded_component(&bytes, path)?;
         let mut plugin = self.instantiate(component, path.to_path_buf(), name, capabilities)?;
         plugin.store.data_mut().world = Some(world);
         Ok(plugin)
@@ -157,6 +178,11 @@ impl WasmPluginLoader {
     /// likewise extends the sketch, which returns only the outcome:
     /// the live instance must go somewhere, and dropping it inside
     /// the loader would unload what just loaded.
+    ///
+    /// The [`MAX_PLUGIN_BYTES`] size gate applies exactly as in
+    /// [`crate::WasmPluginLoader::load`]: an over-limit file is refused
+    /// before parsing, reported through the same
+    /// [`crate::PluginError::WasmParse`] shape a corrupt file yields.
     pub fn load_scoped(
         &self,
         path: impl AsRef<Path>,
@@ -167,11 +193,8 @@ impl WasmPluginLoader {
     ) -> Result<(Option<WasmComponentPlugin>, PluginOutcome), PluginError> {
         let name = name.into();
         let path = path.as_ref();
-        let component =
-            Component::from_file(&self.engine, path).map_err(|source| PluginError::WasmParse {
-                path: path.to_path_buf(),
-                source: source.into(),
-            })?;
+        let bytes = Self::read_component_bytes(path)?;
+        let component = self.parse_bounded_component(&bytes, path)?;
         let mut plugin =
             match self.instantiate(component, path.to_path_buf(), name.clone(), capabilities) {
                 Ok(plugin) => plugin,
@@ -214,23 +237,92 @@ impl WasmPluginLoader {
     /// tooling, and [`crate::WasmComponentPlugin::call_scoped`] callers that
     /// hold the handle themselves). The runtime's own flow does not
     /// need this; it keeps the handles `load_scoped` returns.
+    ///
+    /// The same [`MAX_PLUGIN_BYTES`] gate the file paths enforce
+    /// applies here: over-limit input is refused before Wasmtime parses
+    /// it, so this path cannot bypass the file paths' size bound.
     pub fn instantiate_from_bytes(
         &self,
         bytes: &[u8],
         name: impl Into<String>,
         capabilities: &HashSet<Capability>,
     ) -> Result<WasmComponentPlugin, PluginError> {
-        let component =
-            Component::new(&self.engine, bytes).map_err(|source| PluginError::WasmParse {
-                path: PathBuf::from("<in-memory component>"),
-                source: source.into(),
+        let path = PathBuf::from("<in-memory component>");
+        let component = self.parse_bounded_component(bytes, &path)?;
+        self.instantiate(component, path, name, capabilities)
+    }
+
+    /// Reads the component file at `path` into memory, refusing files
+    /// past [`MAX_PLUGIN_BYTES`] instead of handing an unbounded read
+    /// to the parser. Mirrors `canary-assets`' `read_file_with_budget`:
+    /// a metadata pre-check refuses an over-limit file without reading
+    /// a byte (a sparse file reporting gigabytes fails here, cheaply),
+    /// and a capped reader takes at most one byte past the limit, so a
+    /// path whose metadata understates its contents (a file grown
+    /// between the check and the read) still errors instead of
+    /// allocating without bound. A missing or unreadable file yields
+    /// the same [`PluginError::WasmParse`] shape with the underlying
+    /// I/O failure as its source — the open runs before every size
+    /// guard, so a missing file can never report a size refusal.
+    fn read_component_bytes(path: &Path) -> Result<Vec<u8>, PluginError> {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let size = metadata.len();
+            if size > MAX_PLUGIN_BYTES {
+                return Err(Self::over_limit(path, size));
+            }
+        }
+        let file = std::fs::File::open(path).map_err(|source| PluginError::WasmParse {
+            path: path.to_path_buf(),
+            source: Box::new(source),
+        })?;
+        let mut capped = file.take(MAX_PLUGIN_BYTES.saturating_add(1));
+        let mut bytes = Vec::new();
+        capped
+            .read_to_end(&mut bytes)
+            .map_err(|source| PluginError::WasmParse {
+                path: path.to_path_buf(),
+                source: Box::new(source),
             })?;
-        self.instantiate(
-            component,
-            PathBuf::from("<in-memory component>"),
-            name,
-            capabilities,
-        )
+        let actual = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        if actual > MAX_PLUGIN_BYTES {
+            return Err(Self::over_limit(path, actual));
+        }
+        Ok(bytes)
+    }
+
+    /// Parses already-read `bytes` as a component, refusing input past
+    /// [`MAX_PLUGIN_BYTES`] before Wasmtime sees it. Both file loads
+    /// (after [`Self::read_component_bytes`], which bounds the read
+    /// itself) and direct [`Self::instantiate_from_bytes`] callers funnel
+    /// through here, so the in-memory path cannot bypass the gate the
+    /// file paths enforce.
+    fn parse_bounded_component(&self, bytes: &[u8], path: &Path) -> Result<Component, PluginError> {
+        let actual = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        if actual > MAX_PLUGIN_BYTES {
+            return Err(Self::over_limit(path, actual));
+        }
+        Component::new(&self.engine, bytes).map_err(|source| PluginError::WasmParse {
+            path: path.to_path_buf(),
+            source: source.into(),
+        })
+    }
+
+    /// Builds the size-refusal error: [`PluginError::WasmParse`] naming
+    /// `path`, with a source reporting both the observed size and the
+    /// limit (mirroring `canary-assets`' `OverBudget` numbers) so the
+    /// refusal stays distinguishable from a genuine parse failure
+    /// without extending the error taxonomy.
+    fn over_limit(path: &Path, actual: u64) -> PluginError {
+        PluginError::WasmParse {
+            path: path.to_path_buf(),
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::FileTooLarge,
+                format!(
+                    "refusing Tier A plugin component of {actual} bytes: \
+                     over the {MAX_PLUGIN_BYTES}-byte size limit"
+                ),
+            )),
+        }
     }
 
     /// Shared instantiation core for [`crate::WasmPluginLoader::load`] (which
@@ -310,5 +402,118 @@ impl WasmPluginLoader {
             bindings,
             fuel: self.budget.fuel,
         })
+    }
+}
+
+#[cfg(test)]
+mod size_gate_tests {
+    use super::*;
+
+    // The size gate under test is [`super::MAX_PLUGIN_BYTES`]
+    // (brought into scope by the glob below): fixtures are kilobytes
+    // and realistic near-term components measure in low megabytes, so
+    // anything past that ceiling is hostile-or-broken, never
+    // legitimate content.
+
+    /// A sparse file reports `len` bytes from metadata while costing
+    /// (almost) nothing on disk: the loader must refuse it from a
+    /// metadata pre-check without ever allocating its contents.
+    fn sparse_fixture(file_name: &str, len: u64) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "canary-size-gate-{}-{file_name}",
+            std::process::id()
+        ));
+        let file = std::fs::File::create(&path).expect("sparse fixture must be creatable");
+        file.set_len(len).expect("sparse resize must succeed");
+        drop(file);
+        path
+    }
+
+    /// The size gate's typed refusal: [`PluginError::WasmParse`] naming
+    /// `expected_path`, whose source reports the byte limit —
+    /// distinguishable from a genuine Wasmtime parse failure, which
+    /// never mentions it.
+    #[track_caller]
+    fn assert_size_refusal(err: &PluginError, expected_path: &Path) {
+        match err {
+            PluginError::WasmParse { path, source } => {
+                assert_eq!(
+                    path.as_path(),
+                    expected_path,
+                    "the refusal must name the offending file"
+                );
+                let detail = source.to_string();
+                assert!(
+                    detail.contains(&MAX_PLUGIN_BYTES.to_string()),
+                    "the refusal source must report the \
+                     {MAX_PLUGIN_BYTES}-byte limit, got a generic parse \
+                     failure instead (no size gate): {detail}"
+                );
+            }
+            other => panic!("an over-limit component must be refused, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_refuses_an_oversized_sparse_file_before_parsing_it() {
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
+        let path = sparse_fixture("load-over-limit.wasm", MAX_PLUGIN_BYTES + 1);
+        let err = match loader.load(&path, "size-gate-test", &HashSet::new(), World::new()) {
+            Err(err) => err,
+            Ok(_) => panic!("an over-limit plugin file must be refused"),
+        };
+        let _ = std::fs::remove_file(&path);
+        assert_size_refusal(&err, &path);
+    }
+
+    #[test]
+    fn load_scoped_refuses_an_oversized_sparse_file_before_parsing_it() {
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
+        let path = sparse_fixture("load-scoped-over-limit.wasm", MAX_PLUGIN_BYTES + 1);
+        let mut world = Some(World::new());
+        let err = match loader.load_scoped(
+            &path,
+            "size-gate-test",
+            &HashSet::new(),
+            PluginRequirement::Required,
+            &mut world,
+        ) {
+            Err(err) => err,
+            Ok(_) => panic!("an over-limit plugin file must be refused"),
+        };
+        let _ = std::fs::remove_file(&path);
+        assert_size_refusal(&err, &path);
+        assert!(
+            world.is_some(),
+            "a refused load must not consume the loaned world"
+        );
+    }
+
+    #[test]
+    fn instantiate_from_bytes_refuses_oversized_input_before_parsing_it() {
+        let loader = WasmPluginLoader::new(CodecRegistry::new(), ResourceBudget::default())
+            .expect("engine setup should not fail");
+        let oversized =
+            vec![0u8; usize::try_from(MAX_PLUGIN_BYTES + 1).expect("the limit must fit in usize")];
+        let err = match loader.instantiate_from_bytes(&oversized, "size-gate-test", &HashSet::new())
+        {
+            Err(err) => err,
+            Ok(_) => panic!("over-limit bytes must be refused"),
+        };
+        match &err {
+            PluginError::WasmParse { source, .. } => {
+                let detail = source.to_string();
+                assert!(
+                    detail.contains(&MAX_PLUGIN_BYTES.to_string()),
+                    "the refusal source must report the \
+                     {MAX_PLUGIN_BYTES}-byte limit, got a generic parse \
+                     failure instead (no size gate): {detail}"
+                );
+            }
+            other => panic!("over-limit bytes must be refused, got: {other:?}"),
+        }
     }
 }
