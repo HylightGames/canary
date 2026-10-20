@@ -31,7 +31,7 @@ use canary_platform::{
     HeadlessInput, HeadlessWindow, InputEvent, InputSource, Key as PlatformKey,
     PointerButton as PlatformPointerButton, Window, WindowDescriptor,
 };
-use canary_plugin_api::NativePluginLoader;
+use canary_plugin_api::{NativePluginLoader, PluginRoot};
 use canary_runtime::{FrameDriver, FrameParams, RunContext, RuntimeBuilder};
 use canary_scheduler::{Schedule, SystemAccess};
 use canary_ui_core::{NullBackend, UiBuilder, UiId, UiIntent, UiIntents};
@@ -300,28 +300,40 @@ fn main() -> anyhow::Result<()> {
     );
 
     // --- Plugin loader: no plugins ship with this foundation, but prove
-    // the native (Tier B) loader is constructible and that checking a
-    // plugin directory doesn't panic. See
-    // docs/architecture/plugin-system.md.
-    let loader = NativePluginLoader::new();
+    // the native (Tier B) loader is constructible against an explicit,
+    // confined plugin root and that checking a plugin directory doesn't
+    // panic. See docs/architecture/plugin-system.md.
     let plugin_dir = std::path::Path::new("plugins");
-    let has_plugins = plugin_dir.is_dir()
-        && plugin_dir
-            .read_dir()
-            .map(|mut entries| entries.next().is_some())
-            .unwrap_or(false);
-    if has_plugins {
-        tracing::warn!(
-            "found files under `plugins/`, but automatic directory loading isn't wired up yet \
-             (see docs/roadmap/v0.0.1-roadmap.md) -- load them explicitly via NativePluginLoader"
-        );
-    } else {
-        tracing::info!(
-            dir = %plugin_dir.display(),
-            "no plugins found (none ship with this foundation; the loader itself is exercised by canary-plugin-api's own tests)"
-        );
+    match PluginRoot::new(plugin_dir) {
+        Ok(root) => {
+            let loader = NativePluginLoader::new(root.clone());
+            let has_plugins = root
+                .path()
+                .read_dir()
+                .map(|mut entries| entries.next().is_some())
+                .unwrap_or(false);
+            if has_plugins {
+                tracing::warn!(
+                    "found files under `plugins/`, but automatic directory loading isn't wired up \
+                     yet (see docs/roadmap/v0.0.1-roadmap.md) -- load them explicitly via \
+                     `NativePluginLoader::load` with an entry relative to the plugin root"
+                );
+            } else {
+                tracing::info!(
+                    dir = %plugin_dir.display(),
+                    "no plugins found (none ship with this foundation; the loader itself is exercised by canary-plugin-api's own tests)"
+                );
+            }
+            let _ = loader;
+        }
+        Err(error) => {
+            tracing::info!(
+                dir = %plugin_dir.display(),
+                %error,
+                "no plugin root available (no plugins ship with this foundation; the loader itself is exercised by canary-plugin-api's own tests)"
+            );
+        }
     }
-    let _ = loader;
 
     tracing::info!("Canary Engine shutting down cleanly");
     Ok(())

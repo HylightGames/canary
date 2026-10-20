@@ -812,7 +812,7 @@ about working code in `engine/`.
 | ECS | ✅ | ✅ | Archetype-based, cached queries, change detection; `v0.0.2`. Multi-component queries, typed resources, `Tick(u64)`; `v0.0.7` |
 | Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
 | Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented; tagged `v0.0.9` (backfill 2026-09-28) |
-| Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1` |
+| Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1`. Loading is confined to a canonical `PluginRoot` (relative entries only; absolute paths, `..`, symlink escapes, and non-file targets refused) with an optional `plugins.allowlist` manifest; signing/provenance remains open (R-09) |
 | Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Active-World scoped lifecycle access is implemented for `on_load`/`on_unload` (R-34 mitigated); no per-frame hook |
 | Rendering | ✅ | ✅ | RHI trait + native Vulkan backend; ECS-driven CPU bake and file-loaded mesh/texture sampling are proven. Window presentation with live lifecycle gates (steady/minimize/restore/resize→recreate/content/destruction in `present_clear.rs`; capability-rejection and fatal-error mappings unit-gated) and same-RHI scene/UI window rendering (`ui-game`, 600/600 presented) are implemented on `dev`. Depth/general materials remain open |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |

@@ -14,6 +14,35 @@ use thiserror::Error;
 
 use crate::plugin::PluginPhase;
 
+/// Why a native plugin entry name was refused before the loader opened it.
+///
+/// Returned inside [`PluginError::EntryRejected`] (and, for manifest lines,
+/// [`PluginError::ManifestEntry`]). Every variant is decided before
+/// `libloading` sees a path, so a rejection never runs third-party code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum EntryRejection {
+    /// The entry name is absolute (or carries a platform prefix/root), so
+    /// it cannot be resolved relative to the configured plugin root.
+    #[error("absolute entry names are not allowed")]
+    Absolute,
+
+    /// The entry name contains a `..` component, which could escape the
+    /// plugin root by lexical traversal.
+    #[error("`..` components are not allowed")]
+    ParentTraversal,
+
+    /// The entry's canonical path is not inside the configured plugin
+    /// root -- for example, a symlink inside the root whose target lives
+    /// outside it.
+    #[error("the resolved path escapes the plugin root")]
+    EscapesRoot,
+
+    /// The entry name is empty or resolves to something other than a
+    /// regular file.
+    #[error("the entry must name a regular file")]
+    NotAFile,
+}
+
 /// Errors from loading a plugin, either tier.
 ///
 /// Per `docs/vision/design-philosophy.md`'s "subsystems bind through
@@ -28,11 +57,12 @@ use crate::plugin::PluginPhase;
 /// requiring the field's own type to be a third-party one.
 #[derive(Debug, Error)]
 pub enum PluginError {
-    /// The dynamic library at `path` could not be opened (missing file,
-    /// wrong architecture, unresolved transitive symbols, ...).
+    /// The dynamic library at `path` could not be opened (wrong
+    /// architecture, unresolved transitive symbols, a file removed between
+    /// resolution and open, ...).
     #[error("failed to load native plugin library at `{path}`: {source}")]
     Load {
-        /// The path that was passed to [`crate::NativePluginLoader::load`].
+        /// The canonical path the entry resolved to under the plugin root.
         path: PathBuf,
         /// The underlying loader error, boxed so this crate's public API
         /// doesn't expose which native-loading library produced it.
@@ -44,7 +74,7 @@ pub enum PluginError {
     /// required [`crate::abi::ENTRY_SYMBOL`] symbol.
     #[error("native plugin at `{path}` does not export `canary_plugin_entry`: {source}")]
     MissingEntryPoint {
-        /// The path that was passed to [`crate::NativePluginLoader::load`].
+        /// The canonical path the entry resolved to under the plugin root.
         path: PathBuf,
         /// The underlying symbol-lookup error, boxed for the same reason
         /// as [`PluginError::Load`]'s `source`.
@@ -61,12 +91,93 @@ pub enum PluginError {
         "native plugin at `{path}` targets ABI version {found}, but this host requires version {expected}"
     )]
     UnsupportedAbiVersion {
-        /// The path that was passed to [`crate::NativePluginLoader::load`].
+        /// The canonical path the entry resolved to under the plugin root.
         path: PathBuf,
         /// The ABI version the plugin declared.
         found: u32,
         /// The ABI version this host requires (`crate::abi::ABI_VERSION`).
         expected: u32,
+    },
+
+    /// The configured plugin root could not be canonicalized (missing
+    /// directory, permission denied, ...).
+    #[error("plugin root `{path}` is unavailable: {source}")]
+    PluginRootUnavailable {
+        /// The operator-supplied root that could not be resolved.
+        path: PathBuf,
+        /// The underlying filesystem error, boxed for the same reason as
+        /// [`PluginError::Load`]'s `source`.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// The configured plugin root canonicalized to a path that is not a
+    /// directory.
+    #[error("plugin root `{path}` is not a directory")]
+    PluginRootNotDirectory {
+        /// The canonical path that was found instead of a directory.
+        path: PathBuf,
+    },
+
+    /// A native plugin entry name was refused before any file was opened:
+    /// it was absolute, contained `..`, resolved through a symlink to a
+    /// path outside the plugin root, or named something other than a
+    /// regular file. See [`EntryRejection`].
+    #[error("plugin entry `{entry}` rejected: {reason}")]
+    EntryRejected {
+        /// The entry name exactly as the caller supplied it.
+        entry: PathBuf,
+        /// Which confinement rule refused it.
+        reason: EntryRejection,
+    },
+
+    /// The entry name was lexically safe but could not be canonicalized
+    /// under the plugin root (missing file, permission denied, a dangling
+    /// symlink, ...).
+    #[error("failed to resolve plugin entry `{entry}` under `{root}`: {source}")]
+    EntryResolve {
+        /// The entry name exactly as the caller supplied it.
+        entry: PathBuf,
+        /// The canonical plugin root it was resolved against.
+        root: PathBuf,
+        /// The underlying filesystem error, boxed for the same reason as
+        /// [`PluginError::Load`]'s `source`.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// The entry is not named by the configured allowlist manifest.
+    #[error("plugin entry `{entry}` is not listed in `{manifest}`")]
+    NotAllowlisted {
+        /// The normalized entry name that was refused.
+        entry: PathBuf,
+        /// The allowlist manifest the loader was configured with.
+        manifest: PathBuf,
+    },
+
+    /// The allowlist manifest could not be read as UTF-8 text.
+    #[error("failed to read plugin allowlist manifest `{path}`: {source}")]
+    ManifestIo {
+        /// The manifest path supplied by the operator.
+        path: PathBuf,
+        /// The underlying I/O or UTF-8 error, boxed for the same reason as
+        /// [`PluginError::Load`]'s `source`.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// A line in the allowlist manifest names an entry that is itself
+    /// unsafe (absolute, containing `..`, or empty).
+    #[error("allowlist manifest `{manifest}` line {line}: entry `{entry}` rejected: {reason}")]
+    ManifestEntry {
+        /// The manifest path supplied by the operator.
+        manifest: PathBuf,
+        /// One-based line number in the manifest.
+        line: usize,
+        /// The entry text exactly as written on that line.
+        entry: PathBuf,
+        /// Which confinement rule refused it.
+        reason: EntryRejection,
     },
 
     /// The Tier A (WASM) engine or linker could not be constructed. Rare

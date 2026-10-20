@@ -18,7 +18,9 @@
 //!   regardless of tier.
 //! - The C-ABI types ([`abi::PluginVTable`], [`abi::PluginHandle`]) a Tier B
 //!   native plugin must export, and [`NativePluginLoader`], a working
-//!   loader for them.
+//!   loader for them. A loader is bound to a [`PluginRoot`] and only opens
+//!   relative entries that canonicalize to regular files inside it; an
+//!   optional [`PluginAllowlist`] manifest can restrict the set further.
 //! - [`WasmPluginLoader`], the Tier A (WASM Component Model) loader:
 //!   component loading (fresh or AOT-precompiled), the [`Plugin`]
 //!   lifecycle through a component, a [`ResourceBudget`]
@@ -35,8 +37,10 @@
 //!   per-variant breakdown).
 //!
 //! See `docs/roadmap/v0.0.3-roadmap.md` for what's explicitly out of
-//! scope even now: a plugin manifest format, Tier B signing, and safe
-//! hot-unloading with full resource reclamation.
+//! scope even now: a full plugin manifest format (metadata, version
+//! ranges, declared capabilities — the native path allowlist is a
+//! deliberately minimal precursor, not that format), Tier B signing, and
+//! safe hot-unloading with full resource reclamation.
 //!
 //! **Host-only vs. shared surface:** [`abi`], [`Capability`],
 //! [`ComponentValue`]/[`ComponentValueCodec`]/[`CodecRegistry`],
@@ -68,11 +72,12 @@ pub use capability::Capability;
 pub use component_value::{
     CodecRegistry, ComponentValue, ComponentValueCodec, ComponentValueError, PrimitiveValue,
 };
-pub use error::PluginError;
+pub use error::{EntryRejection, PluginError};
 #[cfg(not(target_family = "wasm"))]
-pub use loader::NativePluginLoader;
+pub use loader::{NativePluginLoader, PluginAllowlist, PluginRoot};
 pub use plugin::{Plugin, PluginPhase, PluginRequirement};
 #[cfg(not(target_family = "wasm"))]
 pub use tier_a::{
     PluginOutcome, ResourceBudget, ScopedGrant, WasmComponentPlugin, WasmPluginLoader,
+    MAX_PLUGIN_BYTES,
 };

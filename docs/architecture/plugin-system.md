@@ -75,7 +75,13 @@ content.
 
 **How it works:** a versioned, stable C ABI (`extern "C"` boundary,
 `#[repr(C)]` data), loaded as a native dynamic library via `libloading`.
-This tier deliberately does not try to be safe against a malicious plugin —
+The loader is bound to an operator-configured `PluginRoot`: entries must be
+relative, must canonicalize to a regular file inside that root (absolute
+paths, `..`, and symlinks escaping the root are refused before `dlopen`),
+and may be restricted further by an optional line-oriented allowlist
+manifest. Path confinement is **not** sandboxing — it narrows which file is
+opened, not what the loaded code may do. This tier deliberately does not
+try to be safe against a malicious plugin —
 that is what Tier A is for. It exists because some legitimate use cases
 (swapping the renderer, integrating a proprietary physics/audio middleware)
 need direct native access that a sandbox would only slow down for no safety
@@ -170,7 +176,9 @@ frustrated modder.
 - **No plugin manifest format exists yet** (metadata: author, version,
   engine-compatibility range, declared capabilities as data). Needed
   before marketplace tooling (Era 6) can exist without executing a
-  plugin just to learn its name. See
+  plugin just to learn its name. Tier B's `plugins.allowlist` is a
+  deliberately narrow precursor that names permitted entries only; it is
+  not this format. See
   [`docs/reviews/2026-08-senior-architecture-review.md`](../reviews/2026-08-senior-architecture-review.md),
   Finding 3.2, and risk register R-08. Correctly out of scope for
   `v0.0.1`/`v0.0.3` — there is no marketplace to serve yet.

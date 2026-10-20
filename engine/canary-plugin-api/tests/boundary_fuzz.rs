@@ -22,14 +22,16 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use canary_ecs::World;
-use canary_plugin_api::{Capability, CodecRegistry, PluginError, ResourceBudget, WasmPluginLoader};
+use canary_plugin_api::{
+    Capability, CodecRegistry, PluginError, ResourceBudget, WasmPluginLoader, MAX_PLUGIN_BYTES,
+};
 
-/// Mirrors `tier_a::wasm_loader::MAX_PLUGIN_BYTES` (not re-exported at the
-/// crate root, so spelled out here): 16 MiB. The sweep cross-checks the
-/// value instead of trusting it — the over-limit cases assert the refusal
-/// message names this number, so a production bump of the real gate fails
-/// these tests loudly rather than silently testing the wrong boundary.
-const SWEEP_MAX_PLUGIN_BYTES: u64 = 16 * 1024 * 1024;
+/// Mirrors [`MAX_PLUGIN_BYTES`], re-exported at the crate root: 16 MiB.
+/// The sweep cross-checks the value instead of trusting it — the over-limit
+/// cases assert the refusal message names this number, so a production bump
+/// of the real gate fails these tests loudly rather than silently testing
+/// the wrong boundary.
+const SWEEP_MAX_PLUGIN_BYTES: u64 = MAX_PLUGIN_BYTES;
 
 /// A minimal, hand-written Component Model fixture: imports `ecs-read` and
 /// exports the lifecycle instance, so instantiating it with

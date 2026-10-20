@@ -81,7 +81,7 @@ mod wasm_loader;
 pub use budget::ResourceBudget;
 pub use instance::WasmComponentPlugin;
 pub use slot::ScopedGrant;
-pub use wasm_loader::{PluginOutcome, WasmPluginLoader};
+pub use wasm_loader::{PluginOutcome, WasmPluginLoader, MAX_PLUGIN_BYTES};
 
 // Re-exported for the test module's `use super::*;` — the production
 // submodules import each other by explicit path instead. Only the two
