@@ -75,8 +75,8 @@ fn all_three_durable_suffixes_keep_same_stem_files_apart() {
 
     // A stale temp from a killed writer is ignored, never read or
     // merged: the next save writes its own unique temp
-    // (`save.json.tmp.<pid>.<counter>`), and the committed file holds
-    // exactly the new bytes.
+    // (`save.json.tmp.<pid>.<counter>.<nonce>`), and the committed file
+    // holds exactly the new bytes.
     let stale = dir.join("save.json.tmp");
     std::fs::write(&stale, b"{partial").expect("plant stale temp");
     atomic_write(&project, b"{\"v\":2}", ".tmp").expect("overwrite save");

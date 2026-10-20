@@ -75,9 +75,9 @@ fn stale_legacy_tmp_beside_commit_never_merges() {
 }
 
 /// Crash mid-write of a unique temp: a half-written orphan named like a real
-/// unique temp (`project.json.tmp.<pid>.<n>`) sits beside the commit. The next
-/// save must take a different unique name, commit exactly, and leave the
-/// orphan byte-identical (ignored, never consumed).
+/// unique temp (`project.json.tmp.<pid>.<counter>.<nonce>`) sits beside the
+/// commit. The next save must take a different unique name, commit exactly,
+/// and leave the orphan byte-identical (ignored, never consumed).
 #[test]
 fn half_written_unique_tmp_is_ignored_not_consumed() {
     let dir = scratch_dir("half-unique");

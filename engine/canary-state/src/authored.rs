@@ -17,8 +17,12 @@
 //! staged (parse → encoding check → migrate → validate) so a half-written
 //! or future file fails before it can poison the session.
 
+use std::collections::hash_map::RandomState;
 use std::collections::BTreeMap;
+use std::hash::{BuildHasher, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -129,8 +133,9 @@ impl AuthoredDocument {
     /// before the rename leaves the previous file untouched, so a failed
     /// or interrupted save reports a typed error and the last good project
     /// data stays recoverable. A stale temporary file from such a crash is
-    /// fully overwritten by the next save, never merged — which is what
-    /// the interrupted-write recovery test proves.
+    /// ignored by the next save — which draws a fresh unpredictable temp
+    /// name — never merged, which is what the interrupted-write recovery
+    /// test proves.
     pub fn save(&self, path: &Path) -> Result<(), StateError> {
         let text = self.to_canonical_json()?;
         atomic_write(path, text.as_bytes(), AUTHORED_TEMP_SUFFIX)
@@ -202,6 +207,52 @@ impl AuthoredDocument {
 /// Temp suffix for authored project saves (see [`atomic_write`]).
 const AUTHORED_TEMP_SUFFIX: &str = ".tmp";
 
+/// Process-wide counter for temp names. It stays in the name only as a
+/// debug hint: the 128-bit nonce, not this value, is what makes a name
+/// unguessable.
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Builds one candidate sibling temp name for [`atomic_write`]:
+/// `<suffix>.<pid>.<counter>.<32 hex digits>`, where the trailing digits
+/// are a fresh unpredictable 128-bit nonce.
+fn temp_name_suffix(temp_suffix: &str, counter: u64) -> String {
+    let nonce = unpredictable_temp_nonce(counter);
+    format!(
+        "{temp_suffix}.{}.{counter}.{nonce:032x}",
+        std::process::id()
+    )
+}
+
+/// Draws one 128-bit nonce for a temp name.
+///
+/// `RandomState` carries SipHash keys seeded from OS randomness once per
+/// thread; hashing the pid, counter, and current time with those keys is
+/// a PRF whose output an attacker cannot derive from earlier temp names
+/// or from the public debug hints. Two domain-separated hashes supply the
+/// full 128 bits.
+fn unpredictable_temp_nonce(counter: u64) -> u128 {
+    let pid = u64::from(std::process::id());
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let state = RandomState::new();
+
+    let mut low = state.build_hasher();
+    low.write_u64(pid);
+    low.write_u64(counter);
+    low.write_u128(nanos);
+    let low = low.finish();
+
+    let mut high = state.build_hasher();
+    high.write_u8(0x80); // domain separation from the low half
+    high.write_u64(pid);
+    high.write_u64(counter);
+    high.write_u128(nanos);
+    let high = high.finish();
+
+    (u128::from(high) << 64) | u128::from(low)
+}
+
 /// Writes complete `bytes` to a sibling temporary file (flushed, then
 /// atomically renamed over `path`). Shared by authored saves, snapshot
 /// saves, and the collaboration permission store so every durable path
@@ -216,12 +267,18 @@ const AUTHORED_TEMP_SUFFIX: &str = ".tmp";
 /// suffixes.
 ///
 /// Durable-commit semantics (F-19):
-/// - The temp name is unique per call (`<suffix>.<pid>.<counter>`), so two
-///   concurrent savers of one file never share a temp path (the old fixed
-///   name let the second `File::create` truncate the first's in-flight
-///   bytes), and a symlink pre-planted at the temp path fails closed:
-///   the temp is created with `create_new`, which refuses any existing
-///   path instead of following it.
+/// - The temp name is unique per attempt and unpredictable:
+///   `<suffix>.<pid>.<counter>.<32 hex digits>` where the hex is a fresh
+///   128-bit nonce drawn from OS-seeded SipHash keys (`RandomState`) mixed
+///   with the pid, counter, and current time. The pid and counter are
+///   debug hints only. Two concurrent savers of one file never share a
+///   temp path (the old fixed name let the second `File::create` truncate
+///   the first's in-flight bytes), and a local attacker who can write the
+///   directory cannot enumerate the next name: pre-creating the old
+///   predictable names does not exhaust the retry loop, so planting files
+///   cannot deny a save. A symlink pre-planted at a temp path fails
+///   closed: the temp is created with `create_new`, which refuses any
+///   existing path instead of following it.
 /// - After the rename the parent directory is fsynced (Unix), so the
 ///   rename itself survives a crash — a file `sync_all` alone does not
 ///   promise that on POSIX filesystems.
@@ -238,24 +295,20 @@ const AUTHORED_TEMP_SUFFIX: &str = ".tmp";
 /// `dir_sync_failure_after_rename_reports_err_with_committed_bytes`.
 pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), StateError> {
     use std::io::Write as _;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[cfg(unix)]
     let parent = path
         .parent()
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    // Bounded collision retry: the temp name is unique per call, so a hit
-    // only happens against a leftover temp from a killed earlier process
-    // that reused this pid.
+    // Bounded collision retry: every attempt draws a fresh unpredictable
+    // 128-bit nonce, so `AlreadyExists` means something already sits at
+    // that exact name (a leftover temp from a killed writer, or an
+    // attacker who guessed 128 bits) and the next attempt simply picks a
+    // new name. No fixed set of names can be pre-created to exhaust this.
     for _ in 0..8 {
-        let unique = format!(
-            "{}.{}.{}",
-            temp_suffix,
-            std::process::id(),
-            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-        );
+        let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let unique = temp_name_suffix(temp_suffix, counter);
         let mut name = path.as_os_str().to_owned();
         name.push(unique.as_str());
         let tmp = PathBuf::from(name);
@@ -531,9 +584,10 @@ mod tests {
 
         // Simulate a writer killed mid-stream: a partial sibling temp file
         // with no rename. The committed file must still load as v1.
-        // Temp names are unique per call (`project.json.tmp.<pid>.<n>`),
-        // so a stale temp from a killed writer is simply never read back;
-        // the old fixed-suffix name below stands in for any such leftover.
+        // Temp names are unpredictable per call
+        // (`project.json.tmp.<pid>.<counter>.<nonce>`), so a stale temp
+        // from a killed writer is simply never read back; the old
+        // fixed-suffix name below stands in for any such leftover.
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, b"{partial").expect("plant partial tmp");
         let recovered = AuthoredDocument::load(&path).expect("recover v1");
@@ -578,8 +632,7 @@ mod tests {
         // Proof for the shared-helper unification: the old
         // extension-replacing form aimed both of these files at the same
         // `report.tmp`. The appended form must keep them apart, and a
-        // stale temp from a killed writer must be overwritten, never
-        // merged.
+        // stale temp from a killed writer must be ignored, never merged.
         let dir = scratch_dir("suffix");
         let first = dir.join("report.json");
         let second = dir.join("report.toml");
@@ -639,21 +692,122 @@ mod tests {
     }
 
     #[test]
-    fn preplanted_symlink_at_legacy_temp_name_is_ignored() {
-        // Proof for exclusive temp creation: a symlink planted at the old
-        // fixed temp name must neither be followed nor break the save —
-        // unique temps never touch that path.
-        let dir = scratch_dir("symlink");
+    fn temp_names_are_unpredictable_not_a_pid_counter_sequence() {
+        // Regression proof for the predictable-name DoS: the old name space
+        // was `<suffix>.<pid>.<counter>` with counters `0..8` per process,
+        // fully enumerable by a local attacker before a save. Every attempt
+        // must now carry a fresh 128-bit hex nonce; pid and counter survive
+        // only as debug hints, never as the deciding component.
+        let pid_prefix = format!(".tmp.{}.", std::process::id());
+        let mut names = std::collections::BTreeSet::new();
+        let mut nonces = std::collections::BTreeSet::new();
+        for counter in 0..64 {
+            let name = temp_name_suffix(".tmp", counter);
+            let hints = name
+                .strip_prefix(&pid_prefix)
+                .unwrap_or_else(|| panic!("pid debug hint missing from {name}"));
+            let (counter_hint, nonce) = hints
+                .split_once('.')
+                .unwrap_or_else(|| panic!("counter/nonce split missing from {name}"));
+            assert_eq!(counter_hint, counter.to_string());
+            assert_eq!(nonce.len(), 32, "128-bit nonce is 32 hex digits: {name}");
+            assert!(
+                nonce.chars().all(|c| c.is_ascii_hexdigit()),
+                "nonce must be hex: {name}"
+            );
+            assert!(
+                nonces.insert(nonce.to_owned()),
+                "two calls produced the same nonce: {name}"
+            );
+            assert!(names.insert(name), "two calls produced the same temp name");
+        }
+        assert_eq!(names.len(), 64, "every generated temp name is distinct");
+        assert!(
+            !names.contains(&format!(".tmp.{}.0", std::process::id())),
+            "no name may be the old pid+counter-only shape"
+        );
+
+        // The nonce is fresh per attempt, not a function of the debug
+        // hints: the same counter cannot reproduce the same name.
+        assert_ne!(
+            temp_name_suffix(".tmp", 7),
+            temp_name_suffix(".tmp", 7),
+            "a second call must not reproduce the first name"
+        );
+    }
+
+    #[test]
+    fn preplanted_legacy_symlink_and_old_style_names_do_not_block_saves() {
+        // Threat model: a local attacker who can write the target directory
+        // pre-creates every temp name the writer could pick, exhausting the
+        // bounded retry loop and forcing a hard failure (DoS). Under the old
+        // predictable scheme those names were enumerable up front:
+        // `<suffix>.<pid>.<counter>` for counter 0..8. The unpredictable
+        // nonce makes each attempt land elsewhere, so the save must succeed
+        // and both plants must stay byte-identical (never followed, never
+        // consumed).
+        let dir = scratch_dir("preplanted-temps");
         let path = dir.join("project.json");
         let legacy = dir.join("project.json.tmp");
         #[cfg(unix)]
         std::os::unix::fs::symlink("/definitely/not/here", &legacy).expect("plant symlink");
         #[cfg(not(unix))]
         std::fs::write(&legacy, b"{partial").expect("plant legacy tmp");
-        atomic_write(&path, b"{\"ok\":true}", ".tmp").expect("save beside symlink");
+
+        let planted: Vec<std::path::PathBuf> = (0..8)
+            .map(|counter| {
+                let predicted = dir.join(format!(
+                    "project.json.tmp.{}.{}",
+                    std::process::id(),
+                    counter
+                ));
+                std::fs::write(&predicted, b"attacker-owned").expect("plant predicted temp");
+                predicted
+            })
+            .collect();
+
+        atomic_write(&path, b"{\"ok\":true}", ".tmp")
+            .expect("pre-planted predictable temps must not block the save");
         assert_eq!(
             std::fs::read(&path).expect("read committed"),
             b"{\"ok\":true}"
+        );
+        #[cfg(unix)]
+        assert!(
+            std::fs::symlink_metadata(&legacy)
+                .expect("legacy metadata")
+                .file_type()
+                .is_symlink(),
+            "the legacy temp path must stay the planted symlink"
+        );
+        for predicted in &planted {
+            assert_eq!(
+                std::fs::read(predicted).expect("planted temp untouched"),
+                b"attacker-owned",
+                "a pre-planted predictable temp must be ignored, not consumed"
+            );
+        }
+        let mut residue: Vec<String> = std::fs::read_dir(&dir)
+            .expect("list dir")
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        residue.sort();
+        let mut expected: Vec<String> = std::iter::once("project.json".to_owned())
+            .chain(
+                (0..8).map(|counter| format!("project.json.tmp.{}.{counter}", std::process::id())),
+            )
+            .chain(std::iter::once("project.json.tmp".to_owned()))
+            .collect();
+        expected.sort();
+        assert_eq!(
+            residue, expected,
+            "the dir must hold exactly the commit plus the planted leftovers"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
