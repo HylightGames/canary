@@ -102,39 +102,21 @@ fn all_three_durable_suffixes_keep_same_stem_files_apart() {
         })
         .collect();
     names.sort();
-    assert!(
-        names.iter().all(|name| {
-            name == "report.json"
-                || name == "report.toml"
-                || name == "save-permissions.json"
-                || name == "save.bin"
-                || name == "save.json"
-                || name == "save.json.tmp"
-        }),
+    // Exact sorted listing: the old allowlist-plus-contains trio accepted
+    // count drift in either direction only by accident of combination — a
+    // single equality proves the dir holds exactly the five saves plus the
+    // planted legacy leftover, and no unique-temp residue.
+    assert_eq!(
+        names,
+        vec![
+            "report.json".to_owned(),
+            "report.toml".to_owned(),
+            "save-permissions.json".to_owned(),
+            "save.bin".to_owned(),
+            "save.json".to_owned(),
+            "save.json.tmp".to_owned(),
+        ],
         "only the planted legacy leftover may sit beside the five saves: {names:?}"
-    );
-    for expected in [
-        "report.json",
-        "report.toml",
-        "save-permissions.json",
-        "save.bin",
-        "save.json",
-        "save.json.tmp",
-    ] {
-        assert!(
-            names.contains(&expected.to_owned()),
-            "expected file missing: {expected} in {names:?}"
-        );
-    }
-    assert!(
-        names.iter().all(|name| {
-            !name.starts_with("report.json.tmp.")
-                && !name.starts_with("report.toml.tmp.")
-                && !name.starts_with("save-permissions.json.permissions-tmp.")
-                && !name.starts_with("save.bin.tmp.")
-                && !name.starts_with("save.json.tmp.")
-        }),
-        "unique temps leave no residue: {names:?}"
     );
     std::fs::remove_dir_all(&dir).ok();
 }

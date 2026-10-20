@@ -2385,7 +2385,7 @@ mod tests {
             good_bytes.as_slice(),
             "committed bytes must be the complete second save"
         );
-        let residue: Vec<String> = std::fs::read_dir(&dir)
+        let mut residue: Vec<String> = std::fs::read_dir(&dir)
             .expect("list dir")
             .map(|entry| {
                 entry
@@ -2395,15 +2395,16 @@ mod tests {
                     .into_owned()
             })
             .collect();
-        assert!(
-            residue
-                .iter()
-                .all(|name| name == "sim.bin" || name == "sim.bin.tmp"),
-            "only the planted legacy leftover may sit beside the save: {residue:?}"
-        );
-        assert!(
-            !residue.iter().any(|name| name.starts_with("sim.bin.tmp.")),
-            "unique temps leave no residue: {residue:?}"
+        // Exact sorted listing: the old `.all()` allowlist accepted a dir
+        // missing its commit (or hiding extra files), so a subset check
+        // could pass while proving nothing — only this equality proves the
+        // unique temp left no residue beyond the planted legacy leftover
+        // (which also subsumes the old no-`sim.bin.tmp.*` check).
+        residue.sort();
+        assert_eq!(
+            residue,
+            vec!["sim.bin".to_owned(), "sim.bin.tmp".to_owned()],
+            "only the planted legacy leftover may sit beside the save"
         );
 
         // The recovered file continues deterministically: restore into a

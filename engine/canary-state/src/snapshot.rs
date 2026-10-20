@@ -776,16 +776,25 @@ mod tests {
         let (next_bytes, _) =
             encode_snapshot(&profile(), vec![record(0), record(1)]).expect("encode");
         save_snapshot(&path, &next_bytes).expect("second save");
-        let residue: Vec<_> = std::fs::read_dir(&dir)
+        // Exact sorted listing: the old `.all()` allowlist accepted a dir
+        // missing its commit (or hiding extra files), so a subset check
+        // could pass while proving nothing — only this equality proves the
+        // unique temp left no residue beyond the planted legacy leftover.
+        let mut residue: Vec<String> = std::fs::read_dir(&dir)
             .expect("list dir")
-            .map(|entry| entry.expect("dir entry").file_name())
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect();
-        assert!(
-            residue.iter().all(|name| {
-                let name = name.to_string_lossy();
-                name == "sim.bin" || name == "sim.bin.tmp"
-            }),
-            "unique temps leave no residue: {residue:?}"
+        residue.sort();
+        assert_eq!(
+            residue,
+            vec!["sim.bin".to_owned(), "sim.bin.tmp".to_owned()],
+            "the dir must hold exactly the commit plus the planted legacy leftover"
         );
         std::fs::write(&path, &next_bytes[..next_bytes.len() / 2]).expect("truncate");
         let broken = load_snapshot(&path).expect("truncated file still reads");

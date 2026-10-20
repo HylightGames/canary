@@ -225,6 +225,17 @@ const AUTHORED_TEMP_SUFFIX: &str = ".tmp";
 /// - After the rename the parent directory is fsynced (Unix), so the
 ///   rename itself survives a crash — a file `sync_all` alone does not
 ///   promise that on POSIX filesystems.
+///
+/// Commit-then-report semantics: the rename above commits the bytes, and
+/// the parent-directory sync after it only *verifies* durability. A
+/// failure from here on reports `Err` for bytes that are already live
+/// under `path` — "committed but unverified", never "nothing was
+/// written". Callers must treat such an `Err` as retry-idempotent
+/// (re-saving the same bytes converges; the temp name is unique per call
+/// so the retry cannot collide) rather than as proof the save failed.
+/// The decision point logs through [`committed_but_unverified`] (debug
+/// builds only; release stays silent). Pinned by
+/// `dir_sync_failure_after_rename_reports_err_with_committed_bytes`.
 pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), StateError> {
     use std::io::Write as _;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -282,16 +293,24 @@ pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), 
             })?;
             // Persist the rename itself: without a directory fsync a crash
             // may lose the directory entry update even though the file
-            // bytes were synced.
+            // bytes were synced. Either failure below happens AFTER the
+            // rename, so the bytes are already live — see the
+            // commit-then-report note on this function.
             #[cfg(unix)]
             {
-                let dir = std::fs::File::open(&parent).map_err(|error| StateError::File {
-                    path: parent.clone(),
-                    reason: error.to_string(),
+                let dir = std::fs::File::open(&parent).map_err(|error| {
+                    committed_but_unverified(path, &error);
+                    StateError::File {
+                        path: parent.clone(),
+                        reason: error.to_string(),
+                    }
                 })?;
-                dir.sync_all().map_err(|error| StateError::File {
-                    path: parent.clone(),
-                    reason: error.to_string(),
+                dir.sync_all().map_err(|error| {
+                    committed_but_unverified(path, &error);
+                    StateError::File {
+                        path: parent.clone(),
+                        reason: error.to_string(),
+                    }
                 })?;
             }
             Ok(())
@@ -306,6 +325,25 @@ pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), 
         path: path.to_path_buf(),
         reason: "atomic_write: temp-name collision after 8 attempts".to_string(),
     })
+}
+
+/// Debug-only notice for the commit-then-report decision point in
+/// [`atomic_write`]: the rename already committed `path`'s bytes and the
+/// post-rename directory sync failed, so the accompanying `Err` means
+/// "committed but unverified" and a retry of the same bytes is
+/// idempotent. This leaf crate carries no logging facade (adding one
+/// would be a dependency decision, not a durability fix), so the notice
+/// goes to stderr in debug builds only; release builds stay silent.
+#[cfg(unix)]
+fn committed_but_unverified(path: &Path, error: &std::io::Error) {
+    // Function parameters (unlike locals) never trip `unused_variables`,
+    // so the release build needs no placeholder for the debug-only uses.
+    #[cfg(debug_assertions)]
+    std::eprintln!(
+        "canary-state: atomic_write committed {} but the post-rename directory sync failed \
+         ({error}); bytes may be live, retry is idempotent",
+        path.display()
+    );
 }
 
 #[cfg(test)]
@@ -510,16 +548,25 @@ mod tests {
             .sections
             .insert("entity.hero".to_owned(), serde_json::json!({"hp": 2}));
         second.save(&path).expect("second save");
-        let residue: Vec<_> = std::fs::read_dir(&dir)
+        // Exact sorted listing: the old `.all()` allowlist accepted a dir
+        // missing its commit (or hiding extra files), so a subset check
+        // could pass while proving nothing — only this equality proves the
+        // unique temp left no residue beyond the planted legacy leftover.
+        let mut residue: Vec<String> = std::fs::read_dir(&dir)
             .expect("list dir")
-            .map(|entry| entry.expect("dir entry").file_name())
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect();
-        assert!(
-            residue.iter().all(|name| {
-                let name = name.to_string_lossy();
-                name == "project.json" || name == "project.json.tmp"
-            }),
-            "unique temps leave no residue: {residue:?}"
+        residue.sort();
+        assert_eq!(
+            residue,
+            vec!["project.json".to_owned(), "project.json.tmp".to_owned()],
+            "the dir must hold exactly the commit plus the planted legacy leftover"
         );
         let loaded = AuthoredDocument::load(&path).expect("recover v2");
         assert_eq!(loaded.sections, second.sections);
@@ -626,6 +673,84 @@ mod tests {
         assert!(
             matches!(err, StateError::AuthoredJson(_)),
             "typed codec error, got {err:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dir_sync_failure_after_rename_reports_err_with_committed_bytes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Proof of the commit-then-report ambiguity: the rename commits the
+        // new bytes, then the parent-directory fsync fails, so the caller
+        // sees `Err` for bytes that are already live. Retry is idempotent —
+        // the same bytes save cleanly once the directory is readable again.
+        let dir = scratch_dir("dirsync-ambiguity");
+        let path = dir.join("project.json");
+        let mut first = doc();
+        first
+            .sections
+            .insert("entity.hero".to_owned(), serde_json::json!({"hp": 1}));
+        first.save(&path).expect("first save");
+        let second_text = {
+            let mut second = first.clone();
+            second
+                .sections
+                .insert("entity.hero".to_owned(), serde_json::json!({"hp": 2}));
+            second.to_canonical_json().expect("serialize")
+        };
+
+        // Write+execute without read: temp creation and the rename still
+        // succeed, but opening the parent for its post-rename fsync fails.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o300)).expect("chmod 300");
+        let result = atomic_write(&path, second_text.as_bytes(), ".tmp");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod back");
+
+        assert!(
+            result.is_err(),
+            "parent dir-sync failure must surface, got: {result:?}"
+        );
+        assert_eq!(
+            std::fs::read(&path).expect("read committed"),
+            second_text.as_bytes(),
+            "the rename committed the new bytes before the dir-sync failed: \
+             Err does NOT mean uncommitted"
+        );
+        // Retry is idempotent: the same bytes save cleanly now.
+        atomic_write(&path, second_text.as_bytes(), ".tmp").expect("idempotent retry");
+        assert_eq!(
+            std::fs::read(&path).expect("read again"),
+            second_text.as_bytes()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn exact_listing_rejects_a_dir_missing_its_commit() {
+        // Regression guard for the residue-subset weakness the interrupted
+        // and concurrent save tests used to share: a directory holding ONLY
+        // the planted legacy leftover — committed file deleted — satisfied
+        // the old `.all()` allowlist. The exact sorted listings those tests
+        // now assert must reject this directory.
+        let dir = scratch_dir("subset-weakness");
+        std::fs::write(dir.join("project.json.tmp"), b"{partial").expect("plant legacy tmp");
+
+        let mut residue: Vec<String> = std::fs::read_dir(&dir)
+            .expect("list dir")
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        residue.sort();
+        assert_ne!(
+            residue,
+            vec!["project.json".to_owned(), "project.json.tmp".to_owned()],
+            "exact listing must reject a dir missing its commit: {residue:?}"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
