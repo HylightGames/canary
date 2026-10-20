@@ -37,10 +37,6 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Same as ci.yml: LFS fixtures must resolve to real bytes or
-          # the `cargo test --release` below reads pointer text instead.
-          lfs: true
       - name: Install Linux audio/windowing dev libraries (ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         # Release-profile builds compile the whole workspace including the

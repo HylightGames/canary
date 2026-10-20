@@ -37,10 +37,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
-          # without this every file-load test fails on pointer bytes.
-          lfs: true
       - name: Install Rust
         run: rustup component add rustfmt
       - name: cargo fmt --check
@@ -56,10 +52,6 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
-          # without this every file-load test fails on pointer bytes.
-          lfs: true
       - name: Install Rust
         run: rustup component add clippy
       # Linux only: winit's X11/Wayland backends need these at compile
@@ -107,10 +99,6 @@ jobs:
     # not fail on a headless runner.
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Collectathon fixtures are regular blobs (see .gitattributes);
-          # kept so every job checks out the same tree.
-          lfs: true
       - name: Install Rust
         run: rustup toolchain install stable
       # Same compile-time deps as lint-and-test: collectathon builds on
@@ -234,10 +222,6 @@ jobs:
     # own module docs.
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
-          # without this every file-load test fails on pointer bytes.
-          lfs: true
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install X11 dev libraries and Xvfb
@@ -266,10 +250,6 @@ jobs:
     # pattern as `winit_backend_window.rs`).
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
-          # without this every file-load test fails on pointer bytes.
-          lfs: true
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install a software Vulkan ICD (Mesa llvmpipe/lavapipe)
@@ -322,10 +302,6 @@ jobs:
     # this job nothing in CI would ever run them.
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
-          # without this every file-load test fails on pointer bytes.
-          lfs: true
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install a software Vulkan ICD (Mesa llvmpipe/lavapipe)
@@ -348,10 +324,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
-          # without this every file-load test fails on pointer bytes.
-          lfs: true
       - name: Install Rust with wasm32-wasip2
         run: rustup target add wasm32-wasip2
       - name: Check canary-plugin-api on wasm32-wasip2
@@ -378,10 +350,6 @@ jobs:
     # `contents: read` this job inherits.
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Fixtures (*.glb/*.png, see .gitattributes) are Git-LFS objects:
-          # without this every file-load test fails on pointer bytes.
-          lfs: true
       - name: Install pinned moz.l10n (system python3)
         run: |
           # ubuntu-latest runners ship CPython 3 as `python3` -- no

@@ -44,9 +44,9 @@ second harness to keep in sync.
 
 Fixtures are synthesized in-process. Notably, `canary-assets` benchmarks
 encode a PNG into a temporary directory rather than reading
-`engine/canary-assets/tests/fixtures/`: those are Git-LFS objects, and a
-benchmark that silently measured 130 bytes of LFS pointer text would be
-worse than no benchmark at all.
+`engine/canary-assets/tests/fixtures/`: those fixtures are regular blobs
+committed to the repository, and synthesizing keeps the benchmark
+independent of their on-disk storage form.
 
 ## Running them
 

@@ -75,9 +75,9 @@ divan = { version = "5", package = "codspeed-divan-compat" }
 proptest = "1"
 
 # Synthetic PNG fixtures for `benches/assets.rs`, written to a temporary
-# directory rather than read from `tests/fixtures/` (those are Git-LFS
-# objects; a benchmark measuring pointer text instead of image bytes
-# would be silently meaningless).
+# directory rather than read from `tests/fixtures/` (those are regular
+# blobs; synthesizing keeps the benchmark independent of on-disk fixture
+# storage).
 tempfile = "3"
 
 [[bench]]
