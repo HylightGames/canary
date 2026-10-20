@@ -153,9 +153,36 @@ pub const DEFAULT_MAX_LOCALE_FILES: usize = 256;
 /// to whatever build tooling eventually enforces "the default locale
 /// covers every key," per the roadmap's deferred compile-time-validation
 /// item.
+///
+/// An *unreadable* `base_dir` (permissions, I/O failure) is silently
+/// folded into that same empty `Vec` here — use
+/// [`try_discover_available_locales`] when the distinction matters.
 pub fn discover_available_locales(base_dir: &Path) -> Vec<LanguageIdentifier> {
-    let Ok(entries) = std::fs::read_dir(base_dir) else {
-        return Vec::new();
+    try_discover_available_locales(base_dir).unwrap_or_default()
+}
+
+/// [`discover_available_locales`] with the failure seam typed: an
+/// unreadable `base_dir` returns [`LoaderError::ReadDir`] instead of
+/// silently reading as zero locales, so callers can tell "pack exists
+/// but cannot be read" apart from "pack genuinely holds no locales"
+/// (`Ok(vec![])`). An absent `base_dir` still reads as `Ok(vec![])` —
+/// no pack at all is zero locales, the same contract the soft wrapper
+/// always offered — and per-entry filtering is unchanged (non-directory
+/// and non-locale names are skipped, the locale list is sorted).
+pub fn try_discover_available_locales(
+    base_dir: &Path,
+) -> Result<Vec<LanguageIdentifier>, LoaderError> {
+    let entries = match std::fs::read_dir(base_dir) {
+        Ok(entries) => entries,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Vec::new());
+        }
+        Err(source) => {
+            return Err(LoaderError::ReadDir {
+                path: base_dir.to_path_buf(),
+                source,
+            });
+        }
     };
     let mut locales: Vec<LanguageIdentifier> = entries
         .filter_map(|entry| entry.ok())
@@ -166,7 +193,7 @@ pub fn discover_available_locales(base_dir: &Path) -> Vec<LanguageIdentifier> {
     // Filesystem iteration order is unspecified; negotiation downstream
     // must not depend on it.
     locales.sort();
-    locales
+    Ok(locales)
 }
 
 /// Loads every `.ftl` file directly inside `base_dir/<locale>/` as a
@@ -248,7 +275,17 @@ pub fn load_locale_resources_with_budget(
         let size = entry
             .metadata()
             .map(|metadata| metadata.len())
-            .unwrap_or(u64::MAX);
+            .map_err(|source| {
+                // A stat failure is a read failure, never a budget overrun: the
+                // bytes were never measured, so reporting `OverBudget` (with its
+                // `u64::MAX` sentinel size) would mis-taxonomize an I/O error as
+                // a hostile pack. `OverBudget` fires only for a genuinely
+                // measured size past the budget.
+                LoaderError::ReadFile {
+                    path: path.clone(),
+                    source,
+                }
+            })?;
         if size > max_file_bytes {
             return Err(LoaderError::OverBudget {
                 path: path.clone(),
@@ -426,6 +463,16 @@ mod tests {
         assert_eq!(resources.len(), 1);
     }
 
+    // NOTE (Windows confinement coverage, carry-forward): the refusal above
+    // is platform-independent code (`symlink_metadata` never follows the
+    // final component on any target), but it is only proven on Unix — this
+    // test and the `unreadable_*` tests need Unix permission/symlink
+    // semantics, and there is no Windows runner in this lane to verify
+    // against. The carry-forward is a graceful-skip `#[cfg(windows)]`
+    // mirror (attempt `symlink_dir`, return early when creation fails with
+    // a privilege error, otherwise assert `LoaderError::Symlink`) — tracked
+    // here rather than shipped blind and unverifiable.
+
     #[test]
     fn oversized_and_excess_files_fail_with_overbudget_before_reading() {
         // Over-size: metadata reports past the per-file budget, so the
@@ -485,5 +532,94 @@ mod tests {
         // At-or-under budget still reads through untouched.
         let content = read_file_with_budget(&file, 6).expect("exact-budget read must succeed");
         assert_eq!(content, "k = V\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_ftl_metadata_is_a_read_error_not_overbudget() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let locale_dir = dir.path().join("en-US");
+        std::fs::create_dir(&locale_dir).expect("locale dir");
+        std::fs::write(locale_dir.join("main.ftl"), "greeting = Hello!").expect("seed ftl");
+        // Read without execute: `read_dir` still lists names, but every
+        // per-file `metadata()` (and open) fails — the size pre-check must
+        // report a read-flavored error, never a budget overrun for bytes
+        // never measured.
+        std::fs::set_permissions(&locale_dir, std::fs::Permissions::from_mode(0o400))
+            .expect("chmod 400");
+        let locale: LanguageIdentifier = "en-US".parse().expect("locale parses");
+        let result = load_locale_resources(dir.path(), &locale);
+        std::fs::set_permissions(&locale_dir, std::fs::Permissions::from_mode(0o700))
+            .expect("chmod back");
+
+        assert!(
+            matches!(
+                result,
+                Err(LoaderError::ReadFile { .. }) | Err(LoaderError::ReadDir { .. })
+            ),
+            "metadata failure must be read-flavored, not OverBudget, got: {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_base_dir_is_silent_empty_indistinguishable_from_zero_locales() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let base = dir.path().join("packs");
+        std::fs::create_dir(&base).expect("base dir");
+        let locale_dir = base.join("en-US");
+        std::fs::create_dir(&locale_dir).expect("locale dir");
+        std::fs::write(locale_dir.join("main.ftl"), "greeting = Hello!").expect("seed ftl");
+
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o000)).expect("chmod 000");
+        let found_while_unreadable = discover_available_locales(&base);
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o700))
+            .expect("chmod back");
+
+        // A sibling directory that genuinely holds zero locales reports
+        // exactly what the unreadable pack did.
+        let empty = dir.path().join("empty");
+        std::fs::create_dir(&empty).expect("empty dir");
+        let found_without_locales = discover_available_locales(&empty);
+        assert!(found_while_unreadable.is_empty());
+        assert_eq!(
+            found_while_unreadable, found_without_locales,
+            "an unreadable pack is indistinguishable from zero locales: \
+             {found_while_unreadable:?} vs {found_without_locales:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_base_dir_is_a_typed_error_not_silent_empty() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let base = dir.path().join("packs");
+        std::fs::create_dir(&base).expect("base dir");
+
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o000)).expect("chmod 000");
+        let result = try_discover_available_locales(&base);
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o700))
+            .expect("chmod back");
+
+        assert!(
+            matches!(result, Err(LoaderError::ReadDir { .. })),
+            "an unreadable pack must be a typed read error, got: {result:?}"
+        );
+        // Seams around it stay soft: a missing pack still reads as zero
+        // locales, and a genuinely-empty one is `Ok(vec![])`, not an error.
+        let missing = try_discover_available_locales(&dir.path().join("never-created"))
+            .expect("a missing pack is zero locales, not an error");
+        assert!(missing.is_empty());
+        let empty_dir = dir.path().join("empty");
+        std::fs::create_dir(&empty_dir).expect("empty dir");
+        let empty = try_discover_available_locales(&empty_dir)
+            .expect("a genuinely-empty pack is zero locales, not an error");
+        assert!(empty.is_empty());
     }
 }
