@@ -768,16 +768,18 @@ below), and no engine code changed for it. The sample lives entirely in
       reader deny `Forbidden`, stale-editor `RevisionConflict` with
       refresh, rebased accept seq=2/rev=2, reader sync tail of 2 ops with
       no snapshot; gameplay schemas asserted absent from the project
-      file); live-window/audio/device checks that CI cannot host remain
-      manual — see the unchecked items in the sample README checklist.
-- [ ] WP4 (docs closeout + live-device matrix): this section plus the
+      file); live-window/audio checks that CI cannot host are recorded
+      in the live-device evidence rows of
+      [`docs/release-notes/v0.1.0.md`](../release-notes/v0.1.0.md).
+- [x] WP4 (docs closeout + live-device matrix): this section plus the
       sample README refresh (run commands and evidence claims verified
       against the binaries, manual-evidence checklist mapped to the
-      plan's exit evidence). Still open: the live-device evidence rows
-      (windowed playthrough platform/command/result, headless
-      deterministic run evidence, audio-device playback
-      platform/command/result) need a real machine run before `v0.1.0`
-      can be cut.
+      plan's exit evidence). Live-device rows recorded on 2026-10-21 on
+      Arch Linux (`7.2.11-arch1-1`, Vulkan): the windowed run reached
+      `frame=1634`, the HUD reached `4/4`, collected pickups despawned
+      and reset restored them, and `pickup.wav` was audible on each
+      collection. The headless deterministic run stays pinned by the CI
+      release gate; `v0.1.0` can be cut.
 
 **Explicitly untouched non-goals** (per
 [`v0.1.0-plan.md`](v0.1.0-plan.md#explicitly-not-required-for-v010)):
