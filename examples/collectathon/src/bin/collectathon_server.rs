@@ -28,8 +28,9 @@ use std::time::Duration;
 use canary_ecs::World;
 use canary_net::{
     decide_handshake, decode_hello, decode_input, encode_ack, encode_delta, encode_reject,
-    encode_snapshot, encode_welcome, ClientId, ClientSession, InputAck, NetEntityId, NetEntityMap,
-    NetError, NetLimits, NetRecv, NetSend, NetSequence, NetTransport, QuinnTransport, SequenceGate,
+    encode_snapshot, encode_welcome, reject_banned, ClientId, ClientSession, ConnectionGuard,
+    ConnectionPolicy, DisconnectReason, InputAck, NetEntityId, NetEntityMap, NetError, NetLimits,
+    NetRecv, NetSend, NetSequence, NetTransport, PeerAdmission, QuinnTransport, SequenceGate,
     SessionTable, SimTick, Tombstone, TombstoneLog,
 };
 use canary_runtime::AuthoredSpawner;
@@ -211,6 +212,26 @@ async fn run() -> Result<(), NetHarnessError> {
     Ok(())
 }
 
+/// The guard's tick path: each client past its idle deadline is removed from
+/// the session table and the guard (one owned instance each, no locks),
+/// logged with the transport peer it was admitted under, and dropped for
+/// [`DisconnectReason::IdleTimeout`].
+fn sweep_idle_clients(table: &mut SessionTable, guard: &mut ConnectionGuard, now: u64) {
+    for idle in guard.maintain(now) {
+        let client = idle.client();
+        let peer = idle.peer();
+        table.disconnect(client);
+        guard.disconnect(client);
+        let reason = DisconnectReason::IdleTimeout;
+        tracing::info!(
+            client = client.0,
+            peer = ?peer,
+            ?reason,
+            "idle client disconnected"
+        );
+    }
+}
+
 /// Serves exactly one session: handshake, snapshot, authoritative delta,
 /// validated input, ack, then a clean whole-record disconnect.
 async fn serve_one(
@@ -219,12 +240,7 @@ async fn serve_one(
     entity_map: &mut NetEntityMap,
     limits: &NetLimits,
 ) -> Result<(), NetHarnessError> {
-    let (mut send, mut recv) = tokio::time::timeout(Duration::from_secs(30), server.accept())
-        .await
-        .map_err(|_| {
-            NetHarnessError::Usage("server timed out waiting for the client".to_owned())
-        })??;
-    let mut gate = SequenceGate::new();
+    let mut guard = ConnectionGuard::new(ConnectionPolicy::default());
     let mut table = SessionTable::new();
     let mut next_outbound: u64 = 1;
     let mut outbound_seq = || {
@@ -233,9 +249,40 @@ async fn serve_one(
         sequence
     };
 
+    let (peer, mut send, mut recv) =
+        tokio::time::timeout(Duration::from_secs(30), server.accept_with_peer())
+            .await
+            .map_err(|_| {
+                NetHarnessError::Usage("server timed out waiting for the client".to_owned())
+            })??;
+    // The guard clock is the session's authoritative tick schedule: the
+    // handshake completes at the snapshot tick and every later phase
+    // advances it, so no wall clock enters the policy.
+    let now = SNAPSHOT_TICK.0;
+    if guard.admit(peer, now) == PeerAdmission::Banned {
+        eprintln!("collectathon_server: refusing banned peer {peer}");
+        let _ = reject_banned(
+            &mut send,
+            outbound_seq(),
+            net_session::SESSION_PROTOCOL,
+            limits,
+        )
+        .await;
+        return Ok(());
+    }
+    let mut gate = SequenceGate::new();
+
     // 1. Handshake: typed Hello in, typed Welcome (or typed Reject + close).
     let hello_body = net_session::recv_envelope(&mut recv, &mut gate, limits).await?;
-    let hello = decode_hello(&hello_body.payload)?;
+    let hello = match decode_hello(&hello_body.payload) {
+        Ok(hello) => hello,
+        Err(error) => {
+            // A malformed hello is still a handshake rejection for the ban
+            // gate, even though the peer gets no typed Reject to decode.
+            guard.note_reject(peer, now);
+            return Err(error.into());
+        }
+    };
     eprintln!(
         "collectathon_server: hello protocol={} manifest={} game={} plugin_api={} label={}",
         hello.protocol_version.0,
@@ -268,6 +315,7 @@ async fn serve_one(
                 recv_caps,
                 validator,
             );
+            guard.note_accepted(peer, client, now);
             eprintln!(
                 "collectathon_server: welcome slot={} session={}",
                 welcome.assigned_slot, welcome.session_id
@@ -281,6 +329,7 @@ async fn serve_one(
             .await?;
         }
         Err(reject) => {
+            guard.note_reject(peer, now);
             eprintln!("collectathon_server: reject {reject:?}");
             net_session::send_envelope(
                 &mut send,
@@ -305,6 +354,7 @@ async fn serve_one(
     let snapshot_bytes = encode_snapshot(entries, SNAPSHOT_TICK, limits)?;
     net_session::send_envelope(&mut send, snapshot_seq, snapshot_bytes, limits).await?;
     eprintln!("collectathon_server: snapshot at tick {}", SNAPSHOT_TICK.0);
+    sweep_idle_clients(&mut table, &mut guard, SNAPSHOT_TICK.0);
 
     // 3. Authoritative progression plus the destruction the removal log
     // still holds for this client's cursor.
@@ -349,11 +399,14 @@ async fn serve_one(
         delta.removals.len()
     );
     net_session::send_envelope(&mut send, delta_seq, delta_bytes, limits).await?;
+    sweep_idle_clients(&mut table, &mut guard, DELTA_TICK.0);
 
     // 4. Input: validate-all-before-apply, then acknowledge the sequence.
     // A rejected input would keep the connection alive; this session
     // expects the valid frame-tagged input and echoes it.
     let input_body = net_session::recv_envelope(&mut recv, &mut gate, limits).await?;
+    // An admitted inbound frame is proof of liveness for the idle guard.
+    guard.note_activity(client, INPUT_TICK);
     let input = decode_input(&input_body.payload)?;
     let validated = table
         .get_mut(client)
@@ -370,9 +423,11 @@ async fn serve_one(
     };
     net_session::send_envelope(&mut send, outbound_seq(), encode_ack(&ack, limits)?, limits)
         .await?;
+    sweep_idle_clients(&mut table, &mut guard, INPUT_TICK);
 
     // 5. Clean disconnect: the record is removed whole, nothing lingers.
     let removed = table.disconnect(client);
+    guard.disconnect(client);
     if removed.is_none() {
         return Err(NetHarnessError::Usage(
             "client record must exist to remove".to_owned(),
@@ -383,6 +438,11 @@ async fn serve_one(
             "client record must leave no residue".to_owned(),
         ));
     }
+    if guard.tracked_clients() != 0 {
+        return Err(NetHarnessError::Usage(
+            "admission guard must leave no residue".to_owned(),
+        ));
+    }
     eprintln!("collectathon_server: clean disconnect, session served");
     send.finish().await?;
     // Graceful shutdown: wait for the client's send-finish EOF before
@@ -391,4 +451,43 @@ async fn serve_one(
     // passed and this only gates process exit on delivery.
     let _ = tokio::time::timeout(Duration::from_secs(20), recv.recv_frame(limits)).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use canary_net::{BanPolicy, IdlePolicy, InputValidator};
+
+    fn guard_with_idle(idle_ticks: u64) -> ConnectionGuard {
+        ConnectionGuard::new(ConnectionPolicy {
+            idle: IdlePolicy::new(idle_ticks),
+            ban: BanPolicy::default(),
+        })
+    }
+
+    #[test]
+    fn idle_sweep_removes_the_session_and_its_peer() {
+        let peer = SocketAddr::from(([127, 0, 0, 1], 40_000));
+        let client = ClientId(1);
+        let limits = NetLimits::default();
+        let mut guard = guard_with_idle(10);
+        let mut table = SessionTable::new();
+        table.connect(
+            client,
+            SESSION_SLOT,
+            SESSION_ID,
+            ClientSession::caps_from_limits(&limits),
+            ClientSession::caps_from_limits(&limits),
+            InputValidator::new(SESSION_SLOT, &[ACTION_SCHEMA], 64, 4, 8),
+        );
+        guard.note_accepted(peer, client, 0);
+
+        // Exactly at the deadline is still alive; one tick past it is idle.
+        sweep_idle_clients(&mut table, &mut guard, 10);
+        assert!(table.get(client).is_some());
+        sweep_idle_clients(&mut table, &mut guard, 11);
+        assert!(table.get(client).is_none());
+        assert!(guard.peer(client).is_none());
+        assert_eq!(guard.tracked_clients(), 0);
+    }
 }
