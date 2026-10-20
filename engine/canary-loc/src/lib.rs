@@ -25,7 +25,8 @@ pub use bundle::LocaleBundle;
 pub use key::LocKey;
 pub use loader::{
     discover_available_locales, load_locale_resources, load_locale_resources_with_budget,
-    LoaderError, DEFAULT_MAX_LOCALE_FILES, DEFAULT_MAX_LOCALE_FILE_BYTES,
+    try_discover_available_locales, LoaderError, DEFAULT_MAX_LOCALE_FILES,
+    DEFAULT_MAX_LOCALE_FILE_BYTES,
 };
 
 // Re-exported so `key!`'s macro-generated code can refer to these

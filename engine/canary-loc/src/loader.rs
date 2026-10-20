@@ -155,8 +155,9 @@ pub const DEFAULT_MAX_LOCALE_FILES: usize = 256;
 /// item.
 ///
 /// An *unreadable* `base_dir` (permissions, I/O failure) is silently
-/// folded into that same empty `Vec` here — use
-/// [`try_discover_available_locales`] when the distinction matters.
+/// folded into that same empty `Vec` here — this is the infallible
+/// wrapper; callers that must distinguish an unreadable pack from an
+/// empty one use [`try_discover_available_locales`].
 pub fn discover_available_locales(base_dir: &Path) -> Vec<LanguageIdentifier> {
     try_discover_available_locales(base_dir).unwrap_or_default()
 }
