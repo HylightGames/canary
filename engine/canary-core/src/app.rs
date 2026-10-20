@@ -72,17 +72,24 @@ impl App {
     /// to shut down afterward, even on failure) alongside the result.
     fn init_all(&mut self) -> (usize, Result<(), CoreError>) {
         let mut initialized = 0usize;
-        let result = (|| {
-            for subsystem in &mut self.subsystems {
+        for index in 0..self.subsystems.len() {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let subsystem = &mut self.subsystems[index];
                 let name = subsystem.name().to_string();
                 subsystem
                     .init()
-                    .map_err(|source| CoreError::SubsystemInit { name, source })?;
-                initialized += 1;
+                    .map_err(|source| CoreError::SubsystemInit { name, source })
+            }));
+            match result {
+                Ok(Ok(())) => initialized += 1,
+                Ok(Err(error)) => return (initialized, Err(error)),
+                Err(payload) => {
+                    self.shutdown_all(initialized);
+                    std::panic::resume_unwind(payload);
+                }
             }
-            Ok(())
-        })();
-        (initialized, result)
+        }
+        (initialized, Ok(()))
     }
 
     /// Shuts down the first `initialized` subsystems, in **reverse**
@@ -293,6 +300,59 @@ mod tests {
         // `a` initialized, `b` failed to — no ticks should have run, and
         // only `a` (the subsystem that actually started) should shut down.
         assert_eq!(events, vec!["a:init", "a:shutdown"]);
+    }
+
+    struct InitPanickingSubsystem {
+        name: &'static str,
+        log: Arc<Mutex<Vec<String>>>,
+        panic_on_init: bool,
+    }
+
+    impl Subsystem for InitPanickingSubsystem {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn init(&mut self) -> Result<(), crate::SubsystemError> {
+            self.log.lock().unwrap().push(format!("{}:init", self.name));
+            if self.panic_on_init {
+                panic!("{} panics on init (test-induced)", self.name);
+            }
+            Ok(())
+        }
+
+        fn shutdown(&mut self) {
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("{}:shutdown", self.name));
+        }
+    }
+
+    #[test]
+    fn a_panicking_init_still_shuts_down_what_already_started() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut app = App::new();
+        app.add_subsystem(InitPanickingSubsystem {
+            name: "a",
+            log: log.clone(),
+            panic_on_init: false,
+        });
+        app.add_subsystem(InitPanickingSubsystem {
+            name: "b",
+            log: log.clone(),
+            panic_on_init: true,
+        });
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            app.run_for(0, std::time::Duration::from_millis(16))
+        }));
+
+        assert!(result.is_err(), "the init panic must propagate");
+        assert_eq!(
+            log.lock().unwrap().clone(),
+            vec!["a:init", "b:init", "a:shutdown"]
+        );
     }
 
     #[test]
