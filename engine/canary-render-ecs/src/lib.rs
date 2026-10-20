@@ -36,7 +36,7 @@
 //! ([`OrthographicCamera`], [`ActiveCamera`], [`resolve_ortho_camera`])
 //! projects through [`camera::bake_scene_to_vertices_ortho`] once a valid
 //! camera resolves; camera-less worlds keep the legacy fixed-perspective
-//! bake byte-identically (see [`camera`] for the fallback contract).
+//! bake byte-identically (see the camera module for the fallback contract).
 //! Still deferred: any further RHI
 //! upgrades — push constants, depth, `write_buffer`, multi-texture
 //! materials, swapchain — all v0.0.10+.

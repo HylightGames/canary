@@ -35,9 +35,9 @@
 //! runner; pause/resume, restart-in-place, or hot reload. `run`
 //! executes plugin loading, outer frames, and reverse-order unload —
 //! the lifecycle boundary the first scoped-access proof needs. The
-//! existing headless binary stays as-is until the backend-composition
-//! design lands; migrating it onto this library is tracked follow-up
-//! work, not part of R-34.
+//! frame-driven consumer path uses [`Runtime::drive_frame`] to compose
+//! platform input, UI routing, simulation, scheduling, and presentation
+//! around that lifecycle.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

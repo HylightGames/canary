@@ -262,7 +262,7 @@ impl ScenePipeline {
     /// which records nothing): the caller must hold it until after the
     /// submission that reads it — dropping it earlier is use-after-free,
     /// the same contract
-    /// [`record_baked_frame`](canary_render_ecs::record_baked_frame)
+    /// [`record_baked_frame`]
     /// documents, which this wraps.
     pub fn record_soup_frame(
         &self,
@@ -337,7 +337,7 @@ impl ScenePipeline {
     /// Returns the uploaded vertex buffer: the caller must hold it until
     /// after the submission that reads it — dropping it earlier is
     /// use-after-free, the same contract
-    /// [`record_baked_frame`](canary_render_ecs::record_baked_frame)
+    /// [`record_baked_frame`]
     /// documents.
     pub fn draw_scene(
         &self,
