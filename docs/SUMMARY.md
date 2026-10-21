@@ -103,6 +103,10 @@
 - [Engine Comparisons](research/engine-comparisons.md)
 - [Technology Evaluations](research/technology-evaluations.md)
 
+# Distribution
+
+- [Channels and identifiers](distribution.md)
+
 # Reviews
 
 - [Architecture Reviews](reviews/README.md)
