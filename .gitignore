@@ -124,3 +124,7 @@ Desktop.ini
 .omo/
 .claude/
 .serena/
+
+# --- Docs site output (mdBook) -----------------------------------------------
+
+/book/

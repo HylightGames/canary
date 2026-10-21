@@ -1,0 +1,17 @@
+[book]
+title = "Canary Engine"
+authors = ["Canary contributors"]
+description = "Architecture, roadmap, reviews, and design records for the Canary game engine."
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/HylightGames/canary"
+edit-url-template = "https://github.com/HylightGames/canary/edit/dev/docs/{path}"
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+site-url = "/canary/"

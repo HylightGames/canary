@@ -1,0 +1,61 @@
+name: Docs
+
+# Builds the mdBook in docs/ and deploys it to GitHub Pages.
+#
+# mdBook treats docs/ as the site root, so scripts/docs-links.py rewrites
+# the links that point outside docs/ (README, CONTRIBUTING, source files)
+# to absolute GitHub URLs before the build; everything that resolves
+# inside docs/ keeps its relative link.
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "docs/**"
+      - "book.toml"
+      - "scripts/docs-links.py"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build mdBook
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install mdBook (pinned)
+        run: |
+          curl -sSL -o mdbook.tar.gz \
+            https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz
+          tar xzf mdbook.tar.gz
+          sudo install -m 0755 mdbook /usr/local/bin/mdbook
+      - name: Rewrite links that leave docs/
+        run: python3 scripts/docs-links.py docs
+      - name: Build
+        run: mdbook build
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: book
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -97,11 +97,11 @@ steps once a fixed-step runner exists.
 
 `RunContext` is implemented in `canary-runtime` as a resource with run ID,
 outer frame index, ECS tick, frame delta, simulation time, and simulation-step
-duration. [`Runtime::begin_frame`](../../../engine/canary-runtime/src/lib.rs)
+duration. [`Runtime::begin_frame`](../../engine/canary-runtime/src/lib.rs)
 writes the frame-open state: `tick` names the most recent scheduled pass (the
 tick stands still on event/presentation-only frames), `sim_time` is untouched,
 and `sim_step` reads as zero. When the frame runs a simulation pass,
-[`Runtime::begin_sim_pass`](../../../engine/canary-runtime/src/lib.rs) folds
+[`Runtime::begin_sim_pass`](../../engine/canary-runtime/src/lib.rs) folds
 the step into `sim_time`, advances the ECS tick exactly once (via the
 `advance_tick_for_pass` entry the R-34 review accepted), and re-stamps the
 resource — so `tick` always names the pass about to run, and systems observe
