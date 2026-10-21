@@ -59,6 +59,7 @@ The `600` limits the run to 600 frames. Build and platform requirements are in t
 - [Examples](examples)
 - [Roadmap](docs/roadmap)
 - [Architecture decisions](docs/decisions/architecture-decision-records)
+- [Distribution](docs/distribution.md)
 
 ## Contributing
 
