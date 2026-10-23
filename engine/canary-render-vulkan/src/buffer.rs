@@ -22,6 +22,7 @@ use crate::device::{allocate_memory, VulkanDevice};
 /// this crate's `allocate_memory` helper docs for why that's fine at this
 /// scope.
 pub struct VulkanBuffer {
+    device_id: crate::device::DeviceId,
     device: Rc<ash::Device>,
     pub(crate) buffer: vk::Buffer,
     memory: vk::DeviceMemory,
@@ -83,6 +84,7 @@ impl VulkanBuffer {
         }
 
         Self {
+            device_id: vk_device.device_id(),
             device: Rc::clone(device),
             buffer,
             memory,
@@ -90,6 +92,12 @@ impl VulkanBuffer {
     }
 }
 
+impl VulkanBuffer {
+    /// Runtime identity of the device that created this buffer.
+    pub fn device_id(&self) -> crate::device::DeviceId {
+        self.device_id
+    }
+}
 impl Drop for VulkanBuffer {
     fn drop(&mut self) {
         // SAFETY: `buffer`/`memory` are still owned here (freed exactly

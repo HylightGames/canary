@@ -6,13 +6,17 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-physics"
+readme = "README.md"
+
 [lints]
 workspace = true
 
 [dependencies]
-canary-ecs = { path = "../canary-ecs" }
-canary-scheduler = { path = "../canary-scheduler" }
-canary-transform = { path = "../canary-transform" }
+canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
+canary-scheduler = { path = "../canary-scheduler", version = "0.0.16" }
+canary-transform = { path = "../canary-transform", version = "0.0.16" }
 glam = "0.33"
 thiserror = "2.0.19"
 

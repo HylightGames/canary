@@ -102,8 +102,11 @@
 //! Explicitly NOT yet implemented: per-delta journal replay (retained
 //! snapshots plus tombstones supersede it — see [`resync`]), an unreliable
 //! datagram lane (needs measured latency/throughput evidence per ADR 0027),
-//! and production identity (certificate pinning remains a proof-only peer
-//! policy — see [`transport::QuinnTransport::client`]).
+//! production identity (certificate pinning remains a proof-only peer
+//! policy — see [`transport::QuinnTransport::client`]), and client
+//! authentication. Because there is no client authentication, the server
+//! constructor accepts loopback bind addresses only and refuses anything
+//! else with [`error::NetError::NonLoopbackBind`].
 
 pub mod admission;
 pub mod codec;

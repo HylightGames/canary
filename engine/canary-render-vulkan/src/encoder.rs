@@ -177,6 +177,10 @@ impl<'a> Drop for VulkanCommandEncoder<'a> {
 
 impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     fn begin_render_pass(&mut self, target: &VulkanColorTarget, desc: &RenderPassDescriptor) {
+        assert!(
+            self.vk_device.owns(target.device_id()),
+            "begin_render_pass with a target from another VulkanDevice"
+        );
         target.mark_drawn();
         let device = &self.vk_device.device;
         let clear_value = vk::ClearValue {
@@ -230,6 +234,10 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn set_pipeline(&mut self, pipeline: &VulkanPipeline) {
+        assert!(
+            self.vk_device.owns(pipeline.device_id()),
+            "set_pipeline with a pipeline from another VulkanDevice"
+        );
         self.bound = Some(BoundPipeline {
             layout: pipeline.layout,
             textured: pipeline.textured,
@@ -248,6 +256,10 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn set_vertex_buffer(&mut self, buffer: &VulkanBuffer) {
+        assert!(
+            self.vk_device.owns(buffer.device_id()),
+            "set_vertex_buffer with a buffer from another VulkanDevice"
+        );
         // SAFETY: same begun-buffer reasoning as `set_pipeline`;
         // `buffer.buffer` is live (borrowed `buffer` outlives the
         // call) and offset 0 is in-bounds for any nonzero buffer
@@ -264,6 +276,10 @@ impl<'a> CommandEncoder<VulkanDevice> for VulkanCommandEncoder<'a> {
     }
 
     fn set_texture(&mut self, texture: &VulkanTexture) {
+        assert!(
+            self.vk_device.owns(texture.device_id()),
+            "set_texture with a texture from another VulkanDevice"
+        );
         let bound = self.bound.expect(
             "set_texture requires a bound pipeline: call set_pipeline \
               (with a textured pipeline) before set_texture",

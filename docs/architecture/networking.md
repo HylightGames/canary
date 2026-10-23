@@ -118,9 +118,14 @@ not a complete multiplayer stack:
   protocol or required schema versions before applying project/runtime state.
   It does not promise compatibility between arbitrary engine builds.
 - QUIC encryption is not an application identity or authorization model.
-  The `.15` proof must document its connection identity policy and reject
-  malformed/untrusted messages; it must not claim public-Internet deployment
-  readiness without a separate authentication/abuse review.
+  v0.1.0 enforces a loopback-only server: the transport constructor refuses
+  any non-loopback bind address, and the sample server rejects one at its
+  CLI before opening a socket. Client authentication is not built, so an
+  unauthenticated authoritative server must not be reachable off the
+  machine. The only implemented trust is client-side server-certificate
+  pinning, and it authenticates the server only — never the client. No
+  public-Internet deployment readiness is claimed without a separate
+  authentication/abuse review.
 - Per-connection payload size, queued bytes/messages, and in-flight
   resynchronization data are bounded. Network work cannot block the
   simulation loop waiting for a peer. Overflow applies backpressure or
@@ -227,7 +232,12 @@ Scoped truths this slice holds (and stops at):
   evicted on disconnect.
 - Explicitly not built: per-delta journal replay (superseded by retained
   snapshots + tombstones), an unreliable datagram lane (needs measured
-  evidence), production identity (certificate pinning is proof-only).
+  evidence), production identity, and client authentication. The enforced
+  v0.1.0 security rule is loopback-only server binding:
+  `QuinnTransport::server` refuses a non-loopback address with
+  `NetError::NonLoopbackBind` (no opt-out), and the sample server rejects
+  one at its CLI before any socket work. Server-certificate pinning is the
+  only implemented trust, and it authenticates the server only.
 
 ## Live collaboration (`.16`) shares the transport, not the state model
 

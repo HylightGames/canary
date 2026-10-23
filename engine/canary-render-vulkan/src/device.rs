@@ -63,7 +63,22 @@ pub(crate) const COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 /// `debug_assert!` below; release builds cannot detect it, so treat
 /// "resources first, device last" as a hard ordering rule at every
 /// call site.
+/// Runtime identity for one live `VulkanDevice`: minted once at construction
+/// from a process-wide counter, copied into every resource that device
+/// creates. Cross-device use is a caller bug the backend must refuse
+/// loudly rather than submit GPU work against the wrong `VkDevice`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeviceId(pub u64);
+
+fn mint_device_id() -> DeviceId {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    DeviceId(NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+/// The Vulkan RHI backend. See module docs for ownership and drop-order rules.
 pub struct VulkanDevice {
+    id: DeviceId,
     _entry: ash::Entry,
     pub(crate) instance: ash::Instance,
     /// The selected physical device, kept for surface queries (surface
@@ -248,6 +263,7 @@ impl VulkanDevice {
             Self::create_logical_device(&instance, physical_device, queue_family_index, &[])?;
         let tail = Self::assemble_tail(&instance, &device, physical_device, queue_family_index)?;
         Ok(Self {
+            id: mint_device_id(),
             _entry: entry,
             instance,
             #[cfg(feature = "presentation")]
@@ -262,6 +278,14 @@ impl VulkanDevice {
         })
     }
 
+    /// Runtime identity minted at construction; copied into every resource.
+    pub fn device_id(&self) -> DeviceId {
+        self.id
+    }
+    /// Whether `other` names this device; cross-device use must fail safely.
+    pub fn owns(&self, other: DeviceId) -> bool {
+        self.id == other
+    }
     /// The crate-visible loader, for building extension loaders (surface,
     /// swapchain, debug) against this device's instance without
     /// re-loading. Extension loaders are free to construct — this just
@@ -554,6 +578,7 @@ impl VulkanDevice {
             };
         Ok((
             Self {
+                id: mint_device_id(),
                 _entry: entry,
                 instance,
                 physical_device,
@@ -824,10 +849,14 @@ impl Drop for VulkanDevice {
         // those resources' own `Drop` impls then call into — use after
         // destroy from 100% safe caller code. A loud panic in every
         // profile beats silent Vulkan UB that only some drivers punish.
-        if Rc::strong_count(&self.device) != 1 {
+        let live = Rc::strong_count(&self.device);
+        if live != 1 {
             panic!(
-                "VulkanDevice dropped while resources created from it still exist; \
-                 drop all buffers, textures, color targets, and pipelines first"
+                "VulkanDevice {:?} dropped with {} live Rc clones (device plus {} resources); \
+                 drop all buffers, textures, color targets, and pipelines first",
+                self.id,
+                live,
+                live.saturating_sub(1)
             );
         }
         // SAFETY: every handle below is owned here (created in `new`,
@@ -848,5 +877,22 @@ impl Drop for VulkanDevice {
             self.device.destroy_device(None);
             self.instance.destroy_instance(None);
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn device_ids_are_unique_per_mint() {
+        let first = mint_device_id();
+        let second = mint_device_id();
+        assert_ne!(first, second);
+    }
+    #[test]
+    fn device_owns_only_its_own_id() {
+        let id = mint_device_id();
+        let other = mint_device_id();
+        assert_eq!(id, id);
+        assert_ne!(id, other);
     }
 }

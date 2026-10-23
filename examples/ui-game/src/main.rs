@@ -53,7 +53,7 @@ use canary_render::{
     RenderPassDescriptor,
 };
 use canary_render_vulkan::{VulkanColorTarget, VulkanDevice, VulkanPresenter};
-use canary_runtime::{FrameDriver, FrameParams, RuntimeBuilder};
+use canary_runtime::{FrameDriver, FrameParams, RuntimeBuilder, SimPasses};
 use canary_scheduler::Schedule;
 use canary_ui_core::{UiBuilder, UiPaint};
 use canary_ui_egui::{EguiBackend, UiPaintStats, UiPainter, UiViewport, UI_PAINT_WGSL};
@@ -191,7 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 focused: window.is_focused(),
                 frame_dt: step,
                 build: &mut build,
-                sim_step: Some(step),
+                sim_passes: SimPasses::fixed(step, 1),
                 run_schedule: &mut run_schedule,
             },
         );

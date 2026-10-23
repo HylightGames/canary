@@ -16,6 +16,11 @@
 //! rollback: the client converges on canonical entries and submits
 //! frame-tagged input for this server to validate (ADR 0027).
 //!
+//! Binding is loopback-only in this release: client authentication is not
+//! built, so `--bind` must resolve to a loopback address (`127.0.0.1:0` by
+//! default) and the process exits non-zero on anything else, before any
+//! socket work.
+//!
 //! ```sh
 //! cargo run -p collectathon --bin collectathon_server -- --bind 127.0.0.1:0
 //! cargo run -p collectathon --bin collectathon_client -- --server <READY addr> --cert <identity dir>/server.der
@@ -143,11 +148,30 @@ fn print_usage() {
          \n\
          usage: collectathon_server [--bind ADDR] [--identity-dir DIR]\n\
          \n\
-         Binds a QUIC server on ADDR (default 127.0.0.1:0), writes the\n\
+         Binds a QUIC server on ADDR (default 127.0.0.1:0). ADDR must be a\n\
+         loopback address: this release has no client authentication, so a\n\
+         non-loopback bind is refused before any socket work. Writes the\n\
          development identity to DIR/server.der plus DIR/server.key\n\
          (default: a fresh temp dir), prints `READY <addr> <dir>`, serves\n\
          one session (handshake, snapshot, delta, input, ack), then exits."
     );
+}
+
+/// Enforces the v0.1.0 loopback-only rule at the CLI boundary.
+///
+/// The transport constructor refuses a non-loopback bind as well; this check
+/// exists so the sample fails before identity files are written or a socket
+/// is touched, with a message naming the flag and the reason. There is no
+/// override: a remotely reachable server needs client authentication first,
+/// and this release does not have it.
+fn validate_bind_addr(addr: SocketAddr) -> Result<SocketAddr, NetHarnessError> {
+    if addr.ip().is_loopback() {
+        return Ok(addr);
+    }
+    Err(NetHarnessError::Usage(format!(
+        "--bind {addr} is not a loopback address: this server is loopback-only \
+         because client authentication is not built (default: 127.0.0.1:0)"
+    )))
 }
 
 #[tokio::main]
@@ -172,7 +196,9 @@ async fn run() -> Result<(), NetHarnessError> {
                 let value = args
                     .next()
                     .ok_or_else(|| NetHarnessError::Usage("--bind needs an address".to_owned()))?;
-                bind = value.parse()?;
+                // Validated here, not at bind time: a non-loopback request
+                // must fail before any socket or identity-file work.
+                bind = validate_bind_addr(value.parse()?)?;
             }
             "--identity-dir" => {
                 let value = args.next().ok_or_else(|| {
@@ -463,6 +489,33 @@ mod tests {
             idle: IdlePolicy::new(idle_ticks),
             ban: BanPolicy::default(),
         })
+    }
+
+    #[test]
+    fn bind_validation_rejects_non_loopback_addresses() {
+        // The sample must refuse to serve the network: client
+        // authentication is not built in this release.
+        for value in ["0.0.0.0:4000", "[::]:4000", "192.0.2.10:0"] {
+            let addr: SocketAddr = value.parse().expect("parse test address");
+            let error = validate_bind_addr(addr).expect_err("non-loopback bind must be rejected");
+            let message = error.to_string();
+            assert!(message.contains(value), "{message}");
+            assert!(message.contains("loopback-only"), "{message}");
+        }
+    }
+
+    #[test]
+    fn bind_validation_accepts_loopback_and_the_documented_default() {
+        // The documented default `127.0.0.1:0` (ephemeral port) and an
+        // explicit loopback port both pass untouched.
+        for value in ["127.0.0.1:0", "127.0.0.1:4000"] {
+            let addr: SocketAddr = value.parse().expect("parse test address");
+            assert_eq!(
+                validate_bind_addr(addr).expect("loopback bind"),
+                addr,
+                "loopback address {value} must be accepted unchanged"
+            );
+        }
     }
 
     #[test]

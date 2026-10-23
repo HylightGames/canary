@@ -15,12 +15,24 @@ use canary_state::{AuthoredDocument, StateError};
 
 /// The authored room document.
 pub const ROOM_FILE: &str = "room.json";
-/// Quad mesh fixture (player sprite geometry).
+/// Quad mesh fixture (flat underlay for the player and the shards).
 pub const QUAD_MESH: &str = "quad.glb";
 /// Box mesh fixture (goal marker geometry).
 pub const BOX_MESH: &str = "box.glb";
-/// Sprite texture fixture.
-pub const SPRITE_PNG: &str = "rgba2x2.png";
+/// The sprite atlas (drawn for this example): one tile each for the
+/// player, a shard and the goal marker.
+///
+/// The textured draw binds a single texture for the whole frame, so every
+/// sprite shares this sheet and selects its own tile through its quad's
+/// UVs ([`PLAYER_QUAD_MESH`], [`SHARD_QUAD_MESH`], [`GOAL_QUAD_MESH`])
+/// rather than through separate image files.
+pub const SPRITE_ATLAS_PNG: &str = "sprites.png";
+/// Player sprite geometry: the atlas's player tile.
+pub const PLAYER_QUAD_MESH: &str = "player_quad.glb";
+/// Shard sprite geometry: the atlas's shard tile.
+pub const SHARD_QUAD_MESH: &str = "shard_quad.glb";
+/// Goal sprite geometry: the atlas's goal tile.
+pub const GOAL_QUAD_MESH: &str = "goal_quad.glb";
 /// Pickup sound (generated for this example, CC0-1.0).
 pub const PICKUP_SOUND: &str = "pickup.wav";
 
@@ -41,13 +53,19 @@ pub fn load_room(path: &Path) -> Result<AuthoredDocument, StateError> {
 pub struct GameAssets {
     /// Loaded meshes, keyed by the handles below.
     pub meshes: AssetStore<Mesh>,
-    /// Player sprite geometry ([`QUAD_MESH`]).
+    /// Player and shard flat underlay geometry ([`QUAD_MESH`]).
     pub player_mesh: AssetHandle<Mesh>,
     /// Goal marker geometry ([`BOX_MESH`]).
     pub goal_mesh: AssetHandle<Mesh>,
+    /// Player sprite geometry ([`PLAYER_QUAD_MESH`]).
+    pub player_sprite_mesh: AssetHandle<Mesh>,
+    /// Shard sprite geometry ([`SHARD_QUAD_MESH`]).
+    pub shard_sprite_mesh: AssetHandle<Mesh>,
+    /// Goal sprite geometry ([`GOAL_QUAD_MESH`]).
+    pub goal_sprite_mesh: AssetHandle<Mesh>,
     /// Loaded textures, keyed by the handle below.
     pub textures: AssetStore<Texture>,
-    /// Sprite texture ([`SPRITE_PNG`]).
+    /// Sprite atlas ([`SPRITE_ATLAS_PNG`]).
     pub sprite: AssetHandle<Texture>,
     /// Loaded sounds, keyed by the handle below.
     pub sounds: AssetStore<Sound>,
@@ -55,22 +73,28 @@ pub struct GameAssets {
     pub pickup_sound: AssetHandle<Sound>,
 }
 
-/// Loads every game asset from [`asset_dir`]: the player and goal meshes,
-/// the sprite texture, and the pickup sound. Typed errors name the file;
-/// nothing panics on missing or malformed content.
+/// Loads every game asset from [`asset_dir`]: the flat-underlay meshes, the
+/// three atlas-tile quads, the sprite atlas, and the pickup sound. Typed
+/// errors name the file; nothing panics on missing or malformed content.
 pub fn load_game_assets() -> Result<GameAssets, AssetError> {
     let dir = asset_dir();
     let mut meshes = AssetStore::new();
     let player_mesh = meshes.insert(first_mesh(&dir.join(QUAD_MESH))?);
     let goal_mesh = meshes.insert(first_mesh(&dir.join(BOX_MESH))?);
+    let player_sprite_mesh = meshes.insert(first_mesh(&dir.join(PLAYER_QUAD_MESH))?);
+    let shard_sprite_mesh = meshes.insert(first_mesh(&dir.join(SHARD_QUAD_MESH))?);
+    let goal_sprite_mesh = meshes.insert(first_mesh(&dir.join(GOAL_QUAD_MESH))?);
     let mut textures = AssetStore::new();
-    let sprite = textures.insert(load_texture(&dir.join(SPRITE_PNG))?);
+    let sprite = textures.insert(load_texture(&dir.join(SPRITE_ATLAS_PNG))?);
     let mut sounds = AssetStore::new();
     let pickup_sound = sounds.insert(load_sound(&dir.join(PICKUP_SOUND))?);
     Ok(GameAssets {
         meshes,
         player_mesh,
         goal_mesh,
+        player_sprite_mesh,
+        shard_sprite_mesh,
+        goal_sprite_mesh,
         textures,
         sprite,
         sounds,
@@ -102,7 +126,12 @@ pub fn resolve_asset(id: &str) -> Option<String> {
     let file = match id {
         "player.glb" | QUAD_MESH => QUAD_MESH,
         "goal.glb" | BOX_MESH => BOX_MESH,
-        "tile.png" | "sprite.png" | SPRITE_PNG => SPRITE_PNG,
+        "tile.png" | "sprite.png" | SPRITE_ATLAS_PNG => SPRITE_ATLAS_PNG,
+        // The atlas tiles ship as their own quads; the real file name is
+        // the only alias they need.
+        PLAYER_QUAD_MESH => PLAYER_QUAD_MESH,
+        SHARD_QUAD_MESH => SHARD_QUAD_MESH,
+        GOAL_QUAD_MESH => GOAL_QUAD_MESH,
         // `PICKUP_SOUND` is `pickup.wav`: the gameplay alias and the new
         // asset's real file name coincide, so one arm serves both.
         PICKUP_SOUND => PICKUP_SOUND,

@@ -22,6 +22,7 @@ use crate::device::{allocate_memory, VulkanDevice, COLOR_FORMAT};
 /// `v0.0.6`'s scope). No swapchain, no window surface — see
 /// [`canary_render::ColorTargetDescriptor`]'s own docs.
 pub struct VulkanColorTarget {
+    device_id: crate::device::DeviceId,
     device: Rc<ash::Device>,
     image: vk::Image,
     memory: vk::DeviceMemory,
@@ -41,6 +42,10 @@ pub struct VulkanColorTarget {
 }
 
 impl VulkanColorTarget {
+    /// Runtime identity of the device that created this target.
+    pub fn device_id(&self) -> crate::device::DeviceId {
+        self.device_id
+    }
     /// Records that a render pass has begun against this target (called
     /// by the encoder, which only holds `&self`). See `drawn`'s docs.
     pub(crate) fn mark_drawn(&self) {
@@ -144,6 +149,7 @@ impl VulkanColorTarget {
         .expect("failed to create color target framebuffer");
 
         Self {
+            device_id: vk_device.device_id(),
             device: Rc::clone(device),
             image,
             memory,

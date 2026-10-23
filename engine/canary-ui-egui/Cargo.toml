@@ -6,13 +6,17 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-ui-egui"
+readme = "README.md"
+
 [lints]
 workspace = true
 
 [dependencies]
-canary-platform = { path = "../canary-platform" }
-canary-render = { path = "../canary-render" }
-canary-ui-core = { path = "../canary-ui-core" }
+canary-platform = { path = "../canary-platform", version = "0.0.16" }
+canary-render = { path = "../canary-render", version = "0.0.16" }
+canary-ui-core = { path = "../canary-ui-core", version = "0.0.16" }
 egui = "0.36"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
@@ -20,6 +24,6 @@ tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 # Pixel proof for the RHI submit path only (see tests/ui_paint_pixels.rs):
 # a real device plus WGSL -> SPIR-V, the same confirmed-minimal naga pin
 # set canary-render-vulkan's own proof tests and examples use.
-canary-render = { path = "../canary-render" }
-canary-render-vulkan = { path = "../canary-render-vulkan" }
+canary-render = { path = "../canary-render", version = "0.0.16" }
+canary-render-vulkan = { path = "../canary-render-vulkan", version = "0.0.16" }
 naga = { version = "30", features = ["wgsl-in", "spv-out"] }

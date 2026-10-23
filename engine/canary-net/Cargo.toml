@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 description = "Server-authoritative replication transport for Canary (QUIC default behind a Canary-owned trait)"
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-net"
+readme = "README.md"
+
 [lints]
 workspace = true
 

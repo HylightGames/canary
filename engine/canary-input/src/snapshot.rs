@@ -122,6 +122,22 @@ impl SimulationInput {
         self.tick = Some(tick);
     }
 
+    /// Clears the pressed/released transition edges while preserving each
+    /// action's held state.
+    ///
+    /// The routed edges describe what happened once in the outer frame, not
+    /// once per simulation pass. The frame driver publishes the routed
+    /// snapshot on the first pass and a clone with edges cleared on each
+    /// catch-up pass, so a press fires exactly once while `down` stays
+    /// observable for the rest of the frame. Routing always derives edges
+    /// afresh from the event stream, so this is the only edge-clearing API.
+    pub fn clear_edges(&mut self) {
+        for action in &mut self.actions {
+            action.state.pressed = false;
+            action.state.released = false;
+        }
+    }
+
     /// Publishes this snapshot as a per-frame-overwritten ECS resource.
     ///
     /// Overwrites any previous [`SimulationInput`] resource: there is at

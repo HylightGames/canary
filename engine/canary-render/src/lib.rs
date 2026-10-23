@@ -52,16 +52,14 @@ pub use types::{
 /// `canary-render-vulkan`'s `VulkanDevice`) implements this directly;
 /// nothing above this trait is allowed to reference that concrete type.
 ///
-/// Resource creation here is infallible at the trait level, a
-/// deliberate `v0.0.6` simplification, not an assumption that real GPU
-/// allocation can't fail: a backend that hits a real allocation failure
-/// panics for now, rather than this trait threading `Result` through
-/// every creation method for a failure mode this release's own
-/// milestone (one triangle, one tiny offscreen target, on a software
-/// device) has no real chance of hitting. Fallible resource creation is
-/// real, expected future work once something (a real render graph
-/// juggling many resources, a memory-constrained target) actually needs
-/// to recover from it rather than treat it as fatal.
+/// Resource creation here is infallible at the trait level, a deliberate
+/// `v0.1.0` accepted limitation (see ADR 0029): a backend that hits a real
+/// allocation failure panics with the failing label and native code rather
+/// than threading `Result` through every creation method. Callers must treat
+/// creation as fatal; recoverable OOM handling arrives with a real render
+/// graph. Cross-device misuse is refused separately via runtime identity
+/// (`VulkanDevice::device_id` checked at encoder and presenter boundaries),
+/// and presenter window provenance via `PresentationError::WrongWindow`.
 pub trait RenderDevice {
     /// A GPU-resident buffer (used here for vertex data).
     type Buffer;

@@ -7,16 +7,16 @@ the goal, and shows score/goal status in a `CanaryUI` HUD. One HUD button
 sends game intent through the documented simulation boundary; pickup state
 triggers a sound loaded from disk.
 
-Skeleton status (WP2–WP3 done, WP4 in progress): playable game logic is in — physics-driven
+Status (WP2–WP4 done, live-device rows recorded 2026-10-21): playable game logic is in — physics-driven
 movement on mapped actions, touch plus collect-edge pickup collection
 with a pickup voice, HUD score/goal with a reset button, asset loading
 into stores, windowed presentation with audio-device bring-up (headless
 fallback), and the deterministic headless twin. The multi-process
 harnesses are also in: the authoritative replication server/client, the
 two-client collaboration CLI, the Tier A guest probe, and the snapshot
-determinism proof (checklist below). What remains is WP4: the
-live-device evidence rows (platform/command/result) need a real machine
-run before `v0.1.0` can be cut — `v0.1.0` itself is NOT released.
+determinism proof (checklist below). What remains is candidate-level gate closure (exact commit/tag/stable
+ancestry, Xvfb/llvmpipe legs) before `v0.1.0` can be cut — `v0.1.0`
+itself is NOT released.
 
 ## Setup
 
@@ -144,9 +144,11 @@ device when one exists and plays decode-only headless otherwise.
 
 ## Asset licenses
 
-See `assets/LICENSES.md`. Mesh/texture fixtures are byte copies of the
-hand-generated `canary-assets` fixtures; `pickup.wav` was generated for
-this example (CC0-1.0); `room.json` and `guest.wat` are original to this
+See `assets/LICENSES.md`. `quad.glb` and `box.glb` are byte copies of the
+hand-generated `canary-assets` fixtures; `sprites.png` and the three
+atlas-tile quads (`player_quad.glb`, `shard_quad.glb`, `goal_quad.glb`)
+were drawn for this example (MIT); `pickup.wav` was generated for this
+example (CC0-1.0); `room.json` and `guest.wat` are original to this
 example. Everything else is MIT.
 
 ## Live-evidence checklist (WP3 paths run; WP4 owns the platform matrix)
@@ -160,8 +162,8 @@ game (checked items below); CI covers the deterministic checks while the
 unchecked items are the required live-device evidence, named per
 platform rather than implied verified.
 
-- [ ] Windowed playthrough on <platform>: `cargo run -p collectathon --bin collectathon` (or append ` -- 600` for a bounded run); expected: live window plays (move/collect/reset per Controls, HUD trails scene by one frame, pickup sound on collection); evidence: <to record>.
-- [ ] Headless deterministic run: `cargo run -p collectathon --bin collectathon_headless`; expected: `collectathon_headless: score … collected …/… player (…)` after 90 scripted frames (hold-left from frame 0, collect edge frame 33, release frame 60; decode-only audio); evidence: <to record>.
+- [x] Windowed playthrough on Arch Linux 7.2.11-arch1-1 (Vulkan): `cargo run -p collectathon --bin collectathon` (or append ` -- 600` for a bounded run); expected: live window plays (move/collect/reset per Controls, HUD trails scene by one frame, pickup sound on collection); evidence: 2026-10-21 live run finished at `frame=1634 presented=1634 skipped=0 x=46.0 score=4`; collected quads disappeared as touched, HUD reached `4/4`, reset restored them.
+- [x] Headless deterministic run (CI/local): `cargo run -p collectathon --bin collectathon_headless`; expected: `collectathon_headless: score … collected …/… player (…)` after 90 scripted frames (hold-left from frame 0, collect edge frame 33, release frame 60; decode-only audio); evidence: CI `release-gate` headless smoke plus local `cargo run -p collectathon --bin collectathon_headless` (score 1, 1/4).
 - [x] Server/client replication run: the server prints `READY <addr>
   <identity-dir>`, serves one session (handshake → snapshot → delta →
   input → ack), and exits after a clean disconnect; the client converges
@@ -208,4 +210,4 @@ platform rather than implied verified.
   cargo test -p collectathon --lib state
   # capture_restore_recapture_is_byte_stable … ok
   ```
-- [ ] Audio-device playback on <platform>: run the windowed game above on a machine with an OS default audio device; expected: `audio device opened (audible backend)` in the log and the loaded `pickup.wav` audible on each collection (silent machines log `no audio device … continuing headless` and play decode-only — a supported configuration, not a failure); evidence: <to record>.
+- [x] Audio-device playback on Arch Linux 7.2.11-arch1-1 (PipeWire/ALSA): run the windowed game above; expected: `audio device opened (audible backend)` and audible `pickup.wav` on collection (silent machines logging `no audio device … continuing headless` are supported, not a failure); evidence: 2026-10-21 live run logged audible backend with chime on all four collections; one transient `audio stream error: Buffer underrun/overrun occurred.` appeared with playback intact (accepted live-test observation, see v0.1.0 notes).

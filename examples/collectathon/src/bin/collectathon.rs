@@ -38,6 +38,7 @@ use std::time::Duration;
 use canary_assets::{AssetStore, Texture};
 use canary_audio::{AudioConfig, RodioBackend};
 use canary_ecs::World;
+use canary_loc::{discover_available_locales, load_locale_resources, LocaleBundle};
 use canary_physics::FrameDelta;
 use canary_platform::{winit_backend::WinitWindow, Window, WindowDescriptor};
 use canary_render::{
@@ -49,7 +50,7 @@ use canary_render_ecs::{
     extract_textured_scene, BakedFrame, BakedTexturedFrame,
 };
 use canary_render_vulkan::{VulkanColorTarget, VulkanDevice, VulkanPresenter};
-use canary_runtime::{AuthoredSpawner, FrameDriver, FrameParams, RuntimeBuilder};
+use canary_runtime::{AuthoredSpawner, FrameDriver, FrameParams, RuntimeBuilder, SimPasses};
 use canary_scheduler::Schedule;
 use canary_ui_core::{UiBuilder, UiPaint};
 use canary_ui_egui::{EguiBackend, UiPaintStats, UiPainter, UiViewport, UI_PAINT_WGSL};
@@ -176,6 +177,9 @@ fn build_world(
     let render = RenderHandles {
         player_mesh: game_assets.player_mesh,
         goal_mesh: game_assets.goal_mesh,
+        player_sprite_mesh: game_assets.player_sprite_mesh,
+        shard_sprite_mesh: game_assets.shard_sprite_mesh,
+        goal_sprite_mesh: game_assets.goal_sprite_mesh,
         sprite: game_assets.sprite,
     };
     game::attach_render_components(&mut world, &report, &render)?;
@@ -266,6 +270,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut accumulator = Duration::ZERO;
     let mut last_frame = std::time::Instant::now();
     let mut hud = HudState::default();
+    let locale_dir = collectathon::assets::asset_dir().join("locales");
+    let available = discover_available_locales(&locale_dir);
+    let default_locale: unic_langid::LanguageIdentifier =
+        "en".parse().expect("default locale parses");
+    let requested = [default_locale.clone()];
+    let hud_bundle = LocaleBundle::new(&requested, &available, default_locale, |locale| {
+        load_locale_resources(&locale_dir, locale).unwrap_or_default()
+    });
     let mut presented = 0u32;
     let mut skipped = 0u32;
     let mut frame: u32 = 0;
@@ -306,17 +318,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut input = window.input_source();
         // The physics step reads `FrameDelta`, which no driver stamps —
-        // the owning subsystem inserts it before every run. This closure
-        // is that subsystem: bridge each accumulated fixed sim step into
-        // the resource, then run the schedule. Event-only frames (a fast
-        // display outrunning the step) run zero passes.
+        // the owning subsystem inserts it before every run. The runtime
+        // owns the catch-up loop (`SimPasses`): this closure bridges one
+        // fixed step per invocation. Event-only frames (a fast display
+        // outrunning the step) run zero passes.
         let mut run_schedule = |world: &mut World| {
-            for _ in 0..steps_this_frame {
-                world.insert_resource(FrameDelta::new(step));
-                schedule.run(world);
-            }
+            world.insert_resource(FrameDelta::new(step));
+            schedule.run(world);
         };
-        let mut build = |builder: &mut dyn UiBuilder| build_hud(builder, &hud);
+        let mut build = |builder: &mut dyn UiBuilder| build_hud(builder, &hud_bundle, &hud);
         let driven = runtime.drive_frame(
             &mut driver,
             FrameParams {
@@ -326,11 +336,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 focused: window.is_focused(),
                 frame_dt: frame_elapsed,
                 build: &mut build,
-                sim_step: if steps_this_frame > 0 {
-                    Some(step)
-                } else {
-                    None
-                },
+                sim_passes: SimPasses::fixed(step, steps_this_frame),
                 run_schedule: &mut run_schedule,
             },
         );

@@ -141,6 +141,22 @@ fn accept_error(error: impl std::fmt::Display) -> NetError {
     }
 }
 
+/// Enforces the v0.1.0 server-binding rule: loopback addresses only.
+///
+/// Client authentication is not built in this release — the server presents
+/// a certificate but never asks the client for one — so an authoritative
+/// server exposed beyond the machine would accept any peer that can reach
+/// the port. The rule lives at the constructor, not in documentation, so a
+/// caller cannot sidestep it; a wider bind needs a client-authentication
+/// design first.
+fn ensure_loopback_bind(addr: SocketAddr) -> Result<(), NetError> {
+    if addr.ip().is_loopback() {
+        Ok(())
+    } else {
+        Err(NetError::NonLoopbackBind { addr })
+    }
+}
+
 /// Default QUIC adapter over `quinn` 0.11.
 ///
 /// The endpoint and its streams stay private; construction and use go through
@@ -157,8 +173,18 @@ pub struct QuinnTransport {
 }
 
 impl QuinnTransport {
-    /// Binds a server endpoint on `addr` serving `certificate_der` (DER,
-    /// single-certificate chain) with `private_key_der` (DER, PKCS#8).
+    /// Binds a **loopback** server endpoint on `addr` serving
+    /// `certificate_der` (DER, single-certificate chain) with
+    /// `private_key_der` (DER, PKCS#8).
+    ///
+    /// # Loopback only (v0.1.0)
+    ///
+    /// `addr` must be a loopback address; anything else fails with
+    /// [`NetError::NonLoopbackBind`] before any TLS or socket state is
+    /// created. Client authentication is not built in this release — the
+    /// server never asks the peer for a credential — so it must not be
+    /// reachable off the machine. There is no opt-out: serving a wider
+    /// address requires a client-authentication design first.
     ///
     /// The certificate is transport encryption material, not application
     /// identity: per ADR 0027 point 9, QUIC TLS protects the bytes but does
@@ -171,6 +197,8 @@ impl QuinnTransport {
     ) -> Result<Self, NetError> {
         use quinn::crypto::rustls::QuicServerConfig;
         use quinn::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+        ensure_loopback_bind(addr)?;
 
         let certificate = CertificateDer::from(certificate_der.to_vec());
         let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(private_key_der.to_vec()));
@@ -382,6 +410,51 @@ mod tests {
         let certificate_der = certified.cert.der().to_vec();
         let private_key_der = certified.key_pair.serialize_der();
         (certificate_der, private_key_der)
+    }
+
+    /// v0.1.0 binds loopback only: the constructor refuses wildcard and
+    /// non-loopback unicast addresses with the typed error, before any TLS
+    /// or socket state exists (so observing the refusal needs no runtime).
+    #[test]
+    fn server_refuses_non_loopback_bind_addresses() {
+        let (certificate_der, private_key_der) = localhost_identity();
+        for addr in [
+            SocketAddr::from(([0, 0, 0, 0], 0)),
+            SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 0)),
+            // TEST-NET-1: a non-loopback unicast address.
+            SocketAddr::from(([192, 0, 2, 10], 0)),
+        ] {
+            let refused = QuinnTransport::server(addr, &certificate_der, &private_key_der)
+                .err()
+                .expect("non-loopback bind must be refused");
+            match refused {
+                NetError::NonLoopbackBind { addr: rejected } => assert_eq!(rejected, addr),
+                other => {
+                    panic!("non-loopback bind failed with {other:?}, expected NonLoopbackBind")
+                }
+            }
+        }
+    }
+
+    /// The documented default still constructs: the rule rejects only what
+    /// is not loopback.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn server_accepts_the_loopback_default() {
+        let (certificate_der, private_key_der) = localhost_identity();
+        let server = QuinnTransport::server(
+            SocketAddr::from(([127, 0, 0, 1], 0)),
+            &certificate_der,
+            &private_key_der,
+        )
+        .expect("loopback bind");
+        assert!(
+            server
+                .local_addr()
+                .expect("bound address")
+                .ip()
+                .is_loopback(),
+            "loopback bind reported a non-loopback local address"
+        );
     }
 
     /// Full pinning handshake plus a verified envelope exchange in both

@@ -6,15 +6,19 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-render-ecs"
+readme = "README.md"
+
 [lints]
 workspace = true
 
 [dependencies]
-canary-assets = { path = "../canary-assets" }
-canary-ecs = { path = "../canary-ecs" }
-canary-scheduler = { path = "../canary-scheduler" }
-canary-transform = { path = "../canary-transform" }
-canary-render = { path = "../canary-render" }
+canary-assets = { path = "../canary-assets", version = "0.0.16" }
+canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
+canary-scheduler = { path = "../canary-scheduler", version = "0.0.16" }
+canary-transform = { path = "../canary-transform", version = "0.0.16" }
+canary-render = { path = "../canary-render", version = "0.0.16" }
 glam = "0.33"
 
 [dev-dependencies]
@@ -24,12 +28,12 @@ glam = "0.33"
 # crate's Cargo.toml). The bridge itself never needs
 # naga: `RENDER_WGSL` is compiled here in the test harness, exactly like
 # `hello_triangle` does.
-canary-render-vulkan = { path = "../canary-render-vulkan" }
+canary-render-vulkan = { path = "../canary-render-vulkan", version = "0.0.16" }
 # The v0.0.11 game-proof pixel suite (`tests/physics_game_proof.rs`):
 # physics bodies stepped through the canonical schedule, drawn as
 # z-pinned soup quads through the unchanged bake. Dev-only: the bridge
 # itself never depends on physics (one-way seam, composition upward).
-canary-physics = { path = "../canary-physics" }
+canary-physics = { path = "../canary-physics", version = "0.0.16" }
 naga = { version = "30", features = ["wgsl-in", "spv-out"] }
 indexmap = "2"
 divan = { version = "5", package = "codspeed-divan-compat" }

@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-render-vulkan"
+readme = "README.md"
+
 [lints]
 workspace = true
 
@@ -18,8 +22,9 @@ workspace = true
 presentation = ["dep:ash-window", "dep:raw-window-handle", "dep:canary-platform"]
 
 [dependencies]
-canary-render = { path = "../canary-render" }
+canary-render = { path = "../canary-render", version = "0.0.16" }
 thiserror = "2.0.19"
+tracing = "0.1"
 
 # Vulkan bindings. No floor pins needed here in any era -- the cleanest
 # dependency check of any subsystem in this project so far (see
@@ -37,7 +42,7 @@ raw-window-handle = { version = "0.6", optional = true }
 # Window types for the presentation seam (handles, extent, resize
 # signal), with the real windowing backend enabled: an upper crate
 # depending on the platform leaf, the direction composition always flows.
-canary-platform = { path = "../canary-platform", optional = true, features = ["winit-backend"] }
+canary-platform = { path = "../canary-platform", optional = true, features = ["winit-backend"], version = "0.0.16" }
 
 [dev-dependencies]
 # WGSL -> SPIR-V, for this crate's own hello-triangle integration test
@@ -56,4 +61,4 @@ indexmap = "2"
 # uses (`WinitWindow::new_for_testing`); the test file is empty
 # everywhere else, so other platforms never pay for this dependency.
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-canary-platform = { path = "../canary-platform", features = ["winit-backend"] }
+canary-platform = { path = "../canary-platform", features = ["winit-backend"], version = "0.0.16" }

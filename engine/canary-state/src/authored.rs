@@ -290,7 +290,7 @@ fn unpredictable_temp_nonce(counter: u64) -> u128 {
 /// written". Callers must treat such an `Err` as retry-idempotent
 /// (re-saving the same bytes converges; the temp name is unique per call
 /// so the retry cannot collide) rather than as proof the save failed.
-/// The decision point logs through [`committed_but_unverified`] (debug
+/// The decision point logs through `committed_but_unverified` (debug
 /// builds only; release stays silent). Pinned by
 /// `dir_sync_failure_after_rename_reports_err_with_committed_bytes`.
 pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), StateError> {

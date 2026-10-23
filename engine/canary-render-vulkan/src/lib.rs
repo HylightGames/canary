@@ -32,7 +32,7 @@ mod texture;
 
 pub use buffer::VulkanBuffer;
 pub use color_target::VulkanColorTarget;
-pub use device::{VulkanDevice, VulkanInitError};
+pub use device::{DeviceId, VulkanDevice, VulkanInitError};
 pub use pipeline::VulkanPipeline;
 #[cfg(feature = "presentation")]
 pub use presenter::VulkanPresenter;

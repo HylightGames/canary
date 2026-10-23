@@ -61,7 +61,7 @@ pub use collab_session::{
     serve_single_frame, split_tagged_body, tag_edit_body, CollabHostError, CollabServeError,
     CollabSessionHost, ServeOutcome, TAG_EDIT, TAG_SYNC,
 };
-pub use frame_driver::{DrivenFrame, FrameDriver, FrameParams};
+pub use frame_driver::{DrivenFrame, FrameDriver, FrameParams, SimPasses};
 pub use input_frame::{drive_input_frame, InputFrame, InputFrameOutput};
 pub use simulation_snapshot::{
     decode_entity_ref, encode_entity_ref, ComponentBinding, ResourceBinding, RestoreReport,

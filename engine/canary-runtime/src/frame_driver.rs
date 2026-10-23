@@ -1,13 +1,21 @@
-//! Frame driver: one outer frame through UI-first input, an optional
-//! simulation pass, and per-frame resource publication.
+//! Frame driver: one outer frame through UI-first input, zero or more
+//! simulation passes, and per-pass resource publication.
 //!
 //! [`Runtime::drive_frame`] owns the roadmap §5 order for the input +
 //! simulation half of the frame: open the frame, drain platform events,
-//! route UI-before-gameplay ([`drive_input_frame`]), publish the snapshot
-//! and intents as resources, then — only when the caller supplies a
-//! simulation step — stamp the tick, open the simulation pass
-//! ([`Runtime::begin_sim_pass`]), and run the schedule. Event-only frames
-//! (no step) advance neither the tick nor `sim_time` (R-38).
+//! route UI-before-gameplay ([`drive_input_frame`]), then run each fixed
+//! simulation pass the caller asks for. Per pass, in order, the driver
+//! stamps the tick and `sim_time` ([`Runtime::begin_sim_pass`]), publishes
+//! the tick-stamped snapshot and the UI intents, and runs the schedule.
+//! Every schedule invocation therefore observes a tick and `sim_time` that
+//! advanced for it.
+//!
+//! Per-frame input is consumed once: the routed pressed/released edges and
+//! the UI intents are published on the first pass only; catch-up passes
+//! publish the same held state with the edges cleared and empty intents,
+//! so one physical press cannot fire repeatedly. Event-only frames (no
+//! passes) advance neither the tick nor `sim_time` (R-38) and publish no
+//! tick-stamped snapshot.
 
 use std::time::Duration;
 
@@ -37,10 +45,67 @@ impl<B: UiBackend> FrameDriver<B> {
     }
 }
 
+/// How many fixed-step simulation passes one outer frame runs.
+///
+/// One outer presentation frame may need zero or several fixed-step
+/// simulation passes to keep up with wall time. [`Runtime::drive_frame`]
+/// owns that loop: each pass gets its own tick advance, `sim_time` advance,
+/// snapshot publication, and UI-intent delivery. Callers must **not** loop
+/// the schedule inside [`FrameParams::run_schedule`]; they pass the required
+/// pass count here instead.
+///
+/// The zero state ([`SimPasses::NONE`], also [`Default`]) is an
+/// event/presentation-only frame. A nonzero state is built with
+/// [`SimPasses::fixed`], which normalizes `passes == 0` to [`SimPasses::NONE`]:
+/// "no step" and "zero passes" are the same state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SimPasses {
+    step: Option<Duration>,
+    passes: u32,
+}
+
+impl SimPasses {
+    /// An event/presentation-only frame: no tick or `sim_time` advance, no
+    /// tick-stamped snapshot, and no schedule invocation.
+    pub const NONE: Self = Self {
+        step: None,
+        passes: 0,
+    };
+
+    /// `passes` fixed passes of `step` each, run in order. A zero count
+    /// normalizes to [`SimPasses::NONE`] (event-only), so the constructor
+    /// never produces an inconsistent step/count pair.
+    pub const fn fixed(step: Duration, passes: u32) -> Self {
+        if passes == 0 {
+            Self::NONE
+        } else {
+            Self {
+                step: Some(step),
+                passes,
+            }
+        }
+    }
+
+    /// Number of simulation passes this frame runs; `0` is event-only.
+    pub const fn passes(self) -> u32 {
+        self.passes
+    }
+
+    /// The fixed step per pass; `None` on event-only frames.
+    pub const fn step(self) -> Option<Duration> {
+        self.step
+    }
+
+    /// Whether this frame runs no simulation pass.
+    pub const fn is_event_only(self) -> bool {
+        self.passes == 0
+    }
+}
+
 /// Everything [`Runtime::drive_frame`] needs beyond the driver itself,
 /// as one named value (not eight parameters): the event source, the
 /// viewport/focus/clock for the UI frame, the game's widget build pass,
-/// and the optional simulation step with its schedule runner.
+/// and the simulation pass count/step with its schedule runner.
 pub struct FrameParams<'a> {
     /// Drained once per frame, poll order preserved.
     pub input: &'a mut dyn InputSource,
@@ -55,35 +120,43 @@ pub struct FrameParams<'a> {
     pub frame_dt: Duration,
     /// The game's widget build pass; runs inside the backend's frame.
     pub build: &'a mut dyn FnMut(&mut dyn UiBuilder),
-    /// `Some` step runs the simulation pass (tick + `sim_time` advance,
-    /// schedule runs); `None` is an event/presentation-only frame.
-    pub sim_step: Option<Duration>,
-    /// Runs the scheduled world pass; invoked at most once per frame,
-    /// only when `sim_step` is `Some`.
+    /// Zero passes run an event/presentation-only frame; nonzero runs that
+    /// many fixed passes of the given step, each advancing tick and
+    /// `sim_time` exactly once.
+    pub sim_passes: SimPasses,
+    /// Runs the scheduled world pass. Invoked exactly once per simulation
+    /// pass, in order, only when [`FrameParams::sim_passes`] is nonzero.
+    /// Each invocation observes the tick and `sim_time` advanced for that
+    /// pass; only the first sees the routed pressed/released edges and the
+    /// frame's UI intents.
     pub run_schedule: &'a mut dyn FnMut(&mut World),
 }
 
 /// What one driven frame hands back to the consumer: the UI paint for the
 /// extract/submit step (intents and the snapshot travel as resources for
-/// the schedule to read during the pass) plus whether a sim pass ran.
+/// the schedule to read during the pass) plus whether any sim pass ran.
 pub struct DrivenFrame {
     /// Tessellated widget output for the presenter; empty when the UI
     /// drew nothing, in which case the consumer skips UI submission.
     pub paint: UiPaint,
-    /// `true` exactly when `sim_step` was `Some` and the schedule ran.
+    /// `true` exactly when [`FrameParams::sim_passes`] was nonzero and the
+    /// schedule ran at least once.
     pub sim_ran: bool,
 }
 
 impl Runtime {
     /// Drives one outer frame in roadmap §5 order: open the frame, drain
-    /// platform events, route UI-before-gameplay, publish the snapshot
-    /// and intents as resources, then — only for a `Some` step — stamp
-    /// the tick, open the simulation pass, and run the schedule.
+    /// platform events, route UI-before-gameplay, then run each requested
+    /// fixed simulation pass. Per pass, in order: advance the tick and
+    /// `sim_time`, publish the tick-stamped snapshot, publish the frame's
+    /// UI intents, run the schedule.
     ///
-    /// Publication order is load-bearing: the snapshot (tick-stamped on
-    /// sim frames, `None` otherwise) and the [`UiIntents`] resource land
-    /// *before* `run_schedule` runs, so systems observe this frame's
-    /// input during the pass, never the previous frame's.
+    /// Publication order is load-bearing: the snapshot and the
+    /// [`UiIntents`] resource land *before* `run_schedule` runs, so systems
+    /// observe this pass's input, never the previous frame's. The first
+    /// pass publishes the routed pressed/released edges and the frame's
+    /// intents; later catch-up passes publish held state with edges cleared
+    /// and empty intents, so a single press fires once, not once per pass.
     pub fn drive_frame<B: UiBackend>(
         &mut self,
         driver: &mut FrameDriver<B>,
@@ -111,23 +184,41 @@ impl Runtime {
             &mut driver.backend,
             &mut driver.mapper,
         );
-        let sim_ran = params.sim_step.is_some();
-        if let Some(step) = params.sim_step {
-            self.begin_sim_pass(step);
-        }
-        if let Some(world) = self.world.as_mut() {
-            let mut snapshot = output.input;
-            if sim_ran {
-                if let Some(context) = world.resource::<RunContext>() {
-                    snapshot.stamp_tick(context.tick);
+        let passes = params.sim_passes.passes();
+        let step = params.sim_passes.step();
+        let sim_ran = passes > 0;
+        let snapshot = output.input;
+        let mut intents = Some(output.intents);
+        if self.world.is_some() {
+            if passes == 0 {
+                // Event-only frame (R-38): publish the frame's input with no
+                // tick stamp and leave the tick and `sim_time` untouched.
+                let world = self.world.as_mut().expect("world checked above");
+                snapshot.publish(world);
+                world.insert_resource(UiIntents {
+                    intents: intents.take().unwrap_or_default(),
+                });
+            } else {
+                for pass in 0..passes {
+                    if let Some(step) = step {
+                        self.begin_sim_pass(step);
+                    }
+                    let world = self.world.as_mut().expect("world checked above");
+                    // The routed edges belong to the frame, not to each
+                    // catch-up pass: only pass 0 carries them.
+                    let mut pass_snapshot = snapshot.clone();
+                    if pass > 0 {
+                        pass_snapshot.clear_edges();
+                    }
+                    if let Some(context) = world.resource::<RunContext>() {
+                        pass_snapshot.stamp_tick(context.tick);
+                    }
+                    pass_snapshot.publish(world);
+                    world.insert_resource(UiIntents {
+                        intents: intents.take().unwrap_or_default(),
+                    });
+                    (params.run_schedule)(world);
                 }
-            }
-            snapshot.publish(world);
-            world.insert_resource(UiIntents {
-                intents: output.intents,
-            });
-            if sim_ran {
-                (params.run_schedule)(world);
             }
         }
         DrivenFrame {

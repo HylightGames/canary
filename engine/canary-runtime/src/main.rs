@@ -32,7 +32,7 @@ use canary_platform::{
     PointerButton as PlatformPointerButton, Window, WindowDescriptor,
 };
 use canary_plugin_api::{NativePluginLoader, PluginRoot};
-use canary_runtime::{FrameDriver, FrameParams, RunContext, RuntimeBuilder};
+use canary_runtime::{FrameDriver, FrameParams, RunContext, RuntimeBuilder, SimPasses};
 use canary_scheduler::{Schedule, SystemAccess};
 use canary_ui_core::{NullBackend, UiBuilder, UiId, UiIntent, UiIntents};
 
@@ -265,7 +265,7 @@ fn main() -> anyhow::Result<()> {
                 focused: true,
                 frame_dt: STEP,
                 build: &mut build,
-                sim_step: Some(STEP),
+                sim_passes: SimPasses::fixed(STEP, 1),
                 run_schedule: &mut run_schedule,
             },
         );

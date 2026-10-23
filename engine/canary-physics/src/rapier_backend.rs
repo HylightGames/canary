@@ -127,6 +127,131 @@ struct BodySlot {
     colliders: Vec<rapier::geometry::ColliderHandle>,
 }
 
+/// The spawn-time structural contract of a tracked entity's solver body:
+/// body kind, collider shape, and the collider's effective material.
+///
+/// The system hands these values to the backend only when it CREATES the
+/// body; Rapier cannot mutate a body's kind or a collider's shape in
+/// place. They are therefore stored as a per-entity copy next to the
+/// tracked handle rather than re-read from the solver: the stepping
+/// system compares each tick's ECS snapshot against this record and
+/// rebuilds the body when they differ (see
+/// [`physics_step_system`](crate::systems::physics_step_system)).
+///
+/// Deliberately NOT part of the signature:
+///
+/// - `Transform`: solver output for dynamic/fixed bodies and re-driven
+///   from ECS every tick for position-kinematic ones, so a pose edit
+///   must never rebuild a body.
+/// - `Velocity` / `GravityScale` / `LockedAxes`: re-applied every tick,
+///   so edits reach the solver without a rebuild. (Solver momentum is
+///   still carried across a rebuild caused by something else — see the
+///   system.)
+/// - `Parent`: hierarchy membership changes which entities the system
+///   sees at all; it does not describe a body once created.
+///
+/// `material` is `Some` exactly when `collider` is `Some`: a material
+/// edit on a colliderless body changes nothing solver-side and so does
+/// not force a rebuild. When the entity carries no `ColliderMaterial`,
+/// the effective material is the documented attach-time default.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BodySignature {
+    /// The solver role the body was created with.
+    pub(crate) kind: RigidBodyKind,
+    /// The collider shape the body was created with, if any.
+    pub(crate) collider: Option<Collider>,
+    /// The effective material the collider was attached with; `Some`
+    /// exactly when [`BodySignature::collider`] is `Some`.
+    pub(crate) material: Option<ColliderMaterial>,
+}
+
+impl BodySignature {
+    /// Builds the contract the backend creates a body under from ECS components.
+    pub(crate) fn for_entity(
+        kind: RigidBodyKind,
+        collider: Option<Collider>,
+        material: Option<ColliderMaterial>,
+    ) -> Self {
+        let material = collider.map(|_| material.unwrap_or_default());
+        Self {
+            kind,
+            collider,
+            material,
+        }
+    }
+    /// Whether `other` describes the same contract.
+    ///
+    /// Float components compare by BIT PATTERN, not `PartialEq`: `NaN !=
+    /// NaN` would make an unchanged but degenerate collider or material
+    /// force a rebuild on every tick forever. Bit equality makes only an
+    /// actual authored value change read as a mismatch, so an unchanged
+    /// (even invalid) component settles after one rebuild rather than
+    /// rebuilding every tick.
+    pub(crate) fn matches(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && match (self.collider, other.collider) {
+                (None, None) => true,
+                (Some(a), Some(b)) => collider_bits_match(&a, &b),
+                _ => false,
+            }
+            && match (self.material, other.material) {
+                (None, None) => true,
+                (Some(a), Some(b)) => {
+                    a.friction.to_bits() == b.friction.to_bits()
+                        && a.restitution.to_bits() == b.restitution.to_bits()
+                }
+                _ => false,
+            }
+    }
+}
+
+/// Bitwise shape comparison for [`BodySignature::matches`] (see there for
+/// why `PartialEq` is the wrong predicate for float payloads).
+fn collider_bits_match(a: &Collider, b: &Collider) -> bool {
+    match (a, b) {
+        (Collider::Ball { radius: a_radius }, Collider::Ball { radius: b_radius }) => {
+            a_radius.to_bits() == b_radius.to_bits()
+        }
+        (
+            Collider::Cuboid {
+                half_extents: a_extents,
+            },
+            Collider::Cuboid {
+                half_extents: b_extents,
+            },
+        ) => {
+            a_extents[0].to_bits() == b_extents[0].to_bits()
+                && a_extents[1].to_bits() == b_extents[1].to_bits()
+        }
+        (
+            Collider::Capsule {
+                half_height: a_half_height,
+                radius: a_radius,
+            },
+            Collider::Capsule {
+                half_height: b_half_height,
+                radius: b_radius,
+            },
+        ) => {
+            a_half_height.to_bits() == b_half_height.to_bits()
+                && a_radius.to_bits() == b_radius.to_bits()
+        }
+        _ => false,
+    }
+}
+
+/// One tracked entity: the body handle it owns plus the spawn-time
+/// structural contract that body was created under. Paired in one map
+/// entry so the reconciliation check reads next to the tracking state it
+/// invalidates.
+struct TrackedBody {
+    /// The body handle minted at creation. Liveness is checked separately
+    /// (see [`RapierBackend::entity_handle`]).
+    handle: BodyHandle,
+    /// The contract the body was created with. See [`BodySignature`].
+    signature: BodySignature,
+}
+
 /// The Rapier2D backend: [`PhysicsBackend`] over rapier2d 0.35's
 /// [`RigidBodySet`](rapier::dynamics::RigidBodySet) /
 /// [`ColliderSet`](rapier::geometry::ColliderSet), stepped at exactly
@@ -202,7 +327,7 @@ pub struct RapierBackend {
     /// Owned here (not in a separate resource) so creation, removal, and
     /// liveness checks share one bookkeeping site; the Task 4 system
     /// reaches it through the `pub(crate)` helpers below.
-    entities: HashMap<Entity, BodyHandle>,
+    entities: HashMap<Entity, TrackedBody>,
 }
 
 impl RapierBackend {
@@ -254,21 +379,27 @@ impl RapierBackend {
     pub(crate) fn entity_handle(&self, entity: Entity) -> Option<BodyHandle> {
         self.entities
             .get(&entity)
-            .copied()
+            .map(|tracked| tracked.handle)
             .filter(|handle| self.is_live(*handle))
     }
 
-    /// Records that `entity` owns `handle`. Called right after a
+    /// Records that `entity` owns `handle` under `signature`. Called right after a
     /// successful creation, while the handle is known live.
-    pub(crate) fn track_entity(&mut self, entity: Entity, handle: BodyHandle) {
-        self.entities.insert(entity, handle);
+    pub(crate) fn track_entity(
+        &mut self,
+        entity: Entity,
+        handle: BodyHandle,
+        signature: BodySignature,
+    ) {
+        self.entities
+            .insert(entity, TrackedBody { handle, signature });
     }
 
     /// Forgets `entity`'s tracked handle (if any), returning it so the
     /// caller can destroy the solver-side body. Tracking removal and
     /// body destruction stay paired at the call site.
     pub(crate) fn untrack_entity(&mut self, entity: Entity) -> Option<BodyHandle> {
-        self.entities.remove(&entity)
+        self.entities.remove(&entity).map(|tracked| tracked.handle)
     }
 
     /// Every currently tracked entity. The system uses this to find map
@@ -276,6 +407,10 @@ impl RapierBackend {
     /// so the caller can mutate tracking while iterating.
     pub(crate) fn tracked_entities(&self) -> Vec<Entity> {
         self.entities.keys().copied().collect()
+    }
+    /// The structural contract the tracked body was created under, if any.
+    pub(crate) fn tracked_signature(&self, entity: Entity) -> Option<BodySignature> {
+        self.entities.get(&entity).map(|tracked| tracked.signature)
     }
 
     /// How many bodies the quarantine drain has destroyed so far (see
@@ -889,7 +1024,11 @@ mod tests {
         let body = backend
             .create_body(&RigidBody::dynamic(), [1.0, 2.0], 0.0)
             .expect("finite pose must create");
-        backend.track_entity(entity, body);
+        backend.track_entity(
+            entity,
+            body,
+            BodySignature::for_entity(RigidBody::dynamic().kind, None, None),
+        );
         assert_eq!(backend.entity_handle(entity), Some(body));
 
         assert_eq!(backend.untrack_entity(entity), Some(body));
@@ -908,7 +1047,11 @@ mod tests {
         let body = backend
             .create_body(&RigidBody::dynamic(), [1.0, 2.0], 0.0)
             .expect("finite pose must create");
-        backend.track_entity(entity, body);
+        backend.track_entity(
+            entity,
+            body,
+            BodySignature::for_entity(RigidBody::dynamic().kind, None, None),
+        );
         assert!(backend.remove_body(body));
 
         assert_eq!(backend.entity_handle(entity), None);

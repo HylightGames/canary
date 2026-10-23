@@ -36,11 +36,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Rust
         run: rustup component add rustfmt
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
+
+  crate-packages:
+    name: Check publishable crate archives
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Keep the registry packages buildable as the workspace changes.
+      # This creates the .crate archives without uploading them or building
+      # dependencies that have not yet been published. The private runtime,
+      # examples, and xtask are intentionally excluded.
+      - name: Package engine crates
+        run: >
+          cargo package --locked --workspace --no-verify
+          --exclude canary-runtime
+          --exclude spinning-cube
+          --exclude ui-game
+          --exclude collectathon
+          --exclude xtask
 
   lint-and-test:
     name: Build, lint, test (${{ matrix.os }})
@@ -51,7 +70,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Rust
         run: rustup component add clippy
       # Linux only: winit's X11/Wayland backends need these at compile
@@ -98,7 +117,7 @@ jobs:
     # real-device/audio evidence stay manual by design -- this gate must
     # not fail on a headless runner.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Rust
         run: rustup toolchain install stable
       # Same compile-time deps as lint-and-test: collectathon builds on
@@ -121,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           dir=examples/collectathon/assets
-          for fixture in quad.glb box.glb rgba2x2.png pickup.wav room.json; do
+          for fixture in quad.glb box.glb sprites.png player_quad.glb shard_quad.glb goal_quad.glb pickup.wav room.json; do
             test -f "$dir/$fixture" || { echo "::error ::missing fixture $dir/$fixture"; exit 1; }
             if head -c 128 "$dir/$fixture" | grep -q "git-lfs.github.com"; then
               echo "::error ::$dir/$fixture holds a Git-LFS pointer, not fixture bytes"
@@ -130,15 +149,27 @@ jobs:
           done
           python3 - <<"EOF"
           import json
+          import struct
           from pathlib import Path
           root = Path("examples/collectathon/assets")
           def magic(name, want):
               data = (root / name).read_bytes()
               assert data[: len(want)] == want, f"{name}: bad magic {data[:16]!r}"
               print(f"{name}: {len(data)} bytes, magic ok")
-          magic("rgba2x2.png", b"\x89PNG\r\n\x1a\n")
+          magic("sprites.png", b"\x89PNG\r\n\x1a\n")
           magic("quad.glb", b"glTF")
           magic("box.glb", b"glTF")
+          magic("player_quad.glb", b"glTF")
+          magic("shard_quad.glb", b"glTF")
+          magic("goal_quad.glb", b"glTF")
+          # The three sprite quads index this sheet by UV, so a resized
+          # atlas would silently sample the wrong tile.
+          atlas = (root / "sprites.png").read_bytes()
+          width, height = struct.unpack(">II", atlas[16:24])
+          assert (width, height) == (204, 68), (
+              f"sprites.png: {width}x{height}, the sprite quad UVs expect 204x68"
+          )
+          print(f"sprites.png: {width}x{height}, atlas layout matches the quads")
           wav = (root / "pickup.wav").read_bytes()
           assert wav[:4] == b"RIFF" and wav[8:12] == b"WAVE", "pickup.wav: bad RIFF/WAVE magic"
           print(f"pickup.wav: {len(wav)} bytes, RIFF/WAVE ok")
@@ -221,7 +252,7 @@ jobs:
     # fixed here -- see engine/canary-platform/tests/winit_backend_window.rs's
     # own module docs.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install X11 dev libraries and Xvfb
@@ -249,7 +280,7 @@ jobs:
     # skipped: see this test's own module docs (`#[ignore]`d, same
     # pattern as `winit_backend_window.rs`).
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install a software Vulkan ICD (Mesa llvmpipe/lavapipe)
@@ -301,7 +332,7 @@ jobs:
     # hello_triangle (no Vulkan ICD on the default runners), so without
     # this job nothing in CI would ever run them.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Rust
         run: rustup toolchain install stable
       - name: Install a software Vulkan ICD (Mesa llvmpipe/lavapipe)
@@ -323,7 +354,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Rust with wasm32-wasip2
         run: rustup target add wasm32-wasip2
       - name: Check canary-plugin-api on wasm32-wasip2
@@ -349,7 +380,7 @@ jobs:
     # reading the checkout requires nothing beyond the top-level
     # `contents: read` this job inherits.
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install pinned moz.l10n (system python3)
         run: |
           # ubuntu-latest runners ship CPython 3 as `python3` -- no

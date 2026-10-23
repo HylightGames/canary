@@ -6,12 +6,16 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-transform"
+readme = "README.md"
+
 [lints]
 workspace = true
 
 [dependencies]
-canary-ecs = { path = "../canary-ecs" }
-canary-scheduler = { path = "../canary-scheduler" }
+canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
+canary-scheduler = { path = "../canary-scheduler", version = "0.0.16" }
 glam = "0.33"
 # Typed validation errors (workspace convention: `thiserror`, never strings).
 thiserror = "2"

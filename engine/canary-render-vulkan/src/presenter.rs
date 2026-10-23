@@ -70,6 +70,7 @@ pub struct VulkanPresenter {
     extent: (u32, u32),
     generation: u64,
     needs_recreate: bool,
+    window: canary_platform::surface::WindowHandles,
 }
 
 impl VulkanPresenter {
@@ -134,6 +135,7 @@ impl VulkanPresenter {
             extent,
             generation,
             needs_recreate: false,
+            window: handles,
         })
     }
 
@@ -210,6 +212,11 @@ impl VulkanPresenter {
         window: &dyn SurfaceHandlesProvider,
         target: &crate::VulkanColorTarget,
     ) -> Result<FrameOutcome, PresentationError> {
+        self.check_window(window)?;
+        if !self.device.owns(target.device_id()) {
+            tracing::warn!("present_color_target with a target from another device");
+            return Err(PresentationError::DeviceLost);
+        }
         // Lifecycle order matters: a minimized window suspends even with
         // a stale target (Suspended, not Mismatch). Otherwise the target
         // is checked against the WINDOW's extent — what the swapchain
@@ -258,10 +265,20 @@ impl VulkanPresenter {
     /// The shared acquire-head of both frame paths: suspend, recreate,
     /// acquire, skip handling. Returns either a skip outcome or a ready
     /// image with the recreate flag the report carries.
+    fn check_window(&self, window: &dyn SurfaceHandlesProvider) -> Result<(), PresentationError> {
+        let current = window
+            .window_handles()
+            .ok_or(PresentationError::NoWindowHandles)?;
+        if current != self.window {
+            return Err(PresentationError::WrongWindow);
+        }
+        Ok(())
+    }
     fn prepare_frame(
         &mut self,
         window: &dyn SurfaceHandlesProvider,
     ) -> Result<ReadyOrSkipped, PresentationError> {
+        self.check_window(window)?;
         let mut swapchain_recreated = false;
         let extent = window
             .surface_extent()

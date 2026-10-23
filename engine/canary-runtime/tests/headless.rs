@@ -21,7 +21,7 @@ use canary_input::{
     ActionId, ActionSchema, Binding, InputMapper, KeyCode, PhysicalControl, SimulationInput,
 };
 use canary_platform::{HeadlessInput, InputEvent, Key as PlatformKey};
-use canary_runtime::{FrameDriver, FrameParams, RunContext, Runtime, RuntimeBuilder};
+use canary_runtime::{FrameDriver, FrameParams, RunContext, Runtime, RuntimeBuilder, SimPasses};
 use canary_scheduler::{Schedule, SystemAccess};
 use canary_ui_core::{NullBackend, UiBuilder};
 
@@ -164,7 +164,7 @@ impl Harness {
         }
     }
 
-    fn drive(&mut self, sim_step: Option<Duration>) {
+    fn drive(&mut self, sim_passes: SimPasses) {
         let Self {
             runtime,
             driver,
@@ -182,7 +182,7 @@ impl Harness {
                 focused: true,
                 frame_dt: STEP,
                 build: &mut build,
-                sim_step,
+                sim_passes,
                 run_schedule: &mut run_schedule,
             },
         );
@@ -226,7 +226,7 @@ fn headless_frames_move_fire_and_settle_edges() {
     // Hold thrust for ten passes: constant velocity, no latching.
     harness.input.inject(InputEvent::KeyPressed(PlatformKey::D));
     for _ in 0..10 {
-        harness.drive(Some(STEP));
+        harness.drive(SimPasses::fixed(STEP, 1));
     }
     let (position, shots) = harness.player_state();
     assert!((position.x - 19.2).abs() < 1e-4, "x = {position:?}");
@@ -240,7 +240,7 @@ fn headless_frames_move_fire_and_settle_edges() {
     harness
         .input
         .inject(InputEvent::KeyPressed(PlatformKey::Space));
-    harness.drive(Some(STEP));
+    harness.drive(SimPasses::fixed(STEP, 1));
     let (position, shots) = harness.player_state();
     assert!((position.x - 19.2).abs() < 1e-4, "x = {position:?}");
     assert_eq!(shots, Shots(1));
@@ -249,7 +249,7 @@ fn headless_frames_move_fire_and_settle_edges() {
     harness
         .input
         .inject(InputEvent::KeyReleased(PlatformKey::Space));
-    harness.drive(Some(STEP));
+    harness.drive(SimPasses::fixed(STEP, 1));
     let (position, shots) = harness.player_state();
     assert!((position.x - 19.2).abs() < 1e-4, "x = {position:?}");
     assert_eq!(shots, Shots(1));
@@ -270,7 +270,7 @@ fn headless_pointer_press_fires_bound_action() {
     harness
         .input
         .inject(InputEvent::PointerPressed(PlatformPointerButton::Primary));
-    harness.drive(Some(STEP));
+    harness.drive(SimPasses::fixed(STEP, 1));
     let (_, shots) = harness.player_state();
     assert_eq!(shots, Shots(1));
 }
@@ -280,8 +280,8 @@ fn headless_event_only_frames_advance_neither_tick_nor_sim_time() {
     let (mapper, actions) = demo_schema();
     let mut harness = Harness::new(mapper, actions.thrust, actions.fire);
 
-    harness.drive(None);
-    harness.drive(None);
+    harness.drive(SimPasses::NONE);
+    harness.drive(SimPasses::NONE);
 
     let context = harness
         .runtime

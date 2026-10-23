@@ -8,9 +8,9 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
-## Current handoff — `v0.0.16` cut, `v0.1.0` proof sample on `dev` (2026-10-01)
+## Current handoff — `v0.0.16` latest tag, `v0.1.0` closure on `dev` (2026-10-23)
 
-`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag; the draft release note lives at `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample is committed on `dev` (currently at `1db8815`), covering WP1 (consumer project), WP2 (complete runtime), and WP3 (integration boundaries); WP4 (docs closeout + live-device matrix) is in progress. Continue with the `v0.1.0` proof per [`v0.1.0-plan.md`](v0.1.0-plan.md#v010--integration-proof). What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag; the draft release note lives at `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample on `dev` covers WP1–WP3; WP4 live evidence recorded 2026-10-21 (Arch Linux Vulkan windowed run plus audio with one qualified underrun) while release-gate closure (exact commit/tag/stable ancestry, Xvfb/llvmpipe) remains. `v0.1.0` is not releasable until those gates pass; see [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -374,7 +374,7 @@ Superseded by direct project-owner instruction (September 2026): the
 "genuinely undecided" framing this section previously had is resolved.
 `v0.1.0`'s bar is now "a competent developer could write a real, small
 game directly against Canary's runtime" — full reasoning in
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#v010-sharpened-integration-not-a-checklist),
+[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-and-the-v010-target),
 concrete dependency-ordered sequence in
 [`docs/roadmap/v0.1.0-plan.md`](v0.1.0-plan.md). Short version:
 `v0.0.9` (real-time `App`/`Subsystem` loop, `Transform`, ECS-driven
@@ -732,16 +732,17 @@ below), and no engine code changed for it. The sample lives entirely in
 - [x] WP1 (consumer project): `examples/collectathon/` builds and runs
       only against documented public APIs — `cargo build -p collectathon`
       from a fresh checkout; asset files plus source licenses in
-      `examples/collectathon/assets/` (`LICENSES.md`; mesh/texture
-      fixtures are byte copies of the `canary-assets` fixtures,
-      `pickup.wav` is generated for the sample under CC0-1.0,
+      `examples/collectathon/assets/` (`LICENSES.md`; `quad.glb` and
+      `box.glb` are byte copies of the `canary-assets` fixtures,
+      `sprites.png` and the three atlas-tile quads are drawn for the
+      sample, `pickup.wav` is generated for the sample under CC0-1.0,
       `room.json` + `guest.wat` are original, the rest MIT); expected
       interaction in the sample README (player at room center, score 0;
       touch or collect-press gathers shards at extended range; all three
       shards plus the goal completes the room, `Goal: done`).
 - [x] WP2 (complete runtime): mesh/texture/audio assets load from disk
       through the public asset APIs (`src/assets.rs`: `quad.glb`,
-      `box.glb`, `rgba2x2.png`, `pickup.wav`); audio brings up the
+      `box.glb`, `sprites.png`, `pickup.wav`); audio brings up the
       OS default device with a decode-only headless fallback, never a
       panic (`src/bin/collectathon.rs`); live window via
       `canary-runtime` `FrameDriver` (`drive_frame`: event pump → UI

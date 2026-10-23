@@ -122,6 +122,7 @@ use canary_ecs::{Entity, World};
 use canary_scheduler::{Schedule, SystemAccess};
 use canary_transform::{Parent, Transform};
 
+use crate::rapier_backend::BodySignature;
 use crate::{
     Collider, ColliderMaterial, GravityScale, LockedAxes, PhysicsBackend, PhysicsConfig,
     RapierBackend, RigidBody, RigidBodyKind, Velocity, FIXED_DT,
@@ -506,92 +507,104 @@ pub fn physics_step_system(world: &mut World) {
 
     // Mutate + step under the backend borrow; collect owned sync
     // results so Transform writes happen AFTER the borrow ends.
-    let (syncs, completed): (Vec<(Entity, glam::Vec2, f32)>, usize) =
-        match world.resource_mut::<RapierBackend>() {
-            Some(backend) => {
-                for entity in reap {
-                    if let Some(handle) = backend.untrack_entity(entity) {
+    let (syncs, completed): (Vec<(Entity, glam::Vec2, f32)>, usize) = match world
+        .resource_mut::<RapierBackend>()
+    {
+        Some(backend) => {
+            for entity in reap {
+                if let Some(handle) = backend.untrack_entity(entity) {
+                    backend.remove_body(handle);
+                }
+            }
+            backend.set_gravity(gravity);
+
+            for record in &records {
+                let wanted =
+                    BodySignature::for_entity(record.body.kind, record.collider, record.material);
+                let needs_rebuild = match backend.tracked_signature(record.entity) {
+                    Some(current) => !current.matches(&wanted),
+                    None => false,
+                };
+                if needs_rebuild {
+                    if let Some(handle) = backend.untrack_entity(record.entity) {
                         backend.remove_body(handle);
                     }
                 }
-                backend.set_gravity(gravity);
-
-                for record in &records {
-                    let handle = match backend.entity_handle(record.entity) {
-                        Some(handle) => handle,
-                        None => {
-                            let seed_angle = z_twist_angle(record.transform.rotation);
-                            let created = backend.create_body(
-                                &record.body,
-                                [
-                                    record.transform.translation.x,
-                                    record.transform.translation.y,
-                                ],
-                                seed_angle,
-                            );
-                            let handle = match created {
-                                Ok(handle) => handle,
-                                Err(_) => continue,
-                            };
-                            if let Some(velocity) = &record.velocity {
-                                backend.set_velocity(handle, velocity);
-                            }
-                            if let Some(scale) = &record.gravity_scale {
-                                backend.set_body_gravity_scale(handle, scale.0);
-                            }
-                            if let Some(locks) = &record.locks {
-                                backend.set_body_locked_axes(handle, locks);
-                            }
-                            if let Some(collider) = &record.collider {
-                                let material = record.material.unwrap_or_default();
-                                let _ = backend.attach_collider(handle, collider, &material);
-                            }
-                            backend.track_entity(record.entity, handle);
-                            handle
-                        }
-                    };
-                    if let Some(velocity) = &record.velocity {
-                        backend.set_velocity(handle, velocity);
-                    }
-                    if let Some(scale) = &record.gravity_scale {
-                        backend.set_body_gravity_scale(handle, scale.0);
-                    }
-                    if let Some(locks) = &record.locks {
-                        backend.set_body_locked_axes(handle, locks);
-                    }
-                    if record.body.kind == RigidBodyKind::KinematicPosition {
-                        backend.drive_kinematic_pose(
-                            handle,
+                let handle = match backend.entity_handle(record.entity) {
+                    Some(handle) => handle,
+                    None => {
+                        let seed_angle = z_twist_angle(record.transform.rotation);
+                        let created = backend.create_body(
+                            &record.body,
                             [
                                 record.transform.translation.x,
                                 record.transform.translation.y,
                             ],
-                            z_twist_angle(record.transform.rotation),
+                            seed_angle,
                         );
+                        let handle = match created {
+                            Ok(handle) => handle,
+                            Err(_) => continue,
+                        };
+                        if let Some(velocity) = &record.velocity {
+                            backend.set_velocity(handle, velocity);
+                        }
+                        if let Some(scale) = &record.gravity_scale {
+                            backend.set_body_gravity_scale(handle, scale.0);
+                        }
+                        if let Some(locks) = &record.locks {
+                            backend.set_body_locked_axes(handle, locks);
+                        }
+                        if let Some(collider) = &record.collider {
+                            let material = record.material.unwrap_or_default();
+                            let _ = backend.attach_collider(handle, collider, &material);
+                        }
+                        backend.track_entity(record.entity, handle, wanted);
+                        handle
                     }
+                };
+                if let Some(velocity) = &record.velocity {
+                    backend.set_velocity(handle, velocity);
                 }
-
-                let mut completed = 0;
-                for _ in 0..steps {
-                    if backend.step(FIXED_DT).is_err() {
-                        break;
-                    }
-                    completed += 1;
+                if let Some(scale) = &record.gravity_scale {
+                    backend.set_body_gravity_scale(handle, scale.0);
                 }
-
-                let syncs: Vec<(Entity, glam::Vec2, f32)> = records
-                    .iter()
-                    .filter_map(|record| {
-                        backend
-                            .entity_handle(record.entity)
-                            .and_then(|handle| backend.sync_transform(handle))
-                            .map(|(position, angle)| (record.entity, position, angle))
-                    })
-                    .collect();
-                (syncs, completed)
+                if let Some(locks) = &record.locks {
+                    backend.set_body_locked_axes(handle, locks);
+                }
+                if record.body.kind == RigidBodyKind::KinematicPosition {
+                    backend.drive_kinematic_pose(
+                        handle,
+                        [
+                            record.transform.translation.x,
+                            record.transform.translation.y,
+                        ],
+                        z_twist_angle(record.transform.rotation),
+                    );
+                }
             }
-            None => (Vec::new(), 0),
-        };
+
+            let mut completed = 0;
+            for _ in 0..steps {
+                if backend.step(FIXED_DT).is_err() {
+                    break;
+                }
+                completed += 1;
+            }
+
+            let syncs: Vec<(Entity, glam::Vec2, f32)> = records
+                .iter()
+                .filter_map(|record| {
+                    backend
+                        .entity_handle(record.entity)
+                        .and_then(|handle| backend.sync_transform(handle))
+                        .map(|(position, angle)| (record.entity, position, angle))
+                })
+                .collect();
+            (syncs, completed)
+        }
+        None => (Vec::new(), 0),
+    };
 
     // Simulation time advances per COMPLETED step, after the backend
     // borrow ends (separate `&mut World` borrow, sequential not nested).
@@ -1321,6 +1334,98 @@ mod tests {
         );
     }
 
+    #[test]
+    fn body_kind_change_rebuilds_without_leaking() {
+        let mut world = World::new();
+        let entity = spawn_falling(&mut world, 5.0);
+        tick_with(&mut world, FIXED_DT);
+        assert_eq!(world.resource::<RapierBackend>().unwrap().body_count(), 1);
+        world.insert(entity, RigidBody::fixed()).unwrap();
+        tick_with(&mut world, FIXED_DT);
+        let backend = world.resource::<RapierBackend>().unwrap();
+        assert_eq!(backend.body_count(), 1);
+        let signature = backend
+            .tracked_signature(entity)
+            .expect("rebuilt body stays tracked");
+        assert_eq!(signature.kind, RigidBodyKind::Fixed);
+    }
+    #[test]
+    fn collider_shape_replacement_rebuilds() {
+        let mut world = World::new();
+        let entity = spawn_falling(&mut world, 5.0);
+        tick_with(&mut world, FIXED_DT);
+        world.insert(entity, Collider::cuboid([0.5, 0.5])).unwrap();
+        tick_with(&mut world, FIXED_DT);
+        let backend = world.resource::<RapierBackend>().unwrap();
+        assert_eq!(backend.body_count(), 1);
+        let signature = backend
+            .tracked_signature(entity)
+            .expect("rebuilt body stays tracked");
+        assert_eq!(signature.collider, Some(Collider::cuboid([0.5, 0.5])));
+    }
+    #[test]
+    fn friction_change_rebuilds() {
+        let mut world = World::new();
+        let entity = spawn_falling(&mut world, 5.0);
+        world
+            .insert(entity, ColliderMaterial::new(0.5, 0.2))
+            .unwrap();
+        tick_with(&mut world, FIXED_DT);
+        world
+            .insert(entity, ColliderMaterial::new(0.9, 0.2))
+            .unwrap();
+        tick_with(&mut world, FIXED_DT);
+        let backend = world.resource::<RapierBackend>().unwrap();
+        assert_eq!(backend.body_count(), 1);
+        let signature = backend
+            .tracked_signature(entity)
+            .expect("rebuilt body stays tracked");
+        let material = signature.material.expect("collider body carries material");
+        assert!((material.friction - 0.9).abs() < 1e-6);
+    }
+    #[test]
+    fn restitution_change_rebuilds() {
+        let mut world = World::new();
+        let entity = spawn_falling(&mut world, 5.0);
+        world
+            .insert(entity, ColliderMaterial::new(0.5, 0.1))
+            .unwrap();
+        tick_with(&mut world, FIXED_DT);
+        world
+            .insert(entity, ColliderMaterial::new(0.5, 0.8))
+            .unwrap();
+        tick_with(&mut world, FIXED_DT);
+        let backend = world.resource::<RapierBackend>().unwrap();
+        assert_eq!(backend.body_count(), 1);
+        let signature = backend
+            .tracked_signature(entity)
+            .expect("rebuilt body stays tracked");
+        let material = signature.material.expect("collider body carries material");
+        assert!((material.restitution - 0.8).abs() < 1e-6);
+    }
+    #[test]
+    fn structural_rebuild_preserves_velocity() {
+        let mut world = World::new();
+        let entity = spawn_falling(&mut world, 5.0);
+        world
+            .insert(
+                entity,
+                Velocity {
+                    linvel: [2.0, 0.0],
+                    angvel: 0.0,
+                },
+            )
+            .unwrap();
+        tick_with(&mut world, FIXED_DT);
+        world.insert(entity, Collider::ball(0.8)).unwrap();
+        tick_with(&mut world, FIXED_DT);
+        let backend = world.resource::<RapierBackend>().unwrap();
+        assert_eq!(backend.body_count(), 1);
+        let velocity = world
+            .get::<Velocity>(entity)
+            .expect("velocity component survives rebuild");
+        assert!((velocity.linvel[0] - 2.0).abs() < 1e-6);
+    }
     #[test]
     fn nonfinite_gravity_scale_is_skipped_while_the_body_still_falls() {
         // A NaN gravity scale is caller error the backend refuses; the

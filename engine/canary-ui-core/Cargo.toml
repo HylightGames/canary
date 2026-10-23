@@ -6,8 +6,12 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-ui-core"
+readme = "README.md"
+
 [lints]
 workspace = true
 
 [dependencies]
-canary-platform = { path = "../canary-platform" }
+canary-platform = { path = "../canary-platform", version = "0.0.16" }

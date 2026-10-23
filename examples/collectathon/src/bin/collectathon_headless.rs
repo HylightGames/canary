@@ -23,7 +23,7 @@ use canary_platform::{
     HeadlessInput, HeadlessWindow, InputEvent, InputSource, Key as PlatformKey, Window,
     WindowDescriptor,
 };
-use canary_runtime::{AuthoredSpawner, FrameDriver, FrameParams, RuntimeBuilder};
+use canary_runtime::{AuthoredSpawner, FrameDriver, FrameParams, RuntimeBuilder, SimPasses};
 use canary_scheduler::Schedule;
 use canary_ui_core::{NullBackend, UiBuilder};
 use collectathon::assets::{self, ROOM_FILE};
@@ -118,7 +118,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 focused: true,
                 frame_dt: step,
                 build: &mut build,
-                sim_step: Some(step),
+                sim_passes: SimPasses::fixed(step, 1),
                 run_schedule: &mut run_schedule,
             },
         );

@@ -6,12 +6,16 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-plugin-api"
+readme = "README.md"
+
 [lints]
 workspace = true
 
 [dependencies]
 thiserror = "2.0.19"
-canary-ecs = { path = "../canary-ecs" }
+canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
 
 # Host-only: the native (Tier B) and WASM (Tier A) plugin *loaders*
 # (loader.rs / tier_a.rs, cfg-gated the same way in lib.rs) run on the

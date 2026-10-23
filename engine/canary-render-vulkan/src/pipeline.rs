@@ -39,6 +39,7 @@ fn vertex_format_to_vk(format: VertexFormat) -> vk::Format {
 /// differently sized targets rather than needing a fixed size baked in
 /// at creation time.
 pub struct VulkanPipeline {
+    device_id: crate::device::DeviceId,
     device: Rc<ash::Device>,
     pub(crate) pipeline: vk::Pipeline,
     pub(crate) layout: vk::PipelineLayout,
@@ -56,6 +57,10 @@ pub struct VulkanPipeline {
 }
 
 impl VulkanPipeline {
+    /// Runtime identity of the device that created this pipeline.
+    pub fn device_id(&self) -> crate::device::DeviceId {
+        self.device_id
+    }
     pub(crate) fn new(vk_device: &VulkanDevice, desc: &PipelineDescriptor<'_>) -> Self {
         Self::new_inner(vk_device, desc, false, false)
     }
@@ -217,6 +222,7 @@ impl VulkanPipeline {
         }
 
         Self {
+            device_id: vk_device.device_id(),
             device: Rc::clone(device),
             pipeline,
             layout,

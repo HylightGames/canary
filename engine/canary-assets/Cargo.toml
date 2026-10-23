@@ -6,11 +6,15 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-assets"
+readme = "README.md"
+
 [lints]
 workspace = true
 
 [dependencies]
-canary-ecs = { path = "../canary-ecs" }
+canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
 thiserror = "2.0.19"
 
 # Content-hash backend for `AssetId` (ADR 0018: opaque hash of file bytes +

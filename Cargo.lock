@@ -541,6 +541,7 @@ dependencies = [
  "naga",
  "raw-window-handle",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
@@ -803,6 +804,7 @@ dependencies = [
  "canary-core",
  "canary-ecs",
  "canary-input",
+ "canary-loc",
  "canary-net",
  "canary-physics",
  "canary-platform",
@@ -816,12 +818,14 @@ dependencies = [
  "canary-transform",
  "canary-ui-core",
  "canary-ui-egui",
+ "fluent",
  "glam 0.33.11",
  "naga",
  "rcgen",
  "serde_json",
  "tokio",
  "tracing",
+ "unic-langid",
  "wat",
 ]
 

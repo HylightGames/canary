@@ -32,6 +32,7 @@ version = "0.0.16"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/HylightGames/canary"
+homepage = "https://hylightgames.github.io/canary/"
 # Deliberately no `rust-version` (MSRV) pin: the workspace tracks current
 # `stable` via rustup (see docs/development/build-system.md Toolchain
 # policy). The de-facto floor is whatever the heaviest dependency

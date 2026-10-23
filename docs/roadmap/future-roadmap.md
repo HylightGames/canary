@@ -15,21 +15,21 @@ here.
 
 ## The committed path comes first
 
-The current release target is `v0.0.13`; the checkout has the R-34 runtime
-foundation committed and the window-presentation seam in progress. Finish the
-live handoff and acceptance proof in
-[`v0.0.13-roadmap.md`](v0.0.13-roadmap.md), then continue in this order:
+`v0.0.16` is the latest tagged release; the active target is the `v0.1.0`
+integration proof, closing on `dev` (see [`status.md`](status.md) and the
+[`v0.1.0` closure gates](v0.1.0-plan.md#status)). The completed
+dependency order that got here was:
 
 1. `v0.0.13`: supported game-runtime composition, window presentation,
-   shared input actions, and `CanaryUI`.
+   shared input actions, and `CanaryUI` (released).
 2. `v0.0.14`: authored project state plus separate deterministic simulation
-   snapshots.
+   snapshots (released).
 3. `v0.0.15`: minimal server-authoritative networking with removal history,
-   canonical state, and frame-tagged input.
+   canonical state, and frame-tagged input (released).
 4. `v0.0.16`: a first live-collaboration slice with explicit operation,
-   history, authorization, conflict, and version-lineage rules.
+   history, authorization, conflict, and version-lineage rules (released).
 5. `v0.1.0`: prove the systems together in a real, small game using the
-   supported consumer API.
+   supported consumer API (active pre-cut target, untagged).
 
 The milestones are intentionally integration-focused. The editor,
 beginner-friendly workflows, full asset cooking, visual scripting, marketplace,
@@ -173,7 +173,7 @@ that implementation may bypass the milestone's acceptance evidence.
 | `.14` project state | [`state-and-versioning.md`](../architecture/state-and-versioning.md), ADR 0012 and proposed ADR 0026; `.14` work packages in [`v0.1.0-plan.md`](v0.1.0-plan.md) | Separate authored-state and simulation-snapshot products; stable identity; encoding/version; unknown-field preservation; migrations; atomic persistence; prefab override/bake behavior; canonical `snapshot`/`restore`/`checksum`/`step` |
 | `.15` networking | [`networking.md`](../architecture/networking.md), accepted ADR 0007 and proposed ADR 0027; `.15` work packages in [`v0.1.0-plan.md`](v0.1.0-plan.md) | Separate-process server/client; handshake/compatibility; authority; canonical full snapshot and ordered deltas; tombstones; bounded transport; frame-tagged input; disconnect/reconnect recovery; no prediction/rollback |
 | `.16` live collaboration | [`live-collaboration.md`](../architecture/live-collaboration.md), accepted ADR 0013 and proposed ADR 0028; `.16` work packages in [`v0.1.0-plan.md`](v0.1.0-plan.md) | Authenticated roles, stable operation IDs, target revision conflicts, durable ordered history, idempotency, recovery/checkpoint, and a two-client authored-edit convergence proof independent of editor UI |
-| `.1.0` integration | [`v0.1.0-plan.md`](v0.1.0-plan.md#v010-integration-proof) and the `.13`–`.16` exit records | A small, public-API-only game exercises the subsystems together; fresh-checkout setup, automated/headless gates, explicit live-device evidence, and docs/status/release notes agree |
+| `.1.0` integration | [`v0.1.0-plan.md`](v0.1.0-plan.md#v010--integration-proof) and the `.13`–`.16` exit records | A small, public-API-only game exercises the subsystems together; fresh-checkout setup, automated/headless gates, explicit live-device evidence, and docs/status/release notes agree |
 
 The editor, visual scripting, external plugin distribution, and post-`.1.0`
 ecosystem still need their own design records when their triggers arrive:

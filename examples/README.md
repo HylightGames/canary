@@ -14,16 +14,30 @@ placeholder until `v0.0.6`'s rendering bootstrap made it possible.
 cargo run -p spinning-cube -- path/to/output.gif
 ```
 
-## What else belongs here once it's buildable
+## `ui-game`
 
-- A headless ECS-only example (`examples/ecs-sandbox/` or similar),
-  now genuinely possible given `v0.0.7`/`v0.0.8`'s multi-component
-  queries, typed resources, and the `canary-scheduler` — no renderer or
-  windowing needed for this one.
-- A real *windowed* example (not just an offscreen render like
-  `spinning-cube`) needs `canary-render-vulkan` to grow swapchain/window
-  -surface presentation — deliberately out of scope as of `v0.0.6`; see
-  that release's own roadmap doc.
+The `v0.0.13` first-game slice in a real window: mapped-action movement,
+fire on Space or the HUD button, and a readout HUD over the scene — see
+[`ui-game/README.md`](ui-game/README.md). Needs a real Vulkan ICD and a
+display server (that README covers the Wayland note).
+
+```sh
+cargo run -p ui-game -- 600
+```
+
+## `collectathon`
+
+The `v0.1.0` integration-proof sample: a small playable 2D game built
+only on Canary's public APIs, with a deterministic headless twin, the
+authoritative server/client and collaboration CLIs, and a live-evidence
+checklist — see [`collectathon/README.md`](collectathon/README.md).
+Start with the [Setup](collectathon/README.md#setup) section; the
+git/path dependency route is documented under
+[Depending on Canary from your own crate](collectathon/README.md#depending-on-canary-from-your-own-crate-gitpath-route).
+
+```sh
+cargo run -p collectathon --bin collectathon
+```
 
 Each example should be a runnable binary (`cargo run --example <name>`
 or its own crate under this directory, depending on how large it gets —

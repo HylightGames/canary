@@ -444,19 +444,33 @@ pub const PICKUP_MESH_SCALE: f32 = 10.0;
 /// every non-render consumer for pixels only the windowed game shows.
 #[derive(Debug, Clone, Copy)]
 pub struct RenderHandles {
-    /// Player sprite geometry ([`QUAD_MESH`](crate::assets::QUAD_MESH)).
+    /// Player and shard flat underlay geometry
+    /// ([`QUAD_MESH`](crate::assets::QUAD_MESH)).
     pub player_mesh: AssetHandle<Mesh>,
     /// Goal marker geometry ([`BOX_MESH`](crate::assets::BOX_MESH)).
     pub goal_mesh: AssetHandle<Mesh>,
-    /// Sprite image ([`SPRITE_PNG`](crate::assets::SPRITE_PNG)) sampled by
-    /// the player's textured quad.
+    /// Player sprite geometry
+    /// ([`PLAYER_QUAD_MESH`](crate::assets::PLAYER_QUAD_MESH)).
+    pub player_sprite_mesh: AssetHandle<Mesh>,
+    /// Shard sprite geometry
+    /// ([`SHARD_QUAD_MESH`](crate::assets::SHARD_QUAD_MESH)).
+    pub shard_sprite_mesh: AssetHandle<Mesh>,
+    /// Goal sprite geometry
+    /// ([`GOAL_QUAD_MESH`](crate::assets::GOAL_QUAD_MESH)).
+    pub goal_sprite_mesh: AssetHandle<Mesh>,
+    /// Sprite atlas
+    /// ([`SPRITE_ATLAS_PNG`](crate::assets::SPRITE_ATLAS_PNG)) every
+    /// textured quad samples through its own tile UVs.
     pub sprite: AssetHandle<Texture>,
 }
 
-/// Attaches the file-loaded renderables the spawner cannot decode: the
-/// player draws its quad mesh (flat amber beneath, sprite-textured over
-/// it) and every spawned pickup draws a mesh — the goal its box marker
-/// in gold, each shard the quad in cyan.
+/// Attaches the file-loaded renderables the spawner cannot decode.
+///
+/// Every sprite entity carries a flat [`MeshRenderable`] and a
+/// [`TexturedRenderable`] over it: the textured draw covers the flat quad
+/// when the atlas resolves, and the flat quad carries the entity when it
+/// does not. The player draws its quad in amber, each shard its quad in
+/// cyan, and the goal its box marker in gold.
 ///
 /// Pickups also gain the static pose the bridge extracts through: a
 /// [`Transform`] copied from their authored position plus the matching
@@ -498,14 +512,34 @@ pub fn attach_render_components(
     )?;
     world.insert(
         player,
-        TexturedRenderable::new(handles.player_mesh, handles.sprite),
+        TexturedRenderable::new(handles.player_sprite_mesh, handles.sprite),
     )?;
 
-    for (local, mesh, color) in [
-        ("goal", handles.goal_mesh, [1.0, 0.85, 0.2]),
-        ("pickup_a", handles.player_mesh, [0.2, 0.9, 0.9]),
-        ("pickup_b", handles.player_mesh, [0.2, 0.9, 0.9]),
-        ("pickup_c", handles.player_mesh, [0.2, 0.9, 0.9]),
+    for (local, mesh, sprite_mesh, color) in [
+        (
+            "goal",
+            handles.goal_mesh,
+            handles.goal_sprite_mesh,
+            [1.0, 0.85, 0.2],
+        ),
+        (
+            "pickup_a",
+            handles.player_mesh,
+            handles.shard_sprite_mesh,
+            [0.2, 0.9, 0.9],
+        ),
+        (
+            "pickup_b",
+            handles.player_mesh,
+            handles.shard_sprite_mesh,
+            [0.2, 0.9, 0.9],
+        ),
+        (
+            "pickup_c",
+            handles.player_mesh,
+            handles.shard_sprite_mesh,
+            [0.2, 0.9, 0.9],
+        ),
     ] {
         let Some(entity) = report.entity(local) else {
             continue;
@@ -527,6 +561,7 @@ pub fn attach_render_components(
         let visual = PickupVisual { mesh, color };
         world.insert(entity, visual)?;
         world.insert(entity, MeshRenderable::new(visual.mesh, visual.color))?;
+        world.insert(entity, TexturedRenderable::new(sprite_mesh, handles.sprite))?;
     }
     Ok(())
 }
@@ -883,6 +918,9 @@ mod tests {
         let render = RenderHandles {
             player_mesh: game_assets.player_mesh,
             goal_mesh: game_assets.goal_mesh,
+            player_sprite_mesh: game_assets.player_sprite_mesh,
+            shard_sprite_mesh: game_assets.shard_sprite_mesh,
+            goal_sprite_mesh: game_assets.goal_sprite_mesh,
             sprite: game_assets.sprite,
         };
         world.insert_resource(game_assets.meshes);
@@ -926,8 +964,9 @@ mod tests {
         let textured_items = canary_render_ecs::extract_textured_scene(&world);
         assert_eq!(
             textured_items.len(),
-            1,
-            "the player's textured quad must extract through its live mesh-plus-sprite handles"
+            5,
+            "the player, the goal and all three shards must extract through their live \
+             mesh-plus-atlas handles"
         );
         let textured = canary_render_ecs::bake_textured_scene_to_vertices_ortho(
             &textured_items,

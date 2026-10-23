@@ -31,7 +31,7 @@ custom, in-house)                (bindable, opt-in)
   seat-licensed products in typical game-shipping configurations) that
   would sit awkwardly against an MIT-licensed, no-royalties engine.
   Building it later than `v0.1.0`'s target scope (see
-  [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete))
+  [`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-and-the-v010-target))
   is expected; it is not expected to be permanently deferred.
 - **Bindable, opt-in: FMOD, Wwise, or similar.** Studios that already have
   FMOD/Wwise content pipelines, sound designers trained on them, or

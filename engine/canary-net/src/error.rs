@@ -9,6 +9,8 @@
 //! is stale and only a fresh snapshot restores convergence — the peer stays
 //! connected in that case).
 
+use std::net::SocketAddr;
+
 use thiserror::Error;
 
 /// Renders raw checksum bytes as lowercase hex for error messages.
@@ -193,6 +195,20 @@ pub enum NetError {
         detail: String,
     },
 
+    /// A server bind address is not a loopback address, and this release
+    /// serves loopback only. Client authentication is not built, so an
+    /// unauthenticated authoritative server must not be reachable off the
+    /// machine. Raised by [`crate::transport::QuinnTransport::server`] before
+    /// any socket or TLS state is created; there is no opt-out.
+    #[error(
+        "refusing non-loopback bind address {addr}: this release is loopback-only \
+         because client authentication is not built"
+    )]
+    NonLoopbackBind {
+        /// The address the caller asked to bind.
+        addr: SocketAddr,
+    },
+
     /// Underlying transport failure that fits none of the structured
     /// per-operation variants above. Fallback only: backends must prefer the
     /// structured variants so callers can distinguish retryable failures
@@ -275,6 +291,7 @@ impl NetError {
             | Self::TransportAccept { .. }
             | Self::TransportRead { .. }
             | Self::TransportWrite { .. }
+            | Self::NonLoopbackBind { .. }
             | Self::Transport(_) => DisconnectReason::TransportError,
         }
     }
@@ -466,6 +483,19 @@ mod tests {
         let text = error.to_string();
         assert!(text.contains(&"ab".repeat(32)), "{text}");
         assert!(text.contains(&"00".repeat(32)), "{text}");
+    }
+
+    #[test]
+    fn non_loopback_bind_is_a_fatal_local_configuration_error() {
+        // A refused bind is local setup, not a peer failure: it is never
+        // retried as-is and never asks for a resync.
+        let error = NetError::NonLoopbackBind {
+            addr: "0.0.0.0:0".parse().expect("parse test address"),
+        };
+        assert_eq!(error.disconnect_reason(), DisconnectReason::TransportError);
+        assert!(!error.is_retryable());
+        assert!(!error.resync_required());
+        assert!(error.to_string().contains("loopback-only"), "{error}");
     }
 
     #[test]

@@ -492,6 +492,11 @@ pub enum PresentationError {
         /// The content target's extent in pixels.
         content: (u32, u32),
     },
+    /// A present call named a different window than the presenter was built for.
+    /// The surface aliases the original OS window; presenting another window's
+    /// handles would address a surface the swapchain was never created for.
+    #[error("present called with a different window than the presenter was built for")]
+    WrongWindow,
 }
 
 #[cfg(test)]
@@ -689,6 +694,7 @@ mod tests {
             },
             PresentationError::SurfaceLost,
             PresentationError::DeviceLost,
+            PresentationError::WrongWindow,
             PresentationError::ExtentTooLarge { value: 100_000 },
         ];
         for error in errors {

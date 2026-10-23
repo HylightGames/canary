@@ -41,6 +41,7 @@ use crate::device::{allocate_memory, VulkanDevice};
 /// this release creates a handful of textures total, so one pool each
 /// is correct without being clever.
 pub struct VulkanTexture {
+    device_id: crate::device::DeviceId,
     device: Rc<ash::Device>,
     image: vk::Image,
     memory: vk::DeviceMemory,
@@ -51,6 +52,10 @@ pub struct VulkanTexture {
 }
 
 impl VulkanTexture {
+    /// Runtime identity of the device that created this texture.
+    pub fn device_id(&self) -> crate::device::DeviceId {
+        self.device_id
+    }
     pub(crate) fn new(vk_device: &VulkanDevice, desc: &TextureDescriptor<'_>) -> Self {
         assert!(
             desc.width > 0 && desc.height > 0,
@@ -214,6 +219,7 @@ impl VulkanTexture {
         unsafe { device.update_descriptor_sets(&writes, &[]) };
 
         Self {
+            device_id: vk_device.device_id(),
             device: Rc::clone(device),
             image,
             memory,

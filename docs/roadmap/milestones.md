@@ -141,7 +141,7 @@ Full detail: [`v0.0.1.md`](../release-notes/v0.0.1.md).
 **Status:** Complete.
 
 Single focus, per the release cadence recorded in
-[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete):
+[`docs/vision/long-term-roadmap.md`](../vision/long-term-roadmap.md#release-cadence-and-the-v010-target):
 the archetype-based ECS migration, exactly as scoped in
 [`v0.0.2-roadmap.md`](v0.0.2-roadmap.md).
 

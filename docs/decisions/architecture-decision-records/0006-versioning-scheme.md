@@ -7,7 +7,7 @@ time (lockstep across crates), not a separate or conflicting scheme. For
 the *release cadence* this numbering is used at in practice (one focused
 subsystem per `0.0.x` release, targeting `v0.1.0` as substantially
 feature-complete against the documented architecture), see
-[`docs/vision/long-term-roadmap.md`](../../vision/long-term-roadmap.md#release-cadence-one-focused-subsystem-per-00x-target-v010-as-substantially-feature-complete) —
+[`docs/vision/long-term-roadmap.md`](../../vision/long-term-roadmap.md#release-cadence-and-the-v010-target) —
 a planning policy, not part of this ADR's own scope, and free to adjust
 without amending this ADR.
 

@@ -6,11 +6,15 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+homepage.workspace = true
+documentation = "https://docs.rs/canary-scheduler"
+readme = "README.md"
+
 [lints]
 workspace = true
 
 [dependencies]
-canary-ecs = { path = "../canary-ecs" }
+canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
 
 [dev-dependencies]
 divan = { version = "5", package = "codspeed-divan-compat" }
