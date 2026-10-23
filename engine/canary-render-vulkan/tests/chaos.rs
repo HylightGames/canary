@@ -48,7 +48,7 @@ fn zero_size_color_target_panics_loudly() {
 #[test]
 #[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
 #[cfg(debug_assertions)]
-#[should_panic(expected = "dropped while resources")]
+#[should_panic(expected = "live Rc clones")]
 fn device_drop_while_texture_alive_panics_in_debug() {
     // Given: a live texture holding an `Rc` clone of the device handle.
     let device = real_device();
