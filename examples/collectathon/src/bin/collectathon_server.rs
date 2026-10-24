@@ -343,8 +343,8 @@ async fn serve_one(
             );
             guard.note_accepted(peer, client, now);
             eprintln!(
-                "collectathon_server: welcome slot={} session={}",
-                welcome.assigned_slot, welcome.session_id
+                "collectathon_server: welcome slot={}",
+                welcome.assigned_slot
             );
             net_session::send_envelope(
                 &mut send,

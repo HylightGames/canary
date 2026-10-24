@@ -379,7 +379,7 @@ mod tests {
         }
     }
 
-    fn edit_request_with_secret() -> EditRequest {
+    fn edit_request_fixture() -> EditRequest {
         EditRequest {
             protocol: COLLAB_PROTOCOL_VERSION,
             credential: "s3cr3t-edit".to_owned(),
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn edit_request_debug_redacts_credential() {
-        let rendered = format!("{:?}", edit_request_with_secret());
+        let rendered = format!("{:?}", edit_request_fixture());
         assert!(
             !rendered.contains("s3cr3t-edit"),
             "EditRequest Debug must not leak the credential: {rendered}"

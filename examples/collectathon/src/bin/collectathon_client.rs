@@ -140,8 +140,8 @@ async fn run() -> Result<(), NetHarnessError> {
         ));
     }
     eprintln!(
-        "collectathon_client: welcome slot={} session={}",
-        welcome.assigned_slot, welcome.session_id
+        "collectathon_client: welcome slot={}",
+        welcome.assigned_slot
     );
 
     // 2. Snapshot: logical content equals the server's set regardless of
