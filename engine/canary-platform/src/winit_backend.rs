@@ -60,6 +60,7 @@ use winit::window::{Window as WinitOsWindow, WindowId};
 use crate::input::{InputEvent, InputSource, Key, PointerButton};
 use crate::surface::{
     DisplayHandle, SurfaceHandlesProvider, WindowHandle, WindowHandles, WindowLease,
+    WindowLeaseWeak,
 };
 use crate::window::{Window, WindowDescriptor};
 
@@ -508,15 +509,20 @@ impl Window for WinitWindow {
     }
 }
 
-impl SurfaceHandlesProvider for WinitWindow {
+// SAFETY: `window_handles` converts this window's own live `winit`
+// handles (or `None` before the OS window exists / on uncovered
+// platforms), and `liveness_lease` hands out only the weak half of the
+// lease this window owns — no caller can extend it past the window's
+// death.
+unsafe impl SurfaceHandlesProvider for WinitWindow {
     fn window_handles(&self) -> Option<WindowHandles> {
         let shared = self.shared.borrow();
         let os_window = shared.os_window.as_ref()?;
         extract_window_handles(os_window)
     }
 
-    fn liveness_lease(&self) -> WindowLease {
-        self.lease.clone()
+    fn liveness_lease(&self) -> WindowLeaseWeak {
+        self.lease.downgrade()
     }
 }
 

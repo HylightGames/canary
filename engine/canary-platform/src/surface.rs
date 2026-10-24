@@ -154,22 +154,25 @@ impl WindowHandles {
 /// Liveness lease for a surface-capable window: the shared half of an
 /// `Arc<()>` token the window owns.
 ///
-/// The presenter keeps only the weak half ([`WindowLeaseWeak`]):
-/// `is_live` succeeds exactly while the owning window (and its lease)
-/// still lives. Native handle values can be recycled by the OS after a
-/// window dies, so handle comparison alone cannot tell a live window
-/// from a dead-and-recreated one with identical values — the lease
-/// closes that hole at runtime, without borrowing the window (which
-/// would forbid the `&mut` event polling every game loop interleaves
-/// with presenting).
+/// The owning window keeps the only strong lease and hands downstream
+/// code only the weak half ([`WindowLeaseWeak`], via
+/// [`SurfaceHandlesProvider::liveness_lease`]): `is_live` succeeds
+/// exactly while the owning window (and its lease) still lives, and no
+/// downstream caller can extend the token's life past the window's by
+/// retaining its copy. Native handle values can be recycled by the OS
+/// after a window dies, so handle comparison alone cannot tell a live
+/// window from a dead-and-recreated one with identical values — the
+/// lease closes that hole at runtime, without borrowing the window
+/// (which would forbid the `&mut` event polling every game loop
+/// interleaves with presenting).
 #[derive(Debug, Clone)]
 pub struct WindowLease {
     token: std::sync::Arc<()>,
 }
 
 impl WindowLease {
-    /// Mints a fresh lease token. Windows store one and hand out clones;
-    /// presenters keep only the weak half.
+    /// Mints a fresh lease token. Windows store one and hand out only
+    /// weak halves; presenters keep the weak half.
     pub fn new() -> Self {
         Self {
             token: std::sync::Arc::new(()),
@@ -208,13 +211,25 @@ impl WindowLeaseWeak {
 /// What a window offers a presentation backend beyond extent and
 /// resize signals: native handles for surface creation.
 ///
-/// Only platform backends in this crate implement it meaningfully
-/// (today just the `winit` backend's window) — a fabricated
-/// implementation has no way to produce a working surface (see
-/// [`WindowHandles`]) — and notably [`crate::HeadlessWindow`] does
-/// *not* implement this trait, so passing a headless window where a
+/// # Safety
+///
+/// This is an `unsafe` trait because the Vulkan backend passes the
+/// returned handles into `ash_window::create_surface` — an `unsafe`
+/// FFI call whose precondition is that both handles genuinely refer to
+/// live OS objects. A safe implementation returning fabricated or stale
+/// pointers would turn that precondition violation into undefined
+/// behavior behind a safe API, so only trusted platform backends in
+/// this crate (today just the `winit` backend's window) implement it
+/// meaningfully. Notably [`crate::HeadlessWindow`] does *not*
+/// implement this trait, so passing a headless window where a
 /// surface-capable one is required fails to compile rather than
 /// failing at runtime.
+///
+/// Test stubs opt into the contract explicitly (`unsafe impl` plus a
+/// `SAFETY:` comment) and only ever carry handles copied from a live
+/// window, or synthetics that surface creation rejects loudly (see
+/// [`WindowHandles`]) — never fabrications that could build a working
+/// surface from a dead window.
 ///
 /// Extends [`Window`] so presenters reach the
 /// extent and resize generation through the same borrow: one `&dyn
@@ -224,19 +239,25 @@ impl WindowLeaseWeak {
 /// (A private-supertrait seal would state the implementor rule more
 /// loudly, but `private_bounds` — deny-by-default under this
 /// workspace's warnings gate — rejects that pattern without an
-/// `#[allow]`, which this project bans; the trait docs above state the
-/// rule instead.)
+/// `#[allow]`, which this project bans; the `unsafe` marker plus this
+/// safety section state the rule instead.)
 ///
 /// The handle method returns `Option` because a live window can
 /// briefly have nothing to offer: before the OS window exists, or on a
 /// platform this seam does not cover.
-pub trait SurfaceHandlesProvider: Window {
+pub unsafe trait SurfaceHandlesProvider: Window {
     /// The native handles to build a surface from, or `None` when
     /// this window currently has none to offer.
+    ///
+    /// Safety contract (see the trait-level safety section): a `Some`
+    /// value must alias the implementor's own live native window for
+    /// as long as the implementor lives.
     fn window_handles(&self) -> Option<WindowHandles>;
-    /// A clone of this window's liveness lease: the presenter keeps the
-    /// weak half and refuses frames once the window is gone.
-    fn liveness_lease(&self) -> WindowLease;
+    /// The weak half of this window's liveness lease: dead exactly
+    /// when the owning window is gone. Hands out no strong clone —
+    /// callers observe death but cannot keep the token alive past the
+    /// window by retaining their copy.
+    fn liveness_lease(&self) -> WindowLeaseWeak;
 }
 
 #[cfg(test)]
@@ -263,6 +284,27 @@ mod tests {
         assert!(
             !weak.is_live(),
             "dropping the owner's lease must read as a dead window"
+        );
+    }
+
+    #[test]
+    fn retained_weak_halves_cannot_outlive_the_owner() {
+        // Models the provider contract: the owner holds the only strong
+        // lease and hands out weak halves. A caller retaining its copy
+        // — even cloning it — must still observe death once the owner
+        // drops, or a dead window could keep presenting.
+        let owner = WindowLease::new();
+        let retained = owner.downgrade();
+        let retained_clone = retained.clone();
+        assert!(retained.is_live());
+        drop(owner);
+        assert!(
+            !retained.is_live(),
+            "a retained weak half must not keep the token alive"
+        );
+        assert!(
+            !retained_clone.is_live(),
+            "cloning a retained weak half must not keep the token alive either"
         );
     }
 }

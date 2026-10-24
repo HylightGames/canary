@@ -502,7 +502,13 @@ trait boundary, mirroring the existing rule against physics backends
 leaking third-party types.
 
 The Vulkan backend hardens the host side of that boundary rather than
-trusting the driver to catch misuse. Validation layers
+trusting the driver to catch misuse. The window-provider contract is
+part of that hardening: `SurfaceHandlesProvider` is an `unsafe trait`
+(only trusted platform backends implement it; stubs opt in explicitly),
+and the liveness lease it hands out is weak-only, so no retained copy
+can outlive the window — see
+[ADR 0030](../decisions/architecture-decision-records/0030-trusted-window-provider-contract.md).
+Validation layers
 (`VK_LAYER_KHRONOS_validation`) are installed opportunistically in
 debug builds only — never in release, never a behavior gate, absent on
 drivers without them (mesa/llvmpipe CI included) — with validation

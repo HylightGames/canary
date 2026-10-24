@@ -38,6 +38,8 @@ status; check the record before relying on a decision.
 | [0026](0026-authored-state-and-simulation-snapshot-contract.md) | Proposed authored state and simulation snapshot contract |
 | [0027](0027-minimal-server-authoritative-replication.md) | Proposed first server-authoritative replication profile |
 | [0028](0028-authoritative-live-collaboration-operations.md) | Proposed authoritative live-collaboration operation and history contract |
+| [0029](0029-vulkan-ownership-and-rhi-errors.md) | Accepted Vulkan ownership and RHI error semantics for v0.1.0 |
+| [0030](0030-trusted-window-provider-contract.md) | Accepted trusted window-provider contract for the Vulkan surface seam |
 
 Proposed ADRs are design inputs, not accepted implementation contracts.
 Review them at the milestone gates in

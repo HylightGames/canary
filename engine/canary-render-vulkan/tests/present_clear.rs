@@ -52,7 +52,7 @@
 
 #![cfg(all(feature = "presentation", target_os = "linux"))]
 
-use canary_platform::surface::{SurfaceHandlesProvider, WindowLease};
+use canary_platform::surface::{SurfaceHandlesProvider, WindowLease, WindowLeaseWeak};
 use canary_platform::{Window, WindowDescriptor};
 use canary_render::presentation::{AcquireStatus, FrameOutcome, PresentationError, SurfaceFormat};
 use canary_render_vulkan::VulkanPresenter;
@@ -537,11 +537,14 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         assert_eq!(presenter.extent(), (480, 360));
     }
 
-    // Destroyed-window refusal: capture the live handles, drop the
-    // window, then present through a stub carrying those same handle
-    // values. The OS could hand recycled values to a new window, so a
-    // handle comparison would pass — the liveness lease must refuse
-    // with WindowGone instead. This runs last: the window is gone
+    // Destroyed-window refusal: capture the live handles, retain a copy
+    // of the window's liveness half, drop the window, then present
+    // through a stub carrying those same handle values. The OS could
+    // hand recycled values to a new window, so a handle comparison
+    // would pass — the liveness lease must refuse with WindowGone
+    // instead, and the retained copy must read dead (the provider hands
+    // out only weak halves, so retaining one cannot keep the token
+    // alive past the window). This runs last: the window is gone
     // afterwards by construction.
     {
         let dead_handles = window
@@ -552,7 +555,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             .expect("a live window must report an extent");
         let dead_generation = window.resize_generation();
         let dead_descriptor = window.descriptor().clone();
+        let retained = window.liveness_lease();
+        assert!(
+            retained.is_live(),
+            "the live window's lease must read live before the drop"
+        );
         drop(window);
+        assert!(
+            !retained.is_live(),
+            "retaining a liveness copy must not keep the dead window's token alive"
+        );
         let stub = StubProvider::new(dead_descriptor, dead_handles, dead_extent, dead_generation);
         match presenter.present_cleared_frame(&stub, CLEAR_COLOR) {
             Err(PresentationError::WindowGone) => {}
@@ -627,12 +639,17 @@ impl Window for StubProvider {
     }
 }
 
-impl SurfaceHandlesProvider for StubProvider {
+// SAFETY: the stub only ever carries handles copied from a live window
+// (or the dead window's values for the refusal phase, which the
+// presenter's liveness check rejects before any Vulkan call), and hands
+// out only the weak half of its own lease — mirroring the trusted
+// backend contract without ever fabricating a live window.
+unsafe impl SurfaceHandlesProvider for StubProvider {
     fn window_handles(&self) -> Option<canary_platform::surface::WindowHandles> {
         Some(self.handles)
     }
 
-    fn liveness_lease(&self) -> WindowLease {
-        self.lease.clone()
+    fn liveness_lease(&self) -> WindowLeaseWeak {
+        self.lease.downgrade()
     }
 }

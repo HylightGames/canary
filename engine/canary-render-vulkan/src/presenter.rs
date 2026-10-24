@@ -52,7 +52,9 @@ use crate::swapchain::VulkanSwapchain;
 /// presenting (`&` on the window) interleave freely in a game loop).
 ///
 /// Liveness contract, enforced at runtime: [`VulkanPresenter::new`]
-/// keeps the window's [`WindowLeaseWeak`] half alongside the copied
+/// keeps the window's [`WindowLeaseWeak`] half (the provider hands out
+/// only weak halves, so no downstream copy can outlive the window)
+/// alongside the copied
 /// handles. Every frame first refuses a dead window with
 /// [`PresentationError::WindowGone`] — the surface aliases the OS
 /// window, and the OS may recycle a destroyed window's native handle
@@ -137,7 +139,7 @@ impl VulkanPresenter {
             generation,
             needs_recreate: false,
             window: handles,
-            lease: window.liveness_lease().downgrade(),
+            lease: window.liveness_lease(),
         })
     }
 
