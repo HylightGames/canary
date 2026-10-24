@@ -185,3 +185,42 @@ fn draw_without_anything_bound_fails_loudly() {
         "draw with no pipeline bound must panic loudly instead of recording driver-undefined work"
     );
 }
+
+#[test]
+#[ignore = "needs a real Vulkan ICD (e.g. mesa-vulkan-drivers' llvmpipe); see this file's module docs"]
+fn cross_device_readback_fails_loudly() {
+    let new_device = || {
+        VulkanDevice::new().unwrap_or_else(|e| {
+            panic!(
+                "failed to create a real Vulkan device -- is a Vulkan ICD installed? \
+                 (this sandbox needs mesa-vulkan-drivers; see \
+                 docs/architecture/platform-abstraction.md): {e}"
+            )
+        })
+    };
+    let device_a = new_device();
+    let device_b = new_device();
+    assert_ne!(
+        device_a.device_id(),
+        device_b.device_id(),
+        "two devices must mint distinct ids or the misuse is untestable"
+    );
+    let target = device_a.create_color_target(&ColorTargetDescriptor {
+        width: 8,
+        height: 8,
+    });
+
+    // Given: a target owned by device A, when device B reads it back,
+    // then the backend must panic on the host — device B's queue
+    // operating on device A's image is invalid Vulkan use a lenient
+    // driver might otherwise accept silently. The assert fires before
+    // any Vulkan call, so the target needs no draw first.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        device_b.read_color_target_rgba8(&target);
+    }));
+
+    assert!(
+        result.is_err(),
+        "reading another device's color target must panic loudly instead of submitting foreign-image work"
+    );
+}

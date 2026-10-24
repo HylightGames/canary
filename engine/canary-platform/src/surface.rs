@@ -151,6 +151,60 @@ impl WindowHandles {
     }
 }
 
+/// Liveness lease for a surface-capable window: the shared half of an
+/// `Arc<()>` token the window owns.
+///
+/// The presenter keeps only the weak half ([`WindowLeaseWeak`]):
+/// `is_live` succeeds exactly while the owning window (and its lease)
+/// still lives. Native handle values can be recycled by the OS after a
+/// window dies, so handle comparison alone cannot tell a live window
+/// from a dead-and-recreated one with identical values — the lease
+/// closes that hole at runtime, without borrowing the window (which
+/// would forbid the `&mut` event polling every game loop interleaves
+/// with presenting).
+#[derive(Debug, Clone)]
+pub struct WindowLease {
+    token: std::sync::Arc<()>,
+}
+
+impl WindowLease {
+    /// Mints a fresh lease token. Windows store one and hand out clones;
+    /// presenters keep only the weak half.
+    pub fn new() -> Self {
+        Self {
+            token: std::sync::Arc::new(()),
+        }
+    }
+
+    /// The presenter's half of this lease: dead exactly when the
+    /// owning window (and its lease) is gone.
+    pub fn downgrade(&self) -> WindowLeaseWeak {
+        WindowLeaseWeak {
+            token: std::sync::Arc::downgrade(&self.token),
+        }
+    }
+}
+
+impl Default for WindowLease {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The presenter's half of a [`WindowLease`]: upgrade succeeds exactly
+/// while the window that minted it still lives.
+#[derive(Debug, Clone)]
+pub struct WindowLeaseWeak {
+    token: std::sync::Weak<()>,
+}
+
+impl WindowLeaseWeak {
+    /// Whether the window that minted this lease still lives.
+    pub fn is_live(&self) -> bool {
+        self.token.upgrade().is_some()
+    }
+}
+
 /// What a window offers a presentation backend beyond extent and
 /// resize signals: native handles for surface creation.
 ///
@@ -180,10 +234,14 @@ pub trait SurfaceHandlesProvider: Window {
     /// The native handles to build a surface from, or `None` when
     /// this window currently has none to offer.
     fn window_handles(&self) -> Option<WindowHandles>;
+    /// A clone of this window's liveness lease: the presenter keeps the
+    /// weak half and refuses frames once the window is gone.
+    fn liveness_lease(&self) -> WindowLease;
 }
 
 #[cfg(test)]
 mod tests {
+    use super::WindowLease;
     use crate::{HeadlessWindow, Window, WindowDescriptor};
 
     #[test]
@@ -194,5 +252,17 @@ mod tests {
         assert_eq!(window.resize_generation(), 0);
         window.poll_events();
         assert_eq!(window.resize_generation(), 0);
+    }
+
+    #[test]
+    fn lease_dies_with_its_owner() {
+        let lease = WindowLease::new();
+        let weak = lease.downgrade();
+        assert!(weak.is_live(), "a held lease keeps its weak half live");
+        drop(lease);
+        assert!(
+            !weak.is_live(),
+            "dropping the owner's lease must read as a dead window"
+        );
     }
 }

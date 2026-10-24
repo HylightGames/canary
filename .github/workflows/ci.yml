@@ -432,3 +432,17 @@ jobs:
             moz-l10n --version
             echo "localization gate vacuous-active: no .ftl files under locales/ yet; lint+compare engage on first locale content."
           fi
+
+  rustdoc:
+    name: Rustdoc warnings-as-errors
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Catches broken intra-doc links and missing docs before tagging:
+    # release.yml also runs this on the tag, but a `dev` failure should
+    # surface on the PR, not on the release run.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Rust
+        run: rustup toolchain install stable
+      - name: cargo doc --workspace --no-deps
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --no-deps --all-features

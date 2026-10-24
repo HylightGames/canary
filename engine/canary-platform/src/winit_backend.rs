@@ -58,7 +58,9 @@ use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window as WinitOsWindow, WindowId};
 
 use crate::input::{InputEvent, InputSource, Key, PointerButton};
-use crate::surface::{DisplayHandle, SurfaceHandlesProvider, WindowHandle, WindowHandles};
+use crate::surface::{
+    DisplayHandle, SurfaceHandlesProvider, WindowHandle, WindowHandles, WindowLease,
+};
 use crate::window::{Window, WindowDescriptor};
 
 /// Everything a live `winit` window needs, shared between [`WinitWindow`]
@@ -333,6 +335,7 @@ pub struct WinitWindow {
     descriptor: WindowDescriptor,
     event_loop: EventLoop<()>,
     shared: Rc<RefCell<SharedState>>,
+    lease: WindowLease,
 }
 
 /// An error creating a real OS window or its underlying event loop.
@@ -423,6 +426,7 @@ impl WinitWindow {
             descriptor,
             event_loop,
             shared,
+            lease: WindowLease::new(),
         })
     }
 
@@ -509,6 +513,10 @@ impl SurfaceHandlesProvider for WinitWindow {
         let shared = self.shared.borrow();
         let os_window = shared.os_window.as_ref()?;
         extract_window_handles(os_window)
+    }
+
+    fn liveness_lease(&self) -> WindowLease {
+        self.lease.clone()
     }
 }
 

@@ -17,8 +17,9 @@
 //! (through a stub provider carrying the live window's real handles —
 //! this environment's tiling window manager ignores client resize
 //! requests, so a WM-driven resize is not testable here), suspend on
-//! a zero extent, minimize/restore survival on the live window, and
-//! explicit presenter-before-window teardown order.
+//! a zero extent, minimize/restore survival on the live window,
+//! explicit presenter-before-window teardown order, and refusal with
+//! `WindowGone` once the window is gone.
 //!
 //! The same proof then covers content frames: an RHI-drawn offscreen
 //! target (source pixels read back before the blit) presents through
@@ -51,9 +52,9 @@
 
 #![cfg(all(feature = "presentation", target_os = "linux"))]
 
-use canary_platform::surface::SurfaceHandlesProvider;
+use canary_platform::surface::{SurfaceHandlesProvider, WindowLease};
 use canary_platform::{Window, WindowDescriptor};
-use canary_render::presentation::{AcquireStatus, FrameOutcome, SurfaceFormat};
+use canary_render::presentation::{AcquireStatus, FrameOutcome, PresentationError, SurfaceFormat};
 use canary_render_vulkan::VulkanPresenter;
 
 use std::time::{Duration, Instant};
@@ -536,6 +537,31 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         assert_eq!(presenter.extent(), (480, 360));
     }
 
+    // Destroyed-window refusal: capture the live handles, drop the
+    // window, then present through a stub carrying those same handle
+    // values. The OS could hand recycled values to a new window, so a
+    // handle comparison would pass — the liveness lease must refuse
+    // with WindowGone instead. This runs last: the window is gone
+    // afterwards by construction.
+    {
+        let dead_handles = window
+            .window_handles()
+            .expect("a live window must offer surface handles");
+        let dead_extent = window
+            .surface_extent()
+            .expect("a live window must report an extent");
+        let dead_generation = window.resize_generation();
+        let dead_descriptor = window.descriptor().clone();
+        drop(window);
+        let stub = StubProvider::new(dead_descriptor, dead_handles, dead_extent, dead_generation);
+        match presenter.present_cleared_frame(&stub, CLEAR_COLOR) {
+            Err(PresentationError::WindowGone) => {}
+            outcome => panic!(
+                "presenting after the window died must refuse with WindowGone, got {outcome:?}"
+            ),
+        }
+    }
+
     // Explicit teardown order — presenter (device, swapchain, surface)
     // before the window whose handles it was built from — so a
     // use-after-destroy regression fails here, not in a `Drop` no test
@@ -552,6 +578,7 @@ struct StubProvider {
     handles: canary_platform::surface::WindowHandles,
     extent: (u32, u32),
     generation: u64,
+    lease: WindowLease,
 }
 
 impl StubProvider {
@@ -566,6 +593,7 @@ impl StubProvider {
             handles,
             extent,
             generation,
+            lease: WindowLease::new(),
         }
     }
 
@@ -602,5 +630,9 @@ impl Window for StubProvider {
 impl SurfaceHandlesProvider for StubProvider {
     fn window_handles(&self) -> Option<canary_platform::surface::WindowHandles> {
         Some(self.handles)
+    }
+
+    fn liveness_lease(&self) -> WindowLease {
+        self.lease.clone()
     }
 }

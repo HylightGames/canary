@@ -93,11 +93,147 @@ jobs:
       - name: cargo clippy --workspace --release
         run: cargo clippy --locked --workspace --all-targets --release -- -D warnings
       - name: cargo doc warnings-as-errors
-        run: cargo doc --workspace --no-deps --all-features -- -D warnings
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --no-deps --all-features
+
+  integration-gate:
+    name: Verify candidate integration gate (Xvfb + llvmpipe)
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The `build` job above rebuilds and re-tests, but its
+    # `cargo test --workspace` does not run the `#[ignore]`-gated
+    # integration proof: headless sample binaries, real Xvfb windowing,
+    # and real llvmpipe Vulkan/render-ECS suites. Those jobs are the
+    # v0.1.0 exit evidence, so the tag-triggered workflow enforces the
+    # same commands here before anything publishes — a green tag run
+    # means the exact tagged commit proved integration, not just that
+    # its unit tests passed.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Install Rust
+        run: rustup toolchain install stable
+      - name: Install Linux build + display + software-Vulkan deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxkbcommon-x11-0 libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev xvfb mesa-vulkan-drivers
+      - name: Asset fixture check (fail fast on missing/corrupt bytes)
+        run: |
+          set -euo pipefail
+          dir=examples/collectathon/assets
+          for fixture in quad.glb box.glb sprites.png player_quad.glb shard_quad.glb goal_quad.glb pickup.wav room.json; do
+            test -f "$dir/$fixture" || { echo "::error ::missing fixture $dir/$fixture"; exit 1; }
+            if head -c 128 "$dir/$fixture" | grep -q "git-lfs.github.com"; then
+              echo "::error ::$dir/$fixture holds a Git-LFS pointer, not fixture bytes"
+              exit 1
+            fi
+          done
+          python3 - <<"EOF"
+          import json
+          import struct
+          from pathlib import Path
+          root = Path("examples/collectathon/assets")
+          def magic(name, want):
+              data = (root / name).read_bytes()
+              assert data[: len(want)] == want, f"{name}: bad magic {data[:16]!r}"
+              print(f"{name}: {len(data)} bytes, magic ok")
+          magic("sprites.png", b"\x89PNG\r\n\x1a\n")
+          magic("quad.glb", b"glTF")
+          magic("box.glb", b"glTF")
+          magic("player_quad.glb", b"glTF")
+          magic("shard_quad.glb", b"glTF")
+          magic("goal_quad.glb", b"glTF")
+          atlas = (root / "sprites.png").read_bytes()
+          width, height = struct.unpack(">II", atlas[16:24])
+          assert (width, height) == (204, 68), (
+              f"sprites.png: {width}x{height}, the sprite quad UVs expect 204x68"
+          )
+          print(f"sprites.png: {width}x{height}, atlas layout matches the quads")
+          wav = (root / "pickup.wav").read_bytes()
+          assert wav[:4] == b"RIFF" and wav[8:12] == b"WAVE", "pickup.wav: bad RIFF/WAVE magic"
+          print(f"pickup.wav: {len(wav)} bytes, RIFF/WAVE ok")
+          room = json.loads((root / "room.json").read_text())
+          print(f"room.json: parses as JSON ({len(room)} top-level keys)")
+          EOF
+      - name: Deterministic headless smoke (90 frames, score 1, 1/4)
+        run: |
+          set -eu
+          cargo run --locked -p collectathon --bin collectathon_headless 2>&1 | tee headless.log
+          test "${PIPESTATUS[0]}" -eq 0
+          grep -q "score 1 collected 1/4" headless.log
+          grep -q "after 90 frames" headless.log
+      - name: Server/client loopback (QUIC handshake to ack)
+        run: |
+          set -eu
+          cargo build --locked -p collectathon --bins
+          id_dir="$RUNNER_TEMP/collectathon-id"
+          mkdir -p "$id_dir"
+          rm -f server.log client.log server.pid
+          cargo run --locked -p collectathon --bin collectathon_server -- --bind 127.0.0.1:0 --identity-dir "$id_dir" > server.log 2>&1 &
+          echo $! > server.pid
+          ready=""
+          for _ in $(seq 1 120); do
+            if grep -q "^READY " server.log 2>/dev/null; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$(cat server.pid)" 2>/dev/null; then
+              echo "::error ::replication server exited before printing READY"
+              cat server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          test -n "$ready" || { echo "::error ::replication server never printed READY"; cat server.log; exit 1; }
+          server_addr="$(grep "^READY " server.log | head -n 1 | awk '{print $2}')"
+          test -n "$server_addr"
+          cargo run --locked -p collectathon --bin collectathon_client -- --server "$server_addr" --cert "$id_dir/server.der" 2>&1 | tee client.log
+          test "${PIPESTATUS[0]}" -eq 0
+          grep -q "snapshot converged" client.log
+          grep -q "delta applied" client.log
+          grep -q "ack seq=1" client.log
+          grep -q "clean disconnect" client.log
+          wait "$(cat server.pid)"
+      - name: Collab CLI (two-client shared edit, in-process)
+        run: |
+          set -eu
+          cargo run --locked -p collectathon --bin collectathon_collab_client 2>&1 | tee collab.log
+          test "${PIPESTATUS[0]}" -eq 0
+          grep -q "two-client run converged" collab.log
+      - name: Real windowing integration test (Xvfb)
+        run: >
+          xvfb-run --auto-servernum
+          cargo test --locked -p canary-platform --features winit-backend
+          --test winit_backend_window -- --ignored
+      - name: Real Vulkan rendering integration tests (llvmpipe)
+        run: >
+          cargo test --locked -p canary-render-vulkan
+          --test hello_triangle -- --ignored &&
+          cargo test --locked -p canary-render-vulkan
+          --test texture_binding_misuse -- --ignored &&
+          cargo test --locked -p canary-render-vulkan
+          --test chaos -- --ignored &&
+          cargo test --locked -p canary-render-vulkan
+          --test blended_textured_pipeline -- --ignored &&
+          cargo test --locked -p canary-ui-egui
+          --test ui_paint_pixels -- --ignored
+      - name: Windowed presentation proof (llvmpipe + Xvfb)
+        run: >
+          xvfb-run --auto-servernum
+          cargo test --locked -p canary-render-vulkan
+          --features presentation
+          --test present_clear -- --ignored
+      - name: Real ECS-driven rendering integration tests (llvmpipe)
+        run: >
+          cargo test --locked -p canary-render-ecs
+          --test render_ecs_readback -- --ignored &&
+          cargo test --locked -p canary-render-ecs
+          --test physics_game_proof -- --ignored
 
   publish:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, integration-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

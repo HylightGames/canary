@@ -428,6 +428,140 @@ fn catch_up_passes_see_held_but_not_edges_or_intents() {
 }
 
 #[test]
+fn event_only_press_and_ui_intent_deliver_once_on_next_sim_pass() {
+    let mut runtime = runtime();
+    let (mapper, jump) = mapper_with_jump();
+    let mut driver = FrameDriver::new(
+        CannedBackend {
+            capture: CaptureResult::none(),
+            intents: vec![UiIntent::ButtonPressed(UiId::new("fire"))],
+        },
+        mapper,
+    );
+    let mut input = HeadlessInput::new();
+    input.inject(InputEvent::KeyPressed(PlatformKey::A));
+    let mut build = noop_build;
+    let mut schedule = noop_schedule;
+    let step = SimPasses::fixed(Duration::from_millis(16), 1);
+
+    // Given: the press and the widget activation land on an event-only frame.
+    let driven = runtime.drive_frame(
+        &mut driver,
+        params(&mut input, &mut build, &mut schedule, SimPasses::NONE),
+    );
+    assert!(!driven.sim_ran);
+
+    // When: the next frame runs a pass, then a quiet frame runs another.
+    let mut observed = Vec::new();
+    let mut schedule = |world: &mut World| {
+        let snapshot = world
+            .resource::<SimulationInput>()
+            .expect("driver publishes the snapshot before the schedule runs");
+        let intents = world
+            .resource::<UiIntents>()
+            .expect("driver publishes intents before the schedule runs");
+        observed.push((
+            snapshot.was_pressed(jump),
+            snapshot.is_down(jump),
+            intents.intents.clone(),
+        ));
+    };
+    runtime.drive_frame(
+        &mut driver,
+        params(&mut input, &mut build, &mut schedule, step),
+    );
+    runtime.drive_frame(
+        &mut driver,
+        params(&mut input, &mut build, &mut schedule, step),
+    );
+
+    // Then: the retained press and intent deliver exactly once.
+    assert_eq!(observed.len(), 2);
+    assert!(observed[0].0, "the retained press fires on the next pass");
+    assert!(
+        observed[0].1,
+        "the hold level survives the event-only frame"
+    );
+    assert_eq!(
+        observed[0].2,
+        vec![UiIntent::ButtonPressed(UiId::new("fire"))],
+        "the retained widget activation delivers with the press"
+    );
+    assert!(
+        !observed[1].0,
+        "a delivered press must not fire a second time"
+    );
+    assert!(
+        observed[1].2.is_empty(),
+        "a delivered intent must not repeat on the next pass"
+    );
+}
+
+#[test]
+fn press_and_release_across_event_only_frames_both_survive() {
+    let mut runtime = runtime();
+    let (mapper, jump) = mapper_with_jump();
+    let mut driver = FrameDriver::new(NullBackend, mapper);
+    let mut input = HeadlessInput::new();
+    let mut build = noop_build;
+    let mut schedule = noop_schedule;
+
+    // Given: a press and its release land on consecutive event-only frames.
+    input.inject(InputEvent::KeyPressed(PlatformKey::A));
+    runtime.drive_frame(
+        &mut driver,
+        params(&mut input, &mut build, &mut schedule, SimPasses::NONE),
+    );
+    input.inject(InputEvent::KeyReleased(PlatformKey::A));
+    runtime.drive_frame(
+        &mut driver,
+        params(&mut input, &mut build, &mut schedule, SimPasses::NONE),
+    );
+
+    // When: a simulation pass finally runs.
+    let mut observed = Vec::new();
+    let mut schedule = |world: &mut World| {
+        let snapshot = world
+            .resource::<SimulationInput>()
+            .expect("driver publishes the snapshot before the schedule runs");
+        observed.push((
+            snapshot.was_pressed(jump),
+            snapshot.was_released(jump),
+            snapshot.is_down(jump),
+            snapshot.tick,
+        ));
+    };
+    runtime.drive_frame(
+        &mut driver,
+        params(
+            &mut input,
+            &mut build,
+            &mut schedule,
+            SimPasses::fixed(Duration::from_millis(16), 1),
+        ),
+    );
+
+    // Then: neither edge disappeared and the hold reports the end state.
+    assert_eq!(observed.len(), 1);
+    assert!(
+        observed[0].0,
+        "the press edge must survive the release frame"
+    );
+    assert!(
+        observed[0].1,
+        "the release edge must survive the earlier press frame"
+    );
+    assert!(
+        !observed[0].2,
+        "down reports the end-of-pass hold, not the press"
+    );
+    assert!(
+        observed[0].3.is_some(),
+        "the retained snapshot is tick-stamped at delivery"
+    );
+}
+
+#[test]
 fn sim_passes_fixed_normalizes_zero_to_event_only() {
     let step = Duration::from_millis(16);
     assert_eq!(SimPasses::fixed(step, 0), SimPasses::NONE);

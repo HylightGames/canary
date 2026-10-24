@@ -181,6 +181,11 @@ pub trait RenderDevice {
     /// when a lenient driver appears to tolerate it — backends fail
     /// loudly in dev on violation (see `canary-render-vulkan`'s
     /// target-drawn tracking).
+    ///
+    /// Same-device contract: the target must come from this device.
+    /// Reading another device's target would submit queue work against
+    /// a foreign image, so backends refuse loudly rather than record
+    /// invalid use.
     fn read_color_target_rgba8(&self, target: &Self::ColorTarget) -> Vec<u8>;
 }
 

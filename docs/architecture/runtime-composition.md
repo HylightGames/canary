@@ -138,8 +138,13 @@ context tick names the current or most recent pass, and the sim-pass
 re-stamp names the pass about to run — which is the tick the snapshot
 carries into the schedule. Outer-frame metadata may advance without
 simulation, but simulation time and ECS `Tick` do not (R-38, resolved).
-The current library slice uses a fixed requested frame count and a
-caller-provided frame duration; it is not yet a wall-clock window loop.
+One-shot input is additionally retained across event-only frames: the
+frame driver holds pending pressed/released edges and UI intents until
+the next simulation pass delivers them exactly once (edges OR together
+across frames, intents concatenate pending-first), so input arriving
+between passes is never silently dropped. The current library slice
+uses a fixed requested frame count and a caller-provided frame
+duration; it is not yet a wall-clock window loop.
 
 ## Proposed phase order
 

@@ -122,6 +122,20 @@ impl SimulationInput {
         self.tick = Some(tick);
     }
 
+    /// Merges one-shot edges retained from earlier event-only frames into
+    /// this frame's freshly routed snapshot: each action's pressed/released
+    /// flags OR together, so a press and a later release across frames both
+    /// survive, while `down` and `frame_index` keep this frame's values
+    /// (the latest physical hold and the delivery frame).
+    pub fn absorb_edges(&mut self, earlier: &SimulationInput) {
+        for action in &mut self.actions {
+            if let Some(state) = earlier.state(action.id) {
+                action.state.pressed |= state.pressed;
+                action.state.released |= state.released;
+            }
+        }
+    }
+
     /// Clears the pressed/released transition edges while preserving each
     /// action's held state.
     ///

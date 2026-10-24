@@ -15,14 +15,16 @@
 //! publish the same held state with the edges cleared and empty intents,
 //! so one physical press cannot fire repeatedly. Event-only frames (no
 //! passes) advance neither the tick nor `sim_time` (R-38) and publish no
-//! tick-stamped snapshot.
+//! tick-stamped snapshot — but they retain their edges and intents in the
+//! driver, so input that arrives between simulation passes is delivered
+//! exactly once on the next pass that runs, never silently dropped.
 
 use std::time::Duration;
 
 use canary_ecs::World;
-use canary_input::InputMapper;
+use canary_input::{InputMapper, SimulationInput};
 use canary_platform::InputSource;
-use canary_ui_core::{UiBackend, UiBuilder, UiFrameInput, UiIntents, UiPaint};
+use canary_ui_core::{UiBackend, UiBuilder, UiFrameInput, UiIntent, UiIntents, UiPaint};
 
 use super::input_frame::drive_input_frame;
 use super::{InputFrame, RunContext, Runtime};
@@ -35,13 +37,33 @@ use super::{InputFrame, RunContext, Runtime};
 pub struct FrameDriver<B: UiBackend> {
     backend: B,
     mapper: InputMapper,
+    pending: Option<PendingFrame>,
+}
+
+/// Input that arrived on event-only frames and has not reached a
+/// simulation pass yet: one-shot pressed/released edges plus UI intents.
+///
+/// The mapper's held-control latches already preserve the *level* (`down`)
+/// across frames, but edges and intents are one-shot: without retention a
+/// press (or a widget activation) on an event-only frame would be
+/// overwritten by the next frame's route before any pass consumed it.
+/// Retained input delivers exactly once — on the next frame that runs a
+/// simulation pass — and is then cleared.
+struct PendingFrame {
+    snapshot: SimulationInput,
+    intents: Vec<UiIntent>,
 }
 
 impl<B: UiBackend> FrameDriver<B> {
     /// Takes ownership of the backend and the (binding-registered) mapper
     /// for one run. Register bindings on the mapper before constructing.
+    /// No input is pending yet; event-only frames accumulate it.
     pub fn new(backend: B, mapper: InputMapper) -> Self {
-        Self { backend, mapper }
+        Self {
+            backend,
+            mapper,
+            pending: None,
+        }
     }
 }
 
@@ -128,7 +150,8 @@ pub struct FrameParams<'a> {
     /// pass, in order, only when [`FrameParams::sim_passes`] is nonzero.
     /// Each invocation observes the tick and `sim_time` advanced for that
     /// pass; only the first sees the routed pressed/released edges and the
-    /// frame's UI intents.
+    /// frame's UI intents (plus anything retained from earlier event-only
+    /// frames, merged in).
     pub run_schedule: &'a mut dyn FnMut(&mut World),
 }
 
@@ -155,8 +178,10 @@ impl Runtime {
     /// [`UiIntents`] resource land *before* `run_schedule` runs, so systems
     /// observe this pass's input, never the previous frame's. The first
     /// pass publishes the routed pressed/released edges and the frame's
-    /// intents; later catch-up passes publish held state with edges cleared
-    /// and empty intents, so a single press fires once, not once per pass.
+    /// intents — plus any edges and intents retained from earlier
+    /// event-only frames, merged in; later catch-up passes publish held
+    /// state with edges cleared and empty intents, so a single press fires
+    /// once, not once per pass.
     pub fn drive_frame<B: UiBackend>(
         &mut self,
         driver: &mut FrameDriver<B>,
@@ -187,14 +212,32 @@ impl Runtime {
         let passes = params.sim_passes.passes();
         let step = params.sim_passes.step();
         let sim_ran = passes > 0;
-        let snapshot = output.input;
-        let mut intents = Some(output.intents);
+        // Merge anything still pending from earlier event-only frames:
+        // edges OR together (a press and a later release both survive
+        // with the latest hold level), intents concatenate pending-first.
+        // The merged snapshot carries this frame's `frame_index`; the
+        // tick is stamped at delivery, immediately before the pass.
+        let mut deliver_snapshot = output.input;
+        let mut deliver_intents = output.intents;
+        if let Some(pending) = driver.pending.take() {
+            deliver_snapshot.absorb_edges(&pending.snapshot);
+            let mut merged = pending.intents;
+            merged.extend(deliver_intents);
+            deliver_intents = merged;
+        }
+        let mut intents = Some(deliver_intents);
         if self.world.is_some() {
             if passes == 0 {
                 // Event-only frame (R-38): publish the frame's input with no
                 // tick stamp and leave the tick and `sim_time` untouched.
+                // Retain what was published: no pass consumed it, so the
+                // next simulation pass must deliver it exactly once.
                 let world = self.world.as_mut().expect("world checked above");
-                snapshot.publish(world);
+                driver.pending = Some(PendingFrame {
+                    snapshot: deliver_snapshot.clone(),
+                    intents: intents.clone().unwrap_or_default(),
+                });
+                deliver_snapshot.publish(world);
                 world.insert_resource(UiIntents {
                     intents: intents.take().unwrap_or_default(),
                 });
@@ -206,7 +249,7 @@ impl Runtime {
                     let world = self.world.as_mut().expect("world checked above");
                     // The routed edges belong to the frame, not to each
                     // catch-up pass: only pass 0 carries them.
-                    let mut pass_snapshot = snapshot.clone();
+                    let mut pass_snapshot = deliver_snapshot.clone();
                     if pass > 0 {
                         pass_snapshot.clear_edges();
                     }

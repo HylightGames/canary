@@ -497,6 +497,13 @@ pub enum PresentationError {
     /// handles would address a surface the swapchain was never created for.
     #[error("present called with a different window than the presenter was built for")]
     WrongWindow,
+    /// A present call arrived after the presenter's window was destroyed.
+    /// The surface aliases the original OS window, and the OS may recycle
+    /// its native handle values for a new window — so a dead window is
+    /// refused by liveness lease, not by handle comparison (which a
+    /// recycled window could pass).
+    #[error("present called after the presenter's window was destroyed")]
+    WindowGone,
 }
 
 #[cfg(test)]

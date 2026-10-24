@@ -167,7 +167,16 @@ impl VulkanColorTarget {
     /// scope is a single readback after a single frame, not a
     /// steady-state render loop that would want to avoid the
     /// `queue_wait_idle` this implies on every call.
+    ///
+    /// The device must own this target: reading through another device's
+    /// queue would submit GPU work against a foreign image, so a foreign
+    /// device panics loudly (same fail-fast rule as the encoder's
+    /// ownership asserts) instead of recording invalid Vulkan use.
     pub(crate) fn read_rgba8(&self, vk_device: &VulkanDevice) -> Vec<u8> {
+        assert!(
+            vk_device.owns(self.device_id),
+            "read_rgba8 with a target from another VulkanDevice"
+        );
         // See `drawn`'s docs: reading a never-drawn target copies from
         // an `UNDEFINED`-layout image, which is invalid even when the
         // driver tolerates it (llvmpipe does, which is why this went

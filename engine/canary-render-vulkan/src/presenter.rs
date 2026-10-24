@@ -17,16 +17,16 @@
 //! depth, no textures, no multi-frame flight, no mode switching, no
 //! HDR — those arrive with their own milestones, not smuggled in here.
 //!
-//! The presenter owns its [`VulkanDevice`] and borrows the window for
-//! its whole lifetime (`&'a dyn SurfaceHandlesProvider`): the surface
-//! aliases the OS window, so the window must outlive everything here,
-//! and the borrow makes that a compile-time rule rather than a
-//! documented wish. `VulkanDevice`'s drop-order contract extends
-//! naturally — swapchain objects and the surface die in this
-//! presenter's `Drop`, before the owned device's own `Drop` runs.
+//! The presenter owns its [`VulkanDevice`] and holds the window's
+//! liveness lease (plus its copied handles): the surface aliases the OS
+//! window, so every frame refuses a destroyed window with `WindowGone`
+//! and a different live window with `WrongWindow`. `VulkanDevice`'s
+//! drop-order contract extends naturally — swapchain objects and the
+//! surface die in this presenter's `Drop`, before the owned device's
+//! own `Drop` runs.
 
 use ash::vk;
-use canary_platform::surface::SurfaceHandlesProvider;
+use canary_platform::surface::{SurfaceHandlesProvider, WindowLeaseWeak};
 use canary_render::presentation::{
     is_suspended_extent, should_recreate_after_acquire, should_recreate_after_present,
     should_skip_frame_after_acquire, AcquireStatus, AcquiredImage, FrameOutcome, PresentStatus,
@@ -47,19 +47,19 @@ use crate::swapchain::VulkanSwapchain;
 /// and skips frames it must not draw (minimized window, acquire
 /// timeout) — callers match on [`FrameOutcome`], never on native codes.
 ///
-/// The window is passed to [`VulkanPresenter::new`] and to every
-/// [`VulkanPresenter::present_cleared_frame`] call (not stored) so
-/// event polling (`&mut` on the window) and presenting (`&` on the
-/// window) interleave freely in a game loop.
+/// The window is passed to [`VulkanPresenter::new`] and to every frame
+/// call (not borrowed, so event polling (`&mut` on the window) and
+/// presenting (`&` on the window) interleave freely in a game loop).
 ///
-/// Caller contract (same shape as `ash-window`'s own safety contract,
-/// and like [`VulkanDevice`]'s drop-order rule, enforced by
-/// documentation plus loud failure rather than by the borrow
-/// checker): pass the same window the presenter was built for to every
-/// frame, and drop the presenter before that window. The surface
-/// aliases the OS window — presenting after the window died is
-/// undefined behavior the type system cannot see, and the validation
-/// layers (enabled whenever present) fail loudly on it in debug builds.
+/// Liveness contract, enforced at runtime: [`VulkanPresenter::new`]
+/// keeps the window's [`WindowLeaseWeak`] half alongside the copied
+/// handles. Every frame first refuses a dead window with
+/// [`PresentationError::WindowGone`] — the surface aliases the OS
+/// window, and the OS may recycle a destroyed window's native handle
+/// values for a new one, so handle comparison alone cannot prove the
+/// original is still alive. A *different* live window is still a caller
+/// bug, refused with [`PresentationError::WrongWindow`] (same shape as
+/// `ash-window`'s own safety contract).
 ///
 /// Like [`VulkanDevice`], this type is `!Send`: the device and every
 /// resource stay on the thread that created them.
@@ -71,6 +71,7 @@ pub struct VulkanPresenter {
     generation: u64,
     needs_recreate: bool,
     window: canary_platform::surface::WindowHandles,
+    lease: WindowLeaseWeak,
 }
 
 impl VulkanPresenter {
@@ -136,6 +137,7 @@ impl VulkanPresenter {
             generation,
             needs_recreate: false,
             window: handles,
+            lease: window.liveness_lease().downgrade(),
         })
     }
 
@@ -266,6 +268,12 @@ impl VulkanPresenter {
     /// acquire, skip handling. Returns either a skip outcome or a ready
     /// image with the recreate flag the report carries.
     fn check_window(&self, window: &dyn SurfaceHandlesProvider) -> Result<(), PresentationError> {
+        // Liveness first: a destroyed-and-recreated window can recycle
+        // the original's handle values, which would pass the comparison
+        // below while addressing a surface whose OS window is gone.
+        if !self.lease.is_live() {
+            return Err(PresentationError::WindowGone);
+        }
         let current = window
             .window_handles()
             .ok_or(PresentationError::NoWindowHandles)?;
