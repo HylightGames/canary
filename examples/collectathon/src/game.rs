@@ -152,6 +152,7 @@ pub fn register_collect_on_touch(schedule: &mut Schedule) {
             .reads::<Player>()
             .writes::<Pickup>()
             .writes::<MeshRenderable>()
+            .writes::<TexturedRenderable>()
             .writes::<AudioSource>()
             .writes::<Score>()
             .writes_resource::<GameStats>(),
@@ -171,6 +172,7 @@ pub fn register_collect_on_edge(schedule: &mut Schedule, collect: ActionId) {
             .reads::<Player>()
             .writes::<Pickup>()
             .writes::<MeshRenderable>()
+            .writes::<TexturedRenderable>()
             .writes::<AudioSource>()
             .writes::<Score>()
             .writes_resource::<GameStats>(),
@@ -226,13 +228,14 @@ fn collect_within(world: &mut World, radius: f32, play_sound: bool) {
                 source.state = SourceState::Playing;
             }
         }
-        // Hide the collected pickup by dropping its drawable, never by
+        // Hide the collected pickup by dropping both drawables, never by
         // despawning: the same entity's AudioSource must survive to play
-        // the collection chime, and reset_room re-inserts the renderable
-        // from PickupVisual. The bridge extracts whatever carries
-        // MeshRenderable, so this is the visibility filter it has no
+        // the collection chime, and reset_room re-inserts both renderables
+        // from PickupVisual. The bridge extracts whatever carries a
+        // renderable, so this is the visibility filter it has no
         // concept of.
         let _ = world.remove::<MeshRenderable>(entity);
+        let _ = world.remove::<TexturedRenderable>(entity);
     }
     if newly_collected == 0 {
         return;
@@ -256,6 +259,7 @@ pub fn register_reset_on_edge(schedule: &mut Schedule, reset: ActionId) {
             .reads::<PickupVisual>()
             .writes::<Pickup>()
             .writes::<MeshRenderable>()
+            .writes::<TexturedRenderable>()
             .writes::<AudioSource>()
             .writes::<Score>()
             .writes_resource::<GameStats>(),
@@ -283,6 +287,7 @@ pub fn register_apply_ui_intents(schedule: &mut Schedule) {
             .reads::<PickupVisual>()
             .writes::<Pickup>()
             .writes::<MeshRenderable>()
+            .writes::<TexturedRenderable>()
             .writes::<AudioSource>()
             .writes::<Score>()
             .writes_resource::<GameStats>(),
@@ -316,6 +321,10 @@ pub fn reset_room(world: &mut World) {
         }
         if let Some(visual) = world.get::<PickupVisual>(entity).copied() {
             let _ = world.insert(entity, MeshRenderable::new(visual.mesh, visual.color));
+            let _ = world.insert(
+                entity,
+                TexturedRenderable::new(visual.sprite_mesh, visual.sprite),
+            );
         }
     }
     let scores: Vec<_> = world.query::<Score>().map(|(entity, _)| entity).collect();
@@ -346,20 +355,29 @@ pub struct SimHandles {
     pub pickup_sound: AssetHandle<Sound>,
 }
 
-/// What an uncollected pickup draws: the mesh plus its flat tint.
+/// What an uncollected pickup draws: the mesh plus its flat tint, and
+/// the sprite mesh plus texture drawn over it.
 ///
-/// The render attachment stores this alongside [`MeshRenderable`] so
-/// collection can remove the drawable without losing the data
-/// [`reset_room`] needs to restore it. Kept in the sample, not the
-/// engine: `extract_mesh_scene` has no visibility concept and
+/// The render attachment stores this alongside [`MeshRenderable`] and
+/// [`TexturedRenderable`] so collection can remove both drawables
+/// without losing the data [`reset_room`] needs to restore them. Kept
+/// in the sample, not the engine: `extract_mesh_scene` has no
+/// visibility concept and
 /// [`RenderItem`](canary_render_ecs::RenderItem) carries no entity id to
 /// filter by, so hiding a collected pickup is the scene's decision.
+/// Both drawables must go: the windowed bridge draws the textured
+/// scene whenever the camera resolves, so dropping only the flat quad
+/// leaves the sprite on screen.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PickupVisual {
     /// Mesh the pickup draws.
     pub mesh: AssetHandle<Mesh>,
     /// Flat RGB tint of the pickup's triangles.
     pub color: [f32; 3],
+    /// Sprite mesh drawn over the flat quad.
+    pub sprite_mesh: AssetHandle<Mesh>,
+    /// Sprite texture drawn over the flat quad.
+    pub sprite: AssetHandle<Texture>,
 }
 
 /// Attaches the simulation-owned components the spawner cannot decode:
@@ -558,7 +576,12 @@ pub fn attach_render_components(
         };
         world.insert(entity, pose)?;
         world.insert(entity, GlobalTransform::from_matrix(pose.to_matrix()))?;
-        let visual = PickupVisual { mesh, color };
+        let visual = PickupVisual {
+            mesh,
+            color,
+            sprite_mesh,
+            sprite: handles.sprite,
+        };
         world.insert(entity, visual)?;
         world.insert(entity, MeshRenderable::new(visual.mesh, visual.color))?;
         world.insert(entity, TexturedRenderable::new(sprite_mesh, handles.sprite))?;
@@ -736,6 +759,58 @@ mod tests {
                 .expect("stats exist")
                 .collected,
             1
+        );
+    }
+
+    #[test]
+    fn touch_collect_hides_both_drawables_and_reset_restores_them() {
+        // The windowed bridge draws the textured scene whenever the
+        // camera resolves, so a collected pickup must lose *both*
+        // drawables — dropping only the flat quad leaves the sprite
+        // on screen (the live bug: chime played, shard stayed).
+        let mut world = World::new();
+        let pickup = spawn_touch_room(&mut world);
+        let mesh = AssetHandle::<Mesh>::from_raw_parts(0, 0);
+        let sprite_mesh = AssetHandle::<Mesh>::from_raw_parts(0, 1);
+        let sprite = AssetHandle::<Texture>::from_raw_parts(0, 2);
+        world
+            .insert(
+                pickup,
+                PickupVisual {
+                    mesh,
+                    color: [0.2, 0.9, 0.9],
+                    sprite_mesh,
+                    sprite,
+                },
+            )
+            .expect("test pickup takes PickupVisual");
+        world
+            .insert(pickup, MeshRenderable::new(mesh, [0.2, 0.9, 0.9]))
+            .expect("test pickup takes MeshRenderable");
+        world
+            .insert(pickup, TexturedRenderable::new(sprite_mesh, sprite))
+            .expect("test pickup takes TexturedRenderable");
+        let mut schedule = Schedule::new();
+        register_collect_on_touch(&mut schedule);
+        schedule.run(&mut world);
+
+        assert!(
+            world.get::<MeshRenderable>(pickup).is_none(),
+            "collection must drop the flat drawable"
+        );
+        assert!(
+            world.get::<TexturedRenderable>(pickup).is_none(),
+            "collection must drop the textured drawable, or the bridge keeps drawing the shard"
+        );
+
+        reset_room(&mut world);
+        assert!(
+            world.get::<MeshRenderable>(pickup).is_some(),
+            "reset must restore the flat drawable"
+        );
+        assert!(
+            world.get::<TexturedRenderable>(pickup).is_some(),
+            "reset must restore the textured drawable"
         );
     }
 
