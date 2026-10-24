@@ -125,7 +125,7 @@ impl Archetype {
             return None;
         }
         // SAFETY: `mutable_id != shared_id` is asserted above, so
-        // `mutable_id` and `shared_id` are two different keys into
+        // SAFETY: `mutable_id` and `shared_id` are two different keys into
         // `self.columns`, each owning a separate `Box<dyn ColumnOps>`
         // heap allocation -- taking a `&mut` into one and a `&` into
         // the other cannot alias the same memory, even though the

@@ -136,25 +136,26 @@ rows below record the gate as documented, not as passed.
 
 - [x] `cargo build --workspace`, `cargo clippy --workspace --all-targets
   -- -D warnings`, `cargo test --workspace` green on the release commit
-  (CI `lint-and-test`, all three OSes). Evidence: CI run 40101053516
-  (2026-10-24) on commit `9c5bcb5` — Build/lint/test ubuntu + macos +
-  windows, Format check, Rustdoc, all success.
+  (CI `lint-and-test`, all three OSes). Evidence: CI run 40108909162
+  (2026-10-24) on commit `19788af` — Build/lint/test ubuntu + macos +
+  windows, Format check, Rustdoc, WASM target, publishable-archives
+  check, all success.
 - [x] Headless twin: `cargo run -p collectathon --bin
   collectathon_headless` prints the deterministic score line (90
-  scripted frames; decode-only audio). Evidence: local run prints
-  `score 1 collected 1/4 player (-116.0, 0.0) after 90 frames`
-  (code-identical tree — only CI YAML changed since); CI release-gate
-  job (run 40101053516) green.
+  scripted frames; decode-only audio). Evidence: local run on commit
+  `19788af` prints
+  `score 1 collected 1/4 player (-116.0, 0.0) after 90 frames`;
+  CI release-gate job (run 40108909162) green.
 - [x] Server/client replication run converges (snapshot → delta → input
-  → ack, clean disconnect). Evidence: local loopback run —
-  `snapshot converged on 6 entries across 5 entities`, `delta applied —
-  5 changes, 1 removals`, `ack seq=1`, `clean disconnect` (code-identical
-  tree); CI release-gate job (run 40101053516) green.
+  → ack, clean disconnect). Evidence: local loopback run on commit
+  `19788af` — `snapshot converged on 6 entries across 5 entities`,
+  `delta applied — 5 changes, 1 removals`, `ack seq=1`,
+  `clean disconnect`; CI release-gate job (run 40108909162) green.
 - [x] Two-client collaboration run converges
-  (accept/deny/conflict/sync). Evidence: local run prints
-  `two-client run converged` (owner accept, reader deny, stale conflict
-  with refresh, rebased accept, sync tail); CI release-gate job (run
-  40101053516) green.
+  (accept/deny/conflict/sync). Evidence: local run on commit `19788af`
+  prints `two-client run converged` (owner accept, reader deny, stale
+  conflict with refresh, rebased accept, sync tail); CI release-gate
+  job (run 40108909162) green.
 - [x] `cargo test -p collectathon --lib plugin` (Tier A guest probe)
   and `cargo test -p collectathon --lib state` (snapshot determinism)
   pass. Evidence: 2 plugin tests + `capture_restore_recapture_is_byte_stable`
@@ -163,10 +164,10 @@ rows below record the gate as documented, not as passed.
   pre-fix.
 - [x] CI Xvfb/llvmpipe legs green (`windowing-integration`,
   `rendering-integration`, `render-ecs-integration`). Evidence: CI run
-  40101053516 on `9c5bcb5` — all three jobs success (incl. the new
-  `WindowGone` destroyed-window refusal and cross-device readback
-  misuse tests alongside `present_clear`, `render_ecs_readback` +
-  `physics_game_proof`).
+  40108909162 on `19788af` — all three jobs success (incl. the
+  `WindowGone` destroyed-window refusal with the retained-weak-lease
+  assertion and cross-device readback misuse tests alongside
+  `present_clear`, `render_ecs_readback` + `physics_game_proof`).
 - [x] `docs/release-notes/v0.1.0.md` exists and matches this checklist;
   `examples/collectathon/README.md` setup/launch/controls plus the
   first-game guide are current; Linux native packages and the
@@ -209,4 +210,4 @@ rows below record the gate as documented, not as passed.
 - [x] Windowed playthrough recorded 2026-10-21 Arch Linux Vulkan (`frame=1634 presented=1634 skipped=0 x=46.0 score=4`).
 - [x] Audio playback recorded with one transient `Buffer underrun/overrun` qualified as accepted observation.
 - [ ] Manual window/audio re-evidence on the current candidate: the candidate differs behaviorally from the Oct 21 run (input retention, presenter lease), so the plan calls for a re-run — no display/audio device in this environment; needs a real-machine run.
-- [x] Xvfb, llvmpipe Vulkan/render-ECS, and exact-commit evidence recorded on the release candidate: CI run 40101053516 on commit `9c5bcb5` (all 12 jobs success). Tag + stable-ancestry steps intentionally pending — no `v0.1.0` tag cut and nothing pushed to `stable` per maintainer direction; when cut, `v0.1.0` is the intended tag (existing `v0.0.1`/`v0.0.2` tags predate the release workflow). Do not cut `v0.1.0` until the maintainer gives the release go-ahead.
+- [x] Xvfb, llvmpipe Vulkan/render-ECS, and exact-commit evidence recorded on the release candidate: CI run 40108909162 on commit `19788af` (all 12 jobs success). Tag + stable-ancestry steps intentionally pending — no `v0.1.0` tag cut and nothing pushed to `stable` per maintainer direction; when cut, `v0.1.0` is the intended tag (existing `v0.0.1`/`v0.0.2` tags predate the release workflow). Do not cut `v0.1.0` until the maintainer gives the release go-ahead.

@@ -209,6 +209,10 @@ impl VulkanPipeline {
             .render_pass(vk_device.render_pass)
             .subpass(0);
         let pipeline_cis = [pipeline_ci];
+        // SAFETY: `pipeline_cis` references only live handles created above
+        // on this device (`vs_module`, `fs_module`, `layout`, the shared
+        // render pass); the null pipeline cache is valid; failure panics
+        // loudly instead of yielding a null handle.
         let pipeline = unsafe {
             device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_cis, None)
         }
@@ -216,6 +220,8 @@ impl VulkanPipeline {
 
         // Shader modules aren't needed after pipeline creation -- the
         // pipeline has already consumed and compiled them internally.
+        // SAFETY: both modules were created above on this device and are
+        // destroyed exactly once here, after the consuming pipeline build.
         unsafe {
             device.destroy_shader_module(vs_module, None);
             device.destroy_shader_module(fs_module, None);

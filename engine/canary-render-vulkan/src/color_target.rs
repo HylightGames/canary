@@ -307,6 +307,9 @@ impl VulkanColorTarget {
             data
         };
 
+        // SAFETY: `staging_buffer`/`staging_memory` were created above on
+        // this device, fully consumed by the waited-on readback, and are
+        // destroyed/freed exactly once here at the end of the function.
         unsafe {
             device.destroy_buffer(staging_buffer, None);
             device.free_memory(staging_memory, None);
