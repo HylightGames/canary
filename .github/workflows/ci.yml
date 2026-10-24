@@ -444,5 +444,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Rust
         run: rustup toolchain install stable
+      # Same compile-time deps as lint-and-test: `--all-features` turns
+      # on canary-platform/winit-backend (X11/Wayland headers) and
+      # canary-audio builds on cpal's ALSA backend (alsa-sys probes
+      # pkg-config alsa at compile time, ADR 0023) — docs build the
+      # code, so they need the libraries too.
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev
       - name: cargo doc --workspace --no-deps
         run: RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --no-deps --all-features
