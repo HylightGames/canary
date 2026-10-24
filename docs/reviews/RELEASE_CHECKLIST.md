@@ -134,26 +134,43 @@ rows below record the gate as documented, not as passed.
 
 ## A. Automated evidence (CI / deterministic local)
 
-- [ ] `cargo build --workspace`, `cargo clippy --workspace --all-targets
+- [x] `cargo build --workspace`, `cargo clippy --workspace --all-targets
   -- -D warnings`, `cargo test --workspace` green on the release commit
-  (CI `lint-and-test`, all three OSes).
-- [ ] Headless twin: `cargo run -p collectathon --bin
+  (CI `lint-and-test`, all three OSes). Evidence: CI run 40093835625
+  (2026-10-24) on commit `4ee55f5` — Build/lint/test ubuntu + macos +
+  windows, Format check, all success.
+- [x] Headless twin: `cargo run -p collectathon --bin
   collectathon_headless` prints the deterministic score line (90
-  scripted frames; decode-only audio).
-- [ ] Server/client replication run converges (snapshot → delta → input
-  → ack, clean disconnect).
-- [ ] Two-client collaboration run converges
-  (accept/deny/conflict/sync).
-- [ ] `cargo test -p collectathon --lib plugin` (Tier A guest probe)
+  scripted frames; decode-only audio). Evidence: local run on `4ee55f5`
+  prints `score 1 collected 1/4 player (-116.0, 0.0) after 90 frames`;
+  CI release-gate job (run 40093835625) green.
+- [x] Server/client replication run converges (snapshot → delta → input
+  → ack, clean disconnect). Evidence: local loopback run on `4ee55f5` —
+  `snapshot converged on 6 entries across 5 entities`, `delta applied —
+  5 changes, 1 removals`, `ack seq=1`, `clean disconnect`; CI
+  release-gate job (run 40093835625) green.
+- [x] Two-client collaboration run converges
+  (accept/deny/conflict/sync). Evidence: local run on `4ee55f5` prints
+  `two-client run converged` (owner accept, reader deny, stale conflict
+  with refresh, rebased accept, sync tail); CI release-gate job (run
+  40093835625) green.
+- [x] `cargo test -p collectathon --lib plugin` (Tier A guest probe)
   and `cargo test -p collectathon --lib state` (snapshot determinism)
-  pass.
-- [ ] CI Xvfb/llvmpipe legs green (`windowing-integration`,
-  `rendering-integration`, `render-ecs-integration`).
-- [ ] `docs/release-notes/v0.1.0.md` exists and matches this checklist;
+  pass. Evidence: 2 plugin tests + `capture_restore_recapture_is_byte_stable`
+  pass on `4ee55f5`.
+- [x] CI Xvfb/llvmpipe legs green (`windowing-integration`,
+  `rendering-integration`, `render-ecs-integration`). Evidence: CI run
+  40093835625 on `4ee55f5` — all three jobs success (incl.
+  `present_clear` under llvmpipe+Xvfb, `render_ecs_readback` +
+  `physics_game_proof`).
+- [x] `docs/release-notes/v0.1.0.md` exists and matches this checklist;
   `examples/collectathon/README.md` setup/launch/controls plus the
   first-game guide are current; Linux native packages and the
   git/path consumer route are documented with no `crates.io`
   implication (`canary-runtime` is `publish = false`; no facade crate).
+  Verified 2026-10-24 on `4ee55f5`: release note present with
+  `Not a crates.io consumer release`; both READMEs state the git/path
+  route only; remaining `crates.io` mentions are explicit disclaimers.
 
 ## B. Manual live-device evidence (unchecked until a real-machine run)
 
@@ -187,4 +204,4 @@ rows below record the gate as documented, not as passed.
 - [x] Headless, server/client, collab, plugin, snapshot determinism covered by `release-gate` and unit tests.
 - [x] Windowed playthrough recorded 2026-10-21 Arch Linux Vulkan (`frame=1634 presented=1634 skipped=0 x=46.0 score=4`).
 - [x] Audio playback recorded with one transient `Buffer underrun/overrun` qualified as accepted observation.
-- [ ] Xvfb, llvmpipe Vulkan/render-ECS, and exact-commit/tag/stable-ancestry evidence still to record on the release candidate — do not cut `v0.1.0` until those gates pass.
+- [x] Xvfb, llvmpipe Vulkan/render-ECS, and exact-commit evidence recorded on the release candidate: CI run 40093835625 on commit `4ee55f5` (all 11 jobs success). Tag + stable-ancestry steps intentionally pending — no `v0.1.0` tag cut and nothing pushed to `stable` per maintainer direction; when cut, `v0.1.0` is the intended tag (existing `v0.0.1`/`v0.0.2` tags predate the release workflow). Do not cut `v0.1.0` until the maintainer gives the release go-ahead.
