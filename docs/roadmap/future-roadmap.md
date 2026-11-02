@@ -13,6 +13,17 @@ ADR, update the architecture design, then add a milestone with measurable
 acceptance. No calendar dates or speculative version numbers are assigned
 here.
 
+## Planning principles (proposed 2026-10-24)
+
+Future planning follows [`capability-roadmap-principles.md`](capability-roadmap-principles.md):
+every release must grow developer-facing capability while reliability, usability,
+performance, security and production maturity advance alongside it; major releases
+advance several capability pillars together; capabilities mature through Exists,
+Integrated, Usable and Production-capable; capability, integration and
+production-readiness roadmaps stay connected; high-end and studio workflows are
+designed for early; acceptance rests on demonstrated capability and evidence, not
+feature counts. These are proposed planning rules, not accepted ADRs.
+
 ## The committed path comes first
 
 `v0.0.16` is the latest tagged release; the active target is the `v0.1.0`
@@ -36,6 +47,13 @@ beginner-friendly workflows, full asset cooking, visual scripting, marketplace,
 3D physics, and prediction/rollback are not prerequisites for that bar.
 
 ## Post-`v0.1.0` sequence: editor to ecosystem
+
+> **Proposed re-planning (2026-10-24).** The editor-first ordering below is
+> retained as history. The [`v0.2.0` roadmap](v0.2.0-roadmap.md) proposes growing
+> rendering, physics, animation, assets, input, audio, UI, networking and developer
+> workflow first, with the editor building on the component registry, inspector and
+> collaboration operations in `v0.3.0`. Until the maintainer approves that proposal,
+> the sequence below remains the accepted direction.
 
 The dependency order below is a direction, not a fixed implementation plan.
 At each stage, keep the engine headless-usable and keep editor code as a

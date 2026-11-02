@@ -49,6 +49,20 @@ This deliberately leaves the editor, visual scripting, marketplace,
 full asset cooking/hot reload, 3D physics, and prediction/rollback beyond
 `v0.1.0`. Their absence does not block that release target.
 
+### Post-`v0.1.0` planning principle (proposed 2026-10-24)
+
+After `v0.1.0`, every release is planned to **expand what developers can actually
+build** while reliability, usability, performance, security and production maturity
+grow alongside it. The guiding capability targets are: `v0.1.0` a real minimal engine;
+`v0.2.0` a broadly useful game-development platform; `v0.3.0` a capable, cohesive
+engine; `v0.4.0` an advanced engine; `v0.5.0` a production-capable platform; `v0.6.0` a
+studio-dependable, high-end engine; `v0.7.0` to `v1.0.0` advanced studio workflows, VR,
+cinematics, platform support and API stability, with `v1.0.0` meaning a mature core
+platform rather than the end of development. The pillars, maturity levels and rules are
+in [`capability-roadmap-principles.md`](../roadmap/capability-roadmap-principles.md); the
+first application is the [`v0.2.0` roadmap](../roadmap/v0.2.0-roadmap.md). The eras below
+are retained as history and as a map of subsystems, not as a release order.
+
 ## Era 3 — Rendering and content (in progress)
 
 The native RHI and first Vulkan backend shipped in `v0.0.6`; ECS extraction,

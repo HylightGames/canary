@@ -35,6 +35,12 @@ and out-of-scope items are in [`v0.1.0-plan.md`](v0.1.0-plan.md); long-term
 editor, visual scripting, and ecosystem work is in
 [`future-roadmap.md`](future-roadmap.md).
 
+A final `v0.1.0` review (2026-10-24, audited commit `ebc8f7f`) and a proposed
+`v0.2.0` roadmap are recorded in
+[`2026-10-24-v0.1.0-final-review.md`](../reviews/2026-10-24-v0.1.0-final-review.md) and
+[`v0.2.0-roadmap.md`](v0.2.0-roadmap.md). They are proposals and findings; they do not
+change any status recorded below.
+
 ## `v0.0.1` — Released
 
 - [x] Repository, git history, MIT license
@@ -780,7 +786,9 @@ below), and no engine code changed for it. The sample lives entirely in
       `frame=1634`, the HUD reached `4/4`, collected pickups despawned
       and reset restored them, and `pickup.wav` was audible on each
       collection. The headless deterministic run stays pinned by the CI
-      release gate; `v0.1.0` can be cut.
+      release gate; the tag remains subject to the final review's C1–C6
+      conditions (see
+      [`2026-10-24-v0.1.0-final-review.md`](../reviews/2026-10-24-v0.1.0-final-review.md)).
 
 **Explicitly untouched non-goals** (per
 [`v0.1.0-plan.md`](v0.1.0-plan.md#explicitly-not-required-for-v010)):

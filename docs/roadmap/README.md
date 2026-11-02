@@ -58,6 +58,20 @@ criteria, stop and redesign that primitive before layering more systems on it.
 Do not turn the editor, visual scripting, marketplace, full cooking/hot reload,
 3D physics, or prediction/rollback into prerequisites for `v0.1.0`.
 
+## Planning after `v0.1.0` (proposed 2026-10-24)
+
+A final `v0.1.0` review recorded a release recommendation and a proposed `v0.2.0`
+direction. Both are **proposals awaiting maintainer approval**; they do not change
+the closure gates above or any accepted ADR.
+
+- [`capability-roadmap-principles.md`](capability-roadmap-principles.md): every release
+  must grow what developers can build, with reliability growing alongside; seven
+  capability pillars, four maturity levels, three connected roadmaps.
+- [`v0.2.0-roadmap.md`](v0.2.0-roadmap.md): a dependency-ordered, capability-first
+  proposal for the first breadth release.
+- [`../reviews/2026-10-24-v0.1.0-final-review.md`](../reviews/2026-10-24-v0.1.0-final-review.md)
+  and its [findings register](../reviews/2026-10-24-v0.1.0-final-review-findings.md).
+
 ## How to pick up a task
 
 1. Read [`status.md`](status.md) for what exists in code, what is only

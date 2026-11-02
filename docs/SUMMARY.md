@@ -78,6 +78,8 @@
 - [`v0.0.12` Roadmap: Audio Playback (`canary-audio`)](roadmap/v0.0.12-roadmap.md)
 - [`v0.0.13` Roadmap: Windowed Game UI and Shared Input](roadmap/v0.0.13-roadmap.md)
 - [`v0.1.0` Plan: A Real, Small Game Against Canary's Runtime](roadmap/v0.1.0-plan.md)
+- [Capability-Growth Roadmap Principles](roadmap/capability-roadmap-principles.md)
+- [`v0.2.0` Roadmap (proposed)](roadmap/v0.2.0-roadmap.md)
 - [Future Roadmap (Beyond `v0.1.0`)](roadmap/future-roadmap.md)
 - [Milestones](roadmap/milestones.md)
 - [Project Status](roadmap/status.md)
@@ -110,6 +112,8 @@
 # Reviews
 
 - [Architecture Reviews](reviews/README.md)
+- [`v0.1.0` Final Review (2026-10-24)](reviews/2026-10-24-v0.1.0-final-review.md)
+- [`v0.1.0` Final Review: Findings Register](reviews/2026-10-24-v0.1.0-final-review-findings.md)
 - [v0.0.2 Release Checklist](reviews/v0.0.2-RELEASE_CHECKLIST.md)
 - [`v0.0.12` Release Checklist](reviews/v0.0.12-RELEASE_CHECKLIST.md)
 - [`v0.0.13` Release Checklist](reviews/v0.0.13-RELEASE_CHECKLIST.md)
