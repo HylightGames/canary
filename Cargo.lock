@@ -414,7 +414,7 @@ dependencies = [
  "canary-ecs",
  "canary-scheduler",
  "canary-transform",
- "glam 0.33.11",
+ "glam 0.34.1",
  "proptest",
  "rodio",
  "thiserror 2.0.21",
@@ -499,7 +499,7 @@ dependencies = [
  "canary-scheduler",
  "canary-transform",
  "codspeed-divan-compat",
- "glam 0.33.11",
+ "glam 0.34.1",
  "proptest",
  "rapier2d",
  "tempfile",
@@ -552,7 +552,7 @@ dependencies = [
  "canary-scheduler",
  "canary-transform",
  "codspeed-divan-compat",
- "glam 0.33.11",
+ "glam 0.34.1",
  "indexmap",
  "naga",
 ]
@@ -588,7 +588,7 @@ dependencies = [
  "canary-state",
  "canary-transform",
  "canary-ui-core",
- "glam 0.33.11",
+ "glam 0.34.1",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
@@ -623,7 +623,7 @@ dependencies = [
  "canary-ecs",
  "canary-scheduler",
  "codspeed-divan-compat",
- "glam 0.33.11",
+ "glam 0.34.1",
  "thiserror 2.0.21",
 ]
 
@@ -847,7 +847,7 @@ dependencies = [
  "canary-ui-core",
  "canary-ui-egui",
  "fluent",
- "glam 0.33.11",
+ "glam 0.34.1",
  "naga",
  "rcgen",
  "serde_json",
@@ -1778,13 +1778,19 @@ checksum = "f70749695b063ecbf6b62949ccccde2e733ec3ecbbd71d467dca4e5c6c97cca0"
 
 [[package]]
 name = "glam"
-version = "0.33.11"
+version = "0.33.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35b4e837a1d133645d1dcf283e146a4b9901e390a1c13545f959cfed3a72f24f"
+checksum = "37bfe73dc8ec21f54d181e5a60554327ec3f1c600c455a75ccbfc65d2106a6c4"
 dependencies = [
  "approx",
  "libm",
 ]
+
+[[package]]
+name = "glam"
+version = "0.34.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc148d4ddd3930c52f9e5ae79b89805c6f07e9ff417e7b083e0348cea60a5aba"
 
 [[package]]
 name = "glamx"
@@ -1793,7 +1799,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d74079318e3a077bd3d15faa90fde24fa37bb9f157f92f853e6019a15fd413"
 dependencies = [
  "approx",
- "glam 0.33.11",
+ "glam 0.33.12",
  "nalgebra",
  "num-traits",
  "simba",
@@ -2392,7 +2398,7 @@ dependencies = [
  "glam 0.30.10",
  "glam 0.31.1",
  "glam 0.32.1",
- "glam 0.33.11",
+ "glam 0.33.12",
  "matrixmultiply",
  "nalgebra-macros",
  "num-complex",
@@ -3954,7 +3960,7 @@ dependencies = [
  "canary-scheduler",
  "canary-transform",
  "gif",
- "glam 0.33.11",
+ "glam 0.34.1",
  "naga",
 ]
 

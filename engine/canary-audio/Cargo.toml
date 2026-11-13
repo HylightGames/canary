@@ -18,7 +18,7 @@ canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
 canary-scheduler = { path = "../canary-scheduler", version = "0.0.16" }
 canary-transform = { path = "../canary-transform", version = "0.0.16" }
 canary-assets = { path = "../canary-assets", version = "0.0.16" }
-glam = "0.33"
+glam = "0.34"
 thiserror = "2.0.19"
 
 # Bootstrap playback backend (ADR 0023: rodio is the explicitly-labeled
