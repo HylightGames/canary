@@ -17,7 +17,7 @@ workspace = true
 canary-platform = { path = "../canary-platform", version = "0.0.16" }
 canary-render = { path = "../canary-render", version = "0.0.16" }
 canary-ui-core = { path = "../canary-ui-core", version = "0.0.16" }
-egui = "0.36"
+egui = "0.37"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 [dev-dependencies]
