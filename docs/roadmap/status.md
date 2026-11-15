@@ -10,7 +10,7 @@ a point-in-time record — the same convention as
 
 ## Current handoff — `v0.0.16` latest tag, `v0.1.0` closure on `dev` (2026-10-24)
 
-`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag; the draft release note lives at `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample on `dev` covers WP1–WP3; WP4 live evidence recorded 2026-10-21 (Arch Linux Vulkan windowed run plus audio with one qualified underrun). Since then the readiness audit's two remaining code gaps closed on `dev`: event-only input/intent retention (`PendingFrame` + `SimulationInput::absorb_edges`, once-only delivery tested), presenter liveness lease (`WindowGone`) plus cross-device readback refusal, rustdoc as a `dev` CI gate, and a release-workflow candidate integration gate (Xvfb + llvmpipe enforced pre-publish). Since then the re-review's provider-trust follow-up closed on `dev` too: the provider trait is `unsafe` with a documented safety section and the lease is weak-only ([ADR 0030](../decisions/architecture-decision-records/0030-trusted-window-provider-contract.md)). Fresh candidate evidence landed 2026-10-24 (CI run 40108909162 on `19788af`, plus a manual window/audio re-run at `5ee1b3f` covering the collect-textured-drawable fix — two `4/4` playthroughs, `804/804` and `700/700` presented, zero skipped). That evidence predates the `0.1.0` version bump and dependency pass, so it must be repeated on the release commit; see the final-review condition status below and [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag; the draft release note lives at `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample on `dev` covers WP1–WP3; WP4 live evidence recorded 2026-10-21 (Arch Linux Vulkan windowed run plus audio with one qualified underrun). Since then the readiness audit's two remaining code gaps closed on `dev`: event-only input/intent retention (`PendingFrame` + `SimulationInput::absorb_edges`, once-only delivery tested), presenter liveness lease (`WindowGone`) plus cross-device readback refusal, rustdoc as a `dev` CI gate, and a release-workflow candidate integration gate (Xvfb + llvmpipe enforced pre-publish). Since then the re-review's provider-trust follow-up closed on `dev` too: the provider trait is `unsafe` with a documented safety section and the lease is weak-only ([ADR 0030](../decisions/architecture-decision-records/0030-trusted-window-provider-contract.md)). Fresh candidate evidence landed 2026-10-24 (CI run 40108909162 on `19788af`, plus a manual window/audio re-run at `5ee1b3f` covering the collect-textured-drawable fix — two `4/4` playthroughs, `804/804` and `700/700` presented, zero skipped). That evidence predated the `0.1.0` version bump, so it was repeated on the release commit: CI run 43733761156 on `01a77a8` (all 13 jobs) plus a manual window/audio playthrough on 2026-11-15 (`frame=2016 presented=2016 skipped=0 x=-30.0 score=4`, audible backend, no underruns). See the final-review condition status below and [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -56,9 +56,10 @@ remain the gate; their current state on `dev` is:
 - **C2 (`0.1.0` version bump)** — **done in the working tree
   (2026-11-15)**: `[workspace.package]` and all 31 path-dependency pins
   are `0.1.0`, and `Cargo.lock` is refreshed. The four local gates pass
-  on the bumped tree. The release commit's CI run and the manual
-  live-device evidence still have to be recorded on that commit before
-  tagging (the previously recorded runs predate the bump).
+  on the bumped tree. CI run 43733761156 and the manual live-device run
+  are recorded on `01a77a8`; a follow-up commit only fixes release-profile
+  warnings (unused parameters in a debug-only diagnostic and a
+  debug-gated test import), with no runtime change.
 - **C3 (publication approval)** — partially closed. `release.yml`'s
   `publish` job targets the `release` environment and creates a **draft**
   release. The environment was created 2026-11-15 with
@@ -91,10 +92,9 @@ remain the gate; their current state on `dev` is:
   rationale corrected in `.github/workflows/security.yml`.
 
 Remaining release blockers are release mechanics: the C3 publish-path
-dry run, pushing the release commit so CI evidence exists for it, and
-the manual live-device gates on that commit. No known code gap from the
-review remains open; C1's reset and the tag are executed last, by the
-maintainer.
+dry run and the `stable` reset/tag. CI and the manual live-device gates
+are recorded on the release commit; no known code gap remains open. C1's
+reset and the tag are executed last, by the maintainer.
 
 ## `v0.0.1` — Released
 
