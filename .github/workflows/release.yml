@@ -132,7 +132,12 @@ jobs:
       - name: cargo clippy --workspace --release
         run: cargo clippy --locked --workspace --all-targets --release -- -D warnings
       - name: cargo doc warnings-as-errors
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --no-deps --all-features
+        # Step-level env works on every runner; `RUSTDOCFLAGS=... cargo`
+        # is POSIX shell syntax and fails under the Windows PowerShell
+        # runner before cargo even starts.
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --workspace --no-deps --all-features
 
   integration-gate:
     name: Verify candidate integration gate (Xvfb + llvmpipe)
