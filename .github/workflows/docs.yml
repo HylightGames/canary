@@ -6,6 +6,11 @@ name: Docs
 # the links that point outside docs/ (README, CONTRIBUTING, source files)
 # to absolute GitHub URLs before the build; everything that resolves
 # inside docs/ keeps its relative link.
+#
+# Permissions are least-privilege per job: the build only reads the
+# checkout and installs mdBook from crates.io; only the deploy job gets
+# `pages: write` and `id-token: write` (final-review finding
+# CANARY-REL-015).
 
 on:
   push:
@@ -19,8 +24,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -30,21 +33,26 @@ jobs:
   build:
     name: Build mdBook
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - name: Install mdBook (pinned)
-        run: |
-          curl -sSL -o mdbook.tar.gz \
-            https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz
-          tar xzf mdbook.tar.gz
-          sudo install -m 0755 mdbook /usr/local/bin/mdbook
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install mdBook (pinned, from crates.io)
+        # `cargo install --locked` verifies the crates.io checksum and the
+        # committed dependency graph; the previous curl-to-tarball step
+        # installed bytes no checksum in this repository covered.
+        run: cargo install mdbook --locked --version 0.4.40
+      - name: Check relative documentation links
+        # Regression gate for CANARY-REL-025: 55 relative links had rotted
+        # before the final review flagged them.
+        run: python3 scripts/check_docs_links.py
       - name: Rewrite links that leave docs/
         run: python3 scripts/docs-links.py docs
       - name: Build
         run: mdbook build
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: book
 
@@ -53,9 +61,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

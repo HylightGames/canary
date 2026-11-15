@@ -41,6 +41,8 @@ detail; this section summarizes rather than duplicates them.
 
 ### Changed
 
+* The workspace version is now `0.1.0`, including all 31 path-dependency pins and `Cargo.lock`, so the release commit and tag can carry one version end to end.
+* Dependency security pass for the release: `wasmtime` 49.0.5 closes RUSTSEC-2026-0422/0423/0424 and `rustix` 1.1.6 closes RUSTSEC-2026-0486. `cargo audit --deny warnings` is clean apart from the accepted `ttf-parser` unmaintained warning, whose dependency chain (winit → sctk-adwaita → ab_glyph) is now documented correctly.
 * Transform propagation now skips quiet ticks (no `Transform`/`Parent`/`Children` writes since the last run): ~113–200x cheaper steady-state ticks with byte-identical globals, guarded by same-tick and follow-up-pass rails plus a downstream tick contract.
 * Render baking reuses scratch buffers across frames (steady-state bake allocates nothing; ~31% faster at small scenes, tail latency collapsed), mirroring the existing extract-scratch discipline; pixel output unchanged.
 * Two external architecture reviews (September 2026) were triaged against the actual codebase — see [`docs/reviews/triage/2026-09-review-triage.md`](docs/reviews/triage/2026-09-review-triage.md) — resolving `v0.0.7`'s and `v0.0.8`'s scope rather than picking from `future-roadmap.md`'s previously-open options.
@@ -48,6 +50,13 @@ detail; this section summarizes rather than duplicates them.
 
 ### Fixed
 
+* The localization CI gate now checks the locales that actually ship: `examples/collectathon/assets/locales/{en,de}`, with `en` as the source. It previously scanned a repository-root `locales/` directory that never existed and reported itself "vacuous-active" while both real `.ftl` files went unchecked; it now also fails when `.ftl` content exists outside the covered root.
+* Release and CI hardening: every GitHub Action is pinned to a full commit SHA (with a new job that rejects floating `uses:` references), the mdBook docs build installs from crates.io instead of an unchecksummed tarball, Pages permissions moved to the deploy job only, and the release workflow now requires an annotated tag, reads the workspace version from `cargo metadata`, and fetches `stable` without a shallow depth.
+* Retained UI intents across event-only frames are capped at 1,024 (oldest dropped first, drops counted and exposed via `FrameDriver::dropped_intents`) instead of growing without bound under a flooding producer.
+* Permission-denial tests skip cleanly when run as root instead of failing, and CI test steps use `--no-fail-fast` so one failing binary no longer hides later results.
+* Untrusted snapshot files can no longer abort the process: `SnapshotValue` decoding is depth-bounded at `MAX_SNAPSHOT_VALUE_DEPTH` (64 levels, counting the value), failing with a typed `StateError::NestingTooDeep` instead of exhausting the stack on a two-bytes-per-level payload. Regression coverage is checked in, not ignored.
+* Project and snapshot file loads now carry pre-allocation size budgets: `AuthoredDocument::load` is capped at `MAX_PROJECT_BYTES`, and `load_snapshot`/`decode_snapshot` at `MAX_SNAPSHOT_BYTES` (16 MiB each), refused as `StateError::InputTooLarge` from a metadata pre-check. Previously a 64 MiB project file allocated its full size before failing.
+* Tier A's resource budget is now store-wide: every linear memory and table an instance creates draws from one `ResourceBudget::max_memory_bytes` ledger, and memory, table and instance counts are capped. Previously the budget was per-memory, so eight memories could hold eight times the documented figure and tables were unbounded.
 * Fixed undefined behavior in the Vulkan backend: the validation-layer callback no longer panics across the FFI boundary (it logs and aborts instead), and `VulkanCommandEncoder`'s `Drop` no longer expects on the unwind-abandoned path.
 * Non-finite (`NaN`/infinite) `Transform`s are now skipped in release builds too, not just under `debug_assertions` — previously they poisoned `GlobalTransform` and churned change detection every frame.
 * The localization loader's decode budgets are now enforced during the read itself with a capped reader; the previous metadata-only check could be bypassed by a path whose metadata understated its contents. Oversized packs fail with typed `OverBudget` errors.

@@ -14,4 +14,4 @@ readme = "README.md"
 workspace = true
 
 [dependencies]
-canary-platform = { path = "../canary-platform", version = "0.0.16" }
+canary-platform = { path = "../canary-platform", version = "0.1.0" }

@@ -374,6 +374,16 @@ work-package slice above it in the uncommitted working tree — see
   good file loadable and the next save consumes the stale temp file; a
   truncated final file fails typed at the parse gate (authored) or the
   checksum gate (snapshot) — never partial state.
+- **Bounded untrusted input**: `AuthoredDocument::load` is capped at
+  `MAX_PROJECT_BYTES`, and `load_snapshot`/`decode_snapshot` at
+  `MAX_SNAPSHOT_BYTES` (16 MiB each), refused as
+  `StateError::InputTooLarge` from a metadata pre-check before
+  allocation. Decoded `SnapshotValue` nesting is capped at
+  `MAX_SNAPSHOT_VALUE_DEPTH` (64 levels, counting the value) and fails
+  as `StateError::NestingTooDeep`, so a two-bytes-per-level payload
+  cannot exhaust the stack. These close the final review's
+  `CANARY-REL-003` and `CANARY-REL-009`; they are denial-of-service
+  ceilings, not an authenticity boundary.
 
 Scoped truths, stated so they are not over-read:
 

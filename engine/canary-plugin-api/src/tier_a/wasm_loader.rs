@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use canary_ecs::World;
 use wasmtime::component::{Component, HasSelf, Linker};
-use wasmtime::{Config, Engine, Store, StoreLimitsBuilder};
+use wasmtime::{Config, Engine, Store};
 
 use crate::capability::Capability;
 use crate::component_value::CodecRegistry;
@@ -29,6 +29,7 @@ use super::budget::ResourceBudget;
 use super::codec::canary::plugin::{ecs_read, ecs_write};
 use super::codec::TierAPlugin;
 use super::instance::WasmComponentPlugin;
+use super::limits::GuestLimits;
 use super::slot::{ScopedGrant, WorldSlot};
 
 /// Loader-level reporting for one plugin registration: the fallible
@@ -359,9 +360,7 @@ impl WasmPluginLoader {
         // yet (see `wit/plugin.wit`'s module docs), so there is nothing
         // further to conditionally link for them at this stage.
 
-        let limits = StoreLimitsBuilder::new()
-            .memory_size(self.budget.max_memory_bytes)
-            .build();
+        let limits = GuestLimits::new(&self.budget);
         let mut store = Store::new(
             &self.engine,
             WorldSlot {
@@ -378,9 +377,9 @@ impl WasmPluginLoader {
                 pending_trap: None,
             },
         );
-        // Ties memory growth to `WorldSlot.limits` -- without this call,
-        // the `StoreLimits` built above is inert data, not an enforced
-        // budget.
+        // Ties memory and table growth to `WorldSlot.limits` -- without
+        // this call, the ledger built above is inert data, not an
+        // enforced budget.
         store.limiter(|state| &mut state.limits);
         store
             .set_fuel(self.budget.fuel)

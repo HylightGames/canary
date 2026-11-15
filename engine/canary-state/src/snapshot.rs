@@ -27,7 +27,20 @@ use sha2::{Digest, Sha256};
 
 use crate::error::StateError;
 use crate::schema::{check_encoding, SchemaId, SchemaVersion, SnapshotEnvelope, SNAPSHOT_ENCODING};
-use crate::value::SnapshotValue;
+use crate::value::{SnapshotValue, MAX_SNAPSHOT_VALUE_DEPTH};
+
+/// Maximum size of a snapshot file or in-memory payload this build will
+/// read or decode: 16 MiB.
+///
+/// Snapshots are untrusted input (a download, a mod, a shared save), so
+/// the ceiling is enforced before the content is read
+/// ([`load_snapshot`]) and before a caller-supplied slice is decoded
+/// ([`decode_snapshot`]). Provisional pending calibration against a real
+/// project; larger state should split its snapshots rather than have the
+/// ceiling raised silently. Deliberately separate from
+/// `canary-collab`'s 1 MiB wire snapshot ceiling, which bounds one
+/// collaboration message, not a local save file.
+pub const MAX_SNAPSHOT_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Declared shape of one snapshot stream: which schema, which version, and
 /// exactly which component schemas may appear in records.
@@ -216,14 +229,16 @@ pub fn snapshot_checksum(snapshot: &Snapshot) -> Result<SnapshotChecksum, StateE
     Ok(SnapshotChecksum(hex_digest(&Sha256::digest(&bytes))))
 }
 
-/// Decodes and verifies: checksum first, then postcard, then envelope.
-/// A corrupt or non-canonical payload fails before any record is trusted.
+/// Decodes and verifies: size budget, depth guard, postcard, checksum,
+/// then envelope. A corrupt or non-canonical payload fails before any
+/// record is trusted.
 ///
-/// Local-file-only: `bytes` must come from [`save_snapshot`] /
-/// [`load_snapshot`] (or an equivalent trusted-local write). Untrusted
-/// network bytes must not reach this function until size and nesting budgets
-/// land (planned envelope work): decoding runs before verification, so a
-/// hostile sender can force allocation first.
+/// The input is bounded by [`MAX_SNAPSHOT_BYTES`], and every decoded
+/// [`SnapshotValue`] is bounded by [`MAX_SNAPSHOT_VALUE_DEPTH`]: a hostile
+/// payload fails typed ([`StateError::InputTooLarge`] or
+/// [`StateError::NestingTooDeep`]) instead of allocating without bound or
+/// overflowing the stack. Both gates therefore run before an untrusted
+/// payload can drive the decoder's recursion.
 ///
 /// The checksum gate runs before the encoding gate on purpose: a truncated
 /// or hand-edited file fails as [`StateError::ChecksumMismatch`] (or a typed
@@ -231,7 +246,23 @@ pub fn snapshot_checksum(snapshot: &Snapshot) -> Result<SnapshotChecksum, StateE
 /// checksum-valid payload under an encoding this build cannot read fails as
 /// [`StateError::UnsupportedEncoding`].
 pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, StateError> {
-    let snapshot: Snapshot = postcard::from_bytes(bytes).map_err(StateError::from)?;
+    let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    if size > MAX_SNAPSHOT_BYTES {
+        return Err(crate::io::too_large(
+            std::path::Path::new("<in-memory snapshot>"),
+            size,
+            MAX_SNAPSHOT_BYTES,
+        ));
+    }
+    crate::value::reset_nesting_failure();
+    let decoded = postcard::from_bytes::<Snapshot>(bytes);
+    if let Some(depth) = crate::value::take_nesting_failure() {
+        return Err(StateError::NestingTooDeep {
+            depth,
+            max: MAX_SNAPSHOT_VALUE_DEPTH,
+        });
+    }
+    let snapshot: Snapshot = decoded.map_err(StateError::from)?;
     let claimed = snapshot.envelope.checksum.clone();
     let mut canonical = snapshot.clone();
     // Canonical order is part of the contract: re-sort before verifying so
@@ -406,19 +437,16 @@ pub fn save_snapshot(path: &std::path::Path, bytes: &[u8]) -> Result<(), StateEr
 }
 
 /// Loads snapshot bytes previously written by [`save_snapshot`]. The payload
-/// still owes its checksum gate ([`decode_snapshot`]) before any caller
-/// trusts or restores it; a truncated or hand-edited file fails there with
-/// a typed error instead of yielding partial state.
+/// still owes its size and checksum gates ([`decode_snapshot`]) before any
+/// caller trusts or restores it; a truncated or hand-edited file fails
+/// there with a typed error instead of yielding partial state.
 ///
-/// Local-file-only, like [`decode_snapshot`]: the path must be a
-/// trusted-local save file. Bytes fetched from an untrusted network peer
-/// must not be written here and then loaded as if they were a save file
-/// until size and nesting budgets land.
+/// The file is bounded by [`MAX_SNAPSHOT_BYTES`] before its content is
+/// read, so an oversized save file fails as
+/// [`StateError::InputTooLarge`](crate::StateError) without allocating as
+/// much as the file claims.
 pub fn load_snapshot(path: &std::path::Path) -> Result<Vec<u8>, StateError> {
-    std::fs::read(path).map_err(|error| StateError::File {
-        path: path.to_path_buf(),
-        reason: error.to_string(),
-    })
+    crate::io::read_bounded(path, MAX_SNAPSHOT_BYTES)
 }
 
 #[cfg(test)]

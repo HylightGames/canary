@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use canary_ecs::World;
 use wasmtime::component::Component;
-use wasmtime::StoreLimitsBuilder;
+use wasmtime::{Memory, MemoryType, Ref, RefType, Table, TableType};
 
 use crate::capability::Capability;
 use crate::component_value::{CodecRegistry, ComponentValue, PrimitiveValue};
@@ -233,6 +233,99 @@ fn memory_budget_fails_growth_past_the_limit_rather_than_trapping() {
     );
 }
 
+/// The budget is store-wide: every linear memory and table an instance
+/// creates draws from one ledger. A per-memory ceiling would accept this
+/// fixture's four 2 MiB memories (8 MiB total) against a 4 MiB budget,
+/// which is exactly the aggregate gap `CANARY-REL-008` reproduced.
+#[test]
+fn aggregate_budget_bounds_every_memory_in_the_store() {
+    let loader = WasmPluginLoader::new(
+        CodecRegistry::new(),
+        ResourceBudget {
+            max_memory_bytes: 4 * 1024 * 1024,
+            ..ResourceBudget::default()
+        },
+    )
+    .expect("engine setup should not fail");
+    let component = Component::new(&loader.engine, TEST_COMPONENT_WAT)
+        .expect("the fixture WAT should parse as a valid component");
+    let mut plugin = loader
+        .instantiate(
+            component,
+            PathBuf::from("<aggregate memory fixture>"),
+            "aggregate-memory-plugin",
+            &HashSet::from([Capability::ReadEcsWorld]),
+        )
+        .expect("instantiation itself should succeed");
+
+    // 32 pages = 2 MiB; two fill the 4 MiB total.
+    let mut memories = Vec::new();
+    for _ in 0..2 {
+        memories.push(
+            Memory::new(&mut plugin.store, MemoryType::new(32, None))
+                .expect("two 2 MiB memories fit the 4 MiB total"),
+        );
+    }
+    assert!(
+        Memory::new(&mut plugin.store, MemoryType::new(32, None)).is_err(),
+        "a third 2 MiB memory must be refused: the budget is store-wide, not per-memory"
+    );
+    assert!(
+        memories[0].grow(&mut plugin.store, 1).is_err(),
+        "growing an existing memory past the store-wide total must fail"
+    );
+}
+
+#[test]
+fn aggregate_budget_bounds_every_table_in_the_store() {
+    let loader = WasmPluginLoader::new(
+        CodecRegistry::new(),
+        ResourceBudget {
+            max_memory_bytes: 4 * 1024 * 1024,
+            ..ResourceBudget::default()
+        },
+    )
+    .expect("engine setup should not fail");
+    let component = Component::new(&loader.engine, TEST_COMPONENT_WAT)
+        .expect("the fixture WAT should parse as a valid component");
+    let mut plugin = loader
+        .instantiate(
+            component,
+            PathBuf::from("<aggregate table fixture>"),
+            "aggregate-table-plugin",
+            &HashSet::from([Capability::ReadEcsWorld]),
+        )
+        .expect("instantiation itself should succeed");
+
+    // 262,144 funcref entries = 2 MiB of pointers; two fill the total.
+    let mut tables = Vec::new();
+    for _ in 0..2 {
+        tables.push(
+            Table::new(
+                &mut plugin.store,
+                TableType::new(RefType::FUNCREF, 262_144, None),
+                Ref::Func(None),
+            )
+            .expect("two 2 MiB tables fit the 4 MiB total"),
+        );
+    }
+    assert!(
+        Table::new(
+            &mut plugin.store,
+            TableType::new(RefType::FUNCREF, 262_144, None),
+            Ref::Func(None)
+        )
+        .is_err(),
+        "a third 2 MiB table must be refused: tables draw from the same ledger"
+    );
+    assert!(
+        tables[0]
+            .grow(&mut plugin.store, 1, Ref::Func(None))
+            .is_err(),
+        "growing an existing table past the store-wide total must fail"
+    );
+}
+
 // -- Direct HostState tests: the get/set/has-component/is-valid-entity
 // logic itself (schema resolution, type-erased ECS access, codec
 // conversion), called as plain Rust trait methods rather than through
@@ -303,7 +396,7 @@ fn slot_with_a_health_entity(value: f32) -> (WorldSlot, canary_ecs::Entity) {
                 capabilities,
                 budget: ResourceBudget::default(),
             },
-            limits: StoreLimitsBuilder::new().build(),
+            limits: GuestLimits::new(&ResourceBudget::default()),
             plugin_name: "slot-test".to_string(),
             depth: 0,
             tick_before: None,
@@ -1026,7 +1119,7 @@ fn host_panic_is_caught_converted_and_leaves_the_world_untouched() {
             capabilities,
             budget: ResourceBudget::default(),
         },
-        limits: StoreLimitsBuilder::new().build(),
+        limits: GuestLimits::new(&ResourceBudget::default()),
         plugin_name: "panic-test".to_string(),
         depth: 0,
         tick_before: None,

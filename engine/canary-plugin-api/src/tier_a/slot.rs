@@ -15,7 +15,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use canary_ecs::{Tick, World};
-use wasmtime::StoreLimits;
 
 use crate::capability::Capability;
 use crate::component_value::CodecRegistry;
@@ -26,6 +25,7 @@ use super::codec::{
     from_wit_entity, from_wit_value, guard_host_call, to_wit_value, WitComponentValue,
     WitEntityHandle,
 };
+use super::limits::GuestLimits;
 
 /// What one Tier A instance may do with the loaned active world.
 /// Decided once at load; enforced structurally by linker wiring (an
@@ -81,12 +81,13 @@ pub(crate) struct WorldSlot {
     /// The capability subset actually linked for this instance,
     /// refreshed from the call's grant on every scoped invoke.
     pub(crate) grant: ScopedGrant,
-    /// Backs the memory half of [`crate::ResourceBudget`] — wired to the
-    /// [`wasmtime::Store`] via [`wasmtime::Store::limiter`] in
-    /// [`crate::WasmPluginLoader::instantiate`]. The fuel half doesn't need a
-    /// field here; it's set directly on the `Store` via
-    /// [`wasmtime::Store::set_fuel`].
-    pub(crate) limits: StoreLimits,
+    /// Backs the memory and table halves of [`crate::ResourceBudget`] —
+    /// wired to the [`wasmtime::Store`] via [`wasmtime::Store::limiter`] in
+    /// [`crate::WasmPluginLoader::instantiate`]. The ledger is store-wide:
+    /// every memory and table the instance creates shares one byte
+    /// budget. The fuel half doesn't need a field here; it's set directly
+    /// on the `Store` via [`wasmtime::Store::set_fuel`].
+    pub(crate) limits: GuestLimits,
     /// Loader-supplied name, for host-panic diagnostics only. Never
     /// exposed to the guest.
     pub(crate) plugin_name: String,

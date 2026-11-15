@@ -14,8 +14,8 @@ readme = "README.md"
 workspace = true
 
 [dependencies]
-canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
-canary-scheduler = { path = "../canary-scheduler", version = "0.0.16" }
+canary-ecs = { path = "../canary-ecs", version = "0.1.0" }
+canary-scheduler = { path = "../canary-scheduler", version = "0.1.0" }
 glam = "0.33"
 # Typed validation errors (workspace convention: `thiserror`, never strings).
 thiserror = "2"

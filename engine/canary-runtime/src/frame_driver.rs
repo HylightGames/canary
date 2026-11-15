@@ -38,6 +38,29 @@ pub struct FrameDriver<B: UiBackend> {
     backend: B,
     mapper: InputMapper,
     pending: Option<PendingFrame>,
+    dropped_intents: u64,
+}
+
+/// Most UI intents the driver retains across event-only frames before
+/// dropping the oldest.
+///
+/// Retention is what makes a widget activation on an event-only frame
+/// survive until the next simulation pass, but without a ceiling a
+/// producer that keeps emitting intents while no pass runs can grow the
+/// queue without bound (final-review finding `CANARY-REL-023`). Oldest
+/// intents are dropped first, so a flood degrades to "the most recent
+/// 1,024 activations" rather than stalling the run.
+const MAX_RETAINED_INTENTS: usize = 1_024;
+
+/// Trims `intents` to [`MAX_RETAINED_INTENTS`], dropping from the front
+/// and counting what was dropped.
+fn retain_newest(intents: &mut Vec<UiIntent>, dropped: &mut u64) {
+    let excess = intents.len().saturating_sub(MAX_RETAINED_INTENTS);
+    if excess == 0 {
+        return;
+    }
+    intents.drain(..excess);
+    *dropped = dropped.saturating_add(u64::try_from(excess).unwrap_or(u64::MAX));
 }
 
 /// Input that arrived on event-only frames and has not reached a
@@ -63,7 +86,16 @@ impl<B: UiBackend> FrameDriver<B> {
             backend,
             mapper,
             pending: None,
+            dropped_intents: 0,
         }
+    }
+
+    /// Total UI intents dropped because retained input exceeded the
+    /// 1,024-intent ceiling. Zero on a well-behaved run; a nonzero value
+    /// means a producer flooded event-only frames faster than simulation
+    /// passes consumed them.
+    pub fn dropped_intents(&self) -> u64 {
+        self.dropped_intents
     }
 }
 
@@ -225,6 +257,7 @@ impl Runtime {
             merged.extend(deliver_intents);
             deliver_intents = merged;
         }
+        retain_newest(&mut deliver_intents, &mut driver.dropped_intents);
         let mut intents = Some(deliver_intents);
         if self.world.is_some() {
             if passes == 0 {

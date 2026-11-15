@@ -22,7 +22,7 @@ workspace = true
 presentation = ["dep:ash-window", "dep:raw-window-handle", "dep:canary-platform"]
 
 [dependencies]
-canary-render = { path = "../canary-render", version = "0.0.16" }
+canary-render = { path = "../canary-render", version = "0.1.0" }
 thiserror = "2.0.19"
 tracing = "0.1"
 
@@ -42,7 +42,7 @@ raw-window-handle = { version = "0.6", optional = true }
 # Window types for the presentation seam (handles, extent, resize
 # signal), with the real windowing backend enabled: an upper crate
 # depending on the platform leaf, the direction composition always flows.
-canary-platform = { path = "../canary-platform", optional = true, features = ["winit-backend"], version = "0.0.16" }
+canary-platform = { path = "../canary-platform", optional = true, features = ["winit-backend"], version = "0.1.0" }
 
 [dev-dependencies]
 # WGSL -> SPIR-V, for this crate's own hello-triangle integration test
@@ -61,4 +61,4 @@ indexmap = "2"
 # uses (`WinitWindow::new_for_testing`); the test file is empty
 # everywhere else, so other platforms never pay for this dependency.
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-canary-platform = { path = "../canary-platform", features = ["winit-backend"], version = "0.0.16" }
+canary-platform = { path = "../canary-platform", features = ["winit-backend"], version = "0.1.0" }

@@ -133,8 +133,9 @@ differently underneath.
 `v0.0.3` additionally shipped the Wasmtime-backed Tier A loader
 (`engine/canary-plugin-api/src/tier_a.rs`): component loading (fresh or
 AOT-precompiled), the `Plugin` lifecycle through a component rather than a
-dylib, a resource budget (memory limit, fuel execution budget) applied to
-every instance by default — re-armed before every guest entry point, since
+dylib, a resource budget (a store-wide memory-and-table budget, plus a fuel
+execution budget) applied to every instance by default — re-armed before
+every guest entry point, since
 Wasmtime fuel never replenishes itself and without re-arming a long-lived
 plugin would trap forever once its first budget ran out (every later
 call, including `on_unload`, would fail) — and the first-cut ECS data ABI
@@ -227,7 +228,11 @@ loader itself is real
 AOT), the `Plugin` lifecycle, structural capability enforcement (proven
 independently for `ecs-read` and `ecs-write` — granting one doesn't
 imply the other), and a resource budget (memory limit, fuel execution
-budget) applied to every instance by default. See
+budget) applied to every instance by default. The memory half is a
+**store-wide total** shared by every linear memory and table the guest
+creates (the final review's `CANARY-REL-008`), with memory, table and
+instance counts capped, so several memories cannot multiply a
+per-memory ceiling. See
 `docs/roadmap/v0.0.3-roadmap.md` for the exact, deliberately-scoped
 boundary of what this covers (a capped value-type set, not arbitrary
 Rust reflection). At that milestone it did not provide active-runtime-world

@@ -10,7 +10,7 @@ a point-in-time record — the same convention as
 
 ## Current handoff — `v0.0.16` latest tag, `v0.1.0` closure on `dev` (2026-10-24)
 
-`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag; the draft release note lives at `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample on `dev` covers WP1–WP3; WP4 live evidence recorded 2026-10-21 (Arch Linux Vulkan windowed run plus audio with one qualified underrun). Since then the readiness audit's two remaining code gaps closed on `dev`: event-only input/intent retention (`PendingFrame` + `SimulationInput::absorb_edges`, once-only delivery tested), presenter liveness lease (`WindowGone`) plus cross-device readback refusal, rustdoc as a `dev` CI gate, and a release-workflow candidate integration gate (Xvfb + llvmpipe enforced pre-publish). Since then the re-review's provider-trust follow-up closed on `dev` too: the provider trait is `unsafe` with a documented safety section and the lease is weak-only ([ADR 0030](../decisions/architecture-decision-records/0030-trusted-window-provider-contract.md)). Fresh candidate evidence landed 2026-10-24 (CI run 40108909162 on `19788af`, plus a manual window/audio re-run at `5ee1b3f` covering the collect-textured-drawable fix — two `4/4` playthroughs, `804/804` and `700/700` presented, zero skipped); only tag/stable promotion remains before `v0.1.0` can be cut — see [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
+`v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` itself is NOT cut — there is no `v0.1.0` tag; the draft release note lives at `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample on `dev` covers WP1–WP3; WP4 live evidence recorded 2026-10-21 (Arch Linux Vulkan windowed run plus audio with one qualified underrun). Since then the readiness audit's two remaining code gaps closed on `dev`: event-only input/intent retention (`PendingFrame` + `SimulationInput::absorb_edges`, once-only delivery tested), presenter liveness lease (`WindowGone`) plus cross-device readback refusal, rustdoc as a `dev` CI gate, and a release-workflow candidate integration gate (Xvfb + llvmpipe enforced pre-publish). Since then the re-review's provider-trust follow-up closed on `dev` too: the provider trait is `unsafe` with a documented safety section and the lease is weak-only ([ADR 0030](../decisions/architecture-decision-records/0030-trusted-window-provider-contract.md)). Fresh candidate evidence landed 2026-10-24 (CI run 40108909162 on `19788af`, plus a manual window/audio re-run at `5ee1b3f` covering the collect-textured-drawable fix — two `4/4` playthroughs, `804/804` and `700/700` presented, zero skipped). That evidence predates the `0.1.0` version bump and dependency pass, so it must be repeated on the release commit; see the final-review condition status below and [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
 minimize/restore, resize→recreate, content-present, safe destruction;
 capability-rejection/fatal-error mappings unit-gated), the platform
@@ -40,6 +40,61 @@ A final `v0.1.0` review (2026-10-24, audited commit `ebc8f7f`) and a proposed
 [`2026-10-24-v0.1.0-final-review.md`](../reviews/2026-10-24-v0.1.0-final-review.md) and
 [`v0.2.0-roadmap.md`](v0.2.0-roadmap.md). They are proposals and findings; they do not
 change any status recorded below.
+
+### Final-review condition status (2026-11-15)
+
+`v0.1.0` is still untagged. The 2026-10-24 final review's six conditions
+remain the gate; their current state on `dev` is:
+
+- **C1 (`stable` promotion)** — **decided**: reset `stable` once to the
+  evidenced release commit (option 1), so `stable` contains only the
+  `v0.1.0` history. The execution runbook (pre-checks, forced
+  `--force-with-lease` reset, tree-equality verification, ruleset
+  restore, annotated tag) is recorded in
+  `docs/development/git-workflow.md`; execute it after the release
+  commit is pushed and evidenced, not before.
+- **C2 (`0.1.0` version bump)** — **done in the working tree
+  (2026-11-15)**: `[workspace.package]` and all 31 path-dependency pins
+  are `0.1.0`, and `Cargo.lock` is refreshed. The four local gates pass
+  on the bumped tree. The release commit's CI run and the manual
+  live-device evidence still have to be recorded on that commit before
+  tagging (the previously recorded runs predate the bump).
+- **C3 (publication approval)** — partially closed. `release.yml`'s
+  `publish` job targets the `release` environment and creates a **draft**
+  release. The environment was created 2026-11-15 with
+  `notthecloudy` as required reviewer (self-review allowed) and a
+  custom deployment policy limited to `v*` tags, so the approval gate now
+  exists. The publish path has still never been exercised, so a
+  throwaway pre-release dry run remains outstanding.
+- **C4 (what the consumer supplies)** — documented in the release notes'
+  "What the consumer supplies" section (the sample owns about 1,200
+  lines of renderer, shader, HUD and loop glue; there is no facade).
+- **C5 (networking limits)** — documented in the release notes' "Known
+  limitations" and `docs/architecture/networking.md` (loopback only,
+  one session, server-certificate pinning only, no client
+  authentication).
+- **C6 (robustness gaps)** — **closed in code on `dev`**: snapshot
+  decode is depth-bounded (`MAX_SNAPSHOT_VALUE_DEPTH`, typed
+  `NestingTooDeep`); project and snapshot loads/decodes carry 16 MiB
+  budgets (`MAX_PROJECT_BYTES`/`MAX_SNAPSHOT_BYTES`, typed
+  `InputTooLarge`) checked before allocation; Tier A's memory budget is
+  now a store-wide total across every memory and table, with count caps.
+  The review's three regression tests are checked in (no longer
+  ignored) and pass, alongside new unit and store-level tests. See
+  `docs/release-notes/v0.1.0.md` "Robustness bounds".
+
+- **Dependencies and audit** — refreshed for the release: wasmtime
+  49.0.4 → 49.0.5 closes RUSTSEC-2026-0422/0423/0424, and rustix
+  1.1.5 → 1.1.6 closes RUSTSEC-2026-0486. `cargo audit --deny warnings
+  --ignore RUSTSEC-2026-0192` is clean; the single accepted warning is
+  `ttf-parser` unmaintained via the winit/ab_glyph chain, with the
+  rationale corrected in `.github/workflows/security.yml`.
+
+Remaining release blockers are release mechanics: the C3 publish-path
+dry run, pushing the release commit so CI evidence exists for it, and
+the manual live-device gates on that commit. No known code gap from the
+review remains open; C1's reset and the tag are executed last, by the
+maintainer.
 
 ## `v0.0.1` — Released
 

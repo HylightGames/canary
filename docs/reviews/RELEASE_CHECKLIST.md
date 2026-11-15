@@ -23,13 +23,13 @@ running something, the command and result are noted.
   architectural principles — a native UI abstraction and explicit,
   versionable project state — were raised and judged foundational enough
   to document now rather than defer).
-- [x] [ADR 0009](0009-plugin-abi-versioning-and-extensibility.md) updated
+- [x] [ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md) updated
   from "accepted, not implemented" to "accepted and implemented," with
   its Consequences section corrected to match.
-- [x] [ADR 0003](0003-plugin-and-modding-architecture.md) and
-  [ADR 0006](0006-versioning-scheme.md) already cross-referenced the ADRs
+- [x] [ADR 0003](../decisions/architecture-decision-records/0003-plugin-and-modding-architecture.md) and
+  [ADR 0006](../decisions/architecture-decision-records/0006-versioning-scheme.md) already cross-referenced the ADRs
   that amend them (added during the architecture review); still accurate.
-- [x] [ADR 0010](0010-component-identity-across-language-boundary.md)
+- [x] [ADR 0010](../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)
   correctly remains `Proposed` — it depends on the archetype ECS
   migration, which is `v0.0.2`+ scope; marking it `Accepted` now would be
   premature.
@@ -96,7 +96,7 @@ running something, the command and result are noted.
   added for capabilities that don't exist yet (e.g., no safe wrapper was
   added for `get_extension` beyond the raw vtable slot, since there is
   nothing real to call it for until the first extension is designed —
-  see [ADR 0009](0009-plugin-abi-versioning-and-extensibility.md)).
+  see [ADR 0009](../decisions/architecture-decision-records/0009-plugin-abi-versioning-and-extensibility.md)).
 
 ## 6. Identify anything that should be postponed to `v0.0.2` or later
 
@@ -211,3 +211,42 @@ rows below record the gate as documented, not as passed.
 - [x] Audio playback recorded with one transient `Buffer underrun/overrun` qualified as accepted observation.
 - [x] Manual window/audio re-evidence on the current candidate: two interactive playthroughs on Arch Linux 7.2.11-arch1-1 (Vulkan, audible backend) on 2026-10-24, at commit `5ee1b3f` — `frame=804 presented=804 skipped=0 x=48.0 score=4` and `frame=700 presented=700 skipped=0 x=-30.0 score=4`, each `4/4` collected with chime per collection and clean window-close exit; no underrun warnings. Recorded in `docs/release-notes/v0.1.0.md` (re-run rows). Only harmless `calloop: Received an event for non-existence source` log noise observed.
 - [x] Xvfb, llvmpipe Vulkan/render-ECS, and exact-commit evidence recorded on the release candidate: CI run 40108909162 on commit `19788af` (all 12 jobs success). Tag + stable-ancestry steps intentionally pending — no `v0.1.0` tag cut and nothing pushed to `stable` per maintainer direction; when cut, `v0.1.0` is the intended tag (existing `v0.0.1`/`v0.0.2` tags predate the release workflow). Do not cut `v0.1.0` until the maintainer gives the release go-ahead.
+
+## E. Final-review conditions (2026-10-24 review; status 2026-11-15)
+
+The final review's verdict is CONDITIONAL GO. Conditions C1–C6 are
+tracked here; `docs/roadmap/status.md` carries the detail.
+
+- [x] **C1** `stable` promotion decided: one-time reset of `stable` to
+  the evidenced release commit, so it contains only `v0.1.0`. The exact
+  runbook (pre-checks, `--force-with-lease`, tree equality, ruleset
+  restore, annotated tag) is in `docs/development/git-workflow.md`.
+  Execution is the maintainer's final release step.
+- [x] **C2** `0.1.0` version bump performed (2026-11-15): workspace
+  version and all 31 path pins are `0.1.0`, `Cargo.lock` refreshed, all
+  four gates green on the bumped tree. The release commit's CI run and
+  manual live-device evidence are recorded after the commit is pushed,
+  before tagging.
+- [ ] **C3** Exercise the publish path once on a throwaway pre-release tag
+  in a scratch repository. The workflow uses a `release` environment and
+  a draft release, but the path has never run end to end. The environment
+  was created 2026-11-15 with `notthecloudy` as required reviewer
+  (self-review allowed) and a `v*` tag-only deployment policy; the
+  remaining work is the end-to-end dry run, not the settings.
+- [x] **C4** Release notes state what the consumer supplies (sample-owned
+  renderer/shader/HUD/loop glue; no facade crate).
+- [x] **C5** Release notes and `docs/architecture/networking.md` state the
+  networking limits (loopback only, one session, server-certificate
+  pinning only, no client authentication).
+- [x] **C6** Fixed in code, not merely documented: depth-bounded snapshot
+  decode, pre-allocation size budgets on project/snapshot loads and
+  decodes, and a store-wide Tier A memory/table budget with count caps.
+  The review's regression tests are checked in un-ignored and green.
+- [x] **Dependencies** Security pass complete: wasmtime 49.0.5
+  (RUSTSEC-2026-0422/0423/0424) and rustix 1.1.6
+  (RUSTSEC-2026-0486); `cargo audit --deny warnings --ignore
+  RUSTSEC-2026-0192` is clean, with the accepted `ttf-parser` warning's
+  dependency chain corrected in the security workflow.
+- [ ] **Manual gates** Repeat the section-11 live-device matrix (window,
+  audio, validation layers) on the final bumped commit; recorded manual
+  evidence predates the bump.

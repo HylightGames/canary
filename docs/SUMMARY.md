@@ -60,6 +60,8 @@
 - [0026. Keep authored project state and simulation snapshots separate](decisions/architecture-decision-records/0026-authored-state-and-simulation-snapshot-contract.md)
 - [0027. Start networking with bounded reliable replication and server input authority](decisions/architecture-decision-records/0027-minimal-server-authoritative-replication.md)
 - [0028. Authoritative live-collaboration operations](decisions/architecture-decision-records/0028-authoritative-live-collaboration-operations.md)
+- [0029. Vulkan ownership and RHI error semantics](decisions/architecture-decision-records/0029-vulkan-ownership-and-rhi-errors.md)
+- [0030. Trusted window-provider contract](decisions/architecture-decision-records/0030-trusted-window-provider-contract.md)
 
 # Roadmap
 

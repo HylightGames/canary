@@ -239,6 +239,25 @@ Scoped truths this slice holds (and stops at):
   one at its CLI before any socket work. Server-certificate pinning is the
   only implemented trust, and it authenticates the server only.
 
+### Known limitations (`v0.1.0`)
+
+The untagged `v0.1.0` integration proof ships these networking limits;
+they are also recorded in
+[`docs/release-notes/v0.1.0.md`](../release-notes/v0.1.0.md#known-limitations):
+
+- **Loopback only, one session.** `QuinnTransport::server` refuses a
+  non-loopback bind (`NetError::NonLoopbackBind`, no opt-out), and the
+  sample server rejects one at its CLI. The sample server serves exactly
+  one session, then exits; reconnect starts a fresh session.
+- **Server certificate pinning only.** Client-side pinning of the
+  server certificate is the only implemented trust; it authenticates the
+  server, never the client.
+- **No client authentication.** Until an authentication and abuse review
+  lands, an authoritative server must not be reachable off the machine.
+
+Per-delta journal replay, an unreliable datagram lane, and production
+identity remain unbuilt, as listed above.
+
 ## Live collaboration (`.16`) shares the transport, not the state model
 
 The `.16` collaboration slice
