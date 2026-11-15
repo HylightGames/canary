@@ -103,6 +103,11 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Rust components
+        # The hosted images do not all preinstall rustfmt; without this the
+        # Windows leg fails `cargo fmt --check` before compiling anything.
+        # clippy is installed here too so every leg has the same toolchain.
+        run: rustup component add rustfmt clippy
       - name: Install Linux audio/windowing dev libraries (ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         # Release-profile builds compile the whole workspace including the
