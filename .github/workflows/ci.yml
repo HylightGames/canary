@@ -105,6 +105,41 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets --features canary-platform/winit-backend -- -D warnings
       - name: cargo test --locked --workspace --features winit-backend
         run: cargo test --locked --workspace --features canary-platform/winit-backend --no-fail-fast
+      # Platform-gated doc links only fail on the platform that excludes the
+      # item, so the all-features doc build runs on macOS and Windows too.
+      # Linux is covered by the release-profile job below.
+      - name: cargo doc --all-features (macOS/Windows)
+        if: runner.os != 'Linux'
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --workspace --no-deps --all-features
+
+  release-profile:
+    name: Release profile build, test, clippy, doc (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Mirrors the tag workflow's release checks so release-only failures
+    # (items gated out under `cfg(debug_assertions)`, all-features doc
+    # links, release-profile clippy) fail on the PR instead of during the
+    # tag run. The first v0.1.0 tag run failed on exactly this class.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Rust components
+        run: rustup component add clippy
+      - name: Install X11/Wayland/ALSA dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev
+      - name: cargo build --workspace --release
+        run: cargo build --locked --workspace --all-targets --release
+      - name: cargo test --workspace --release
+        run: cargo test --locked --workspace --release --no-fail-fast
+      - name: cargo clippy --workspace --release
+        run: cargo clippy --locked --workspace --all-targets --release -- -D warnings
+      - name: cargo doc --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --workspace --no-deps --all-features
 
   release-gate:
     name: v0.1.0 release gate (headless proof)

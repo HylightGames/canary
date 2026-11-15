@@ -199,8 +199,12 @@ evidence from required live-device evidence. `v0.1.0` was released on
   `frame=2016 presented=2016 skipped=0 x=-30.0 score=4`; score reached
   `4/4`, reset cycled it to 0 and back to 4, window closed cleanly,
   chime per collection, no underrun warnings. Only the known harmless
-  `calloop` chatter. Validation layers were **not** installed on this
-  machine, so that sub-gate was not run.
+  `calloop` chatter.
+- [x] Validation-layer run (2026-11-15, Arch Linux, NVIDIA):
+  `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation VK_LOADER_DEBUG=layer
+  ./target/release/collectathon 600` loaded Khronos validation 1.4.363.1
+  (confirmed in the loader log) and produced **zero** validation messages
+  before a clean exit.
 
 ## C. Release mechanics (policy stated, drift not resolved here)
 
