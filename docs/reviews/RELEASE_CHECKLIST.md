@@ -229,11 +229,10 @@ tracked here; `docs/roadmap/status.md` carries the detail.
   before tagging.
 - [ ] **C3** Exercise the publish path once on a throwaway pre-release tag
   in a scratch repository. The workflow uses a `release` environment and
-  a draft release, but the path has never run end to end. **Verified
-  2026-11-15: the repository has no `release` environment** (only
-  `github-pages`), so the approval gate does not exist yet; add required
-  reviewers in repository settings before tagging, or the first run
-  auto-creates the environment unprotected.
+  a draft release, but the path has never run end to end. The environment
+  was created 2026-11-15 with `notthecloudy` as required reviewer
+  (self-review allowed) and a `v*` tag-only deployment policy; the
+  remaining work is the end-to-end dry run, not the settings.
 - [x] **C4** Release notes state what the consumer supplies (sample-owned
   renderer/shader/HUD/loop glue; no facade crate).
 - [x] **C5** Release notes and `docs/architecture/networking.md` state the

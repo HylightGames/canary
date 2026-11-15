@@ -200,12 +200,11 @@ The publish path is still **unexercised** — this workflow has never
 produced a GitHub Release. Exercise it once on a throwaway pre-release
 tag in a scratch repository before relying on it for a real release.
 
-**Verified 2026-11-15:** the repository has only the `github-pages`
-environment; no `release` environment is configured, so the approval
-gate above does not exist yet. Check before tagging with
-`gh api repos/HylightGames/canary/environments --jq '.environments[].name'`
-and create the environment with required reviewers first — otherwise the
-first tag run auto-creates it unprotected.
+**Configured 2026-11-15:** the `release` environment exists with
+`notthecloudy` as a required reviewer (self-review allowed) and a custom
+deployment policy limited to `v*` tags. Verify before tagging with
+`gh api repos/HylightGames/canary/environments/release --jq '.protection_rules'`.
+The dry run above is still outstanding.
 
 ## Why two branches
 

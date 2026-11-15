@@ -61,12 +61,11 @@ remain the gate; their current state on `dev` is:
   tagging (the previously recorded runs predate the bump).
 - **C3 (publication approval)** — partially closed. `release.yml`'s
   `publish` job targets the `release` environment and creates a **draft**
-  release. Verified 2026-11-15: the repository has **no `release`
-  environment** (only `github-pages`), so the required-reviewer gate does
-  not exist yet and the first tag run would auto-create it unprotected.
-  Creating it is a repository-settings step before tagging, and the
-  publish path has still never been exercised, so a throwaway
-  pre-release dry run remains outstanding.
+  release. The environment was created 2026-11-15 with
+  `notthecloudy` as required reviewer (self-review allowed) and a
+  custom deployment policy limited to `v*` tags, so the approval gate now
+  exists. The publish path has still never been exercised, so a
+  throwaway pre-release dry run remains outstanding.
 - **C4 (what the consumer supplies)** — documented in the release notes'
   "What the consumer supplies" section (the sample owns about 1,200
   lines of renderer, shader, HUD and loop glue; there is no facade).
