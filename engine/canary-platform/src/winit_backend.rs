@@ -362,9 +362,11 @@ impl WinitWindow {
     /// constraint, not just an X11 inconvenience: `winit` requires it
     /// unconditionally on some platforms (notably macOS, where AppKit
     /// itself requires it), so this constructor doesn't offer a way
-    /// around it -- see [`WinitWindow::new_for_testing`] for the
-    /// Linux-only, test-only exception, and why it has to be a separate,
-    /// clearly-labeled entry point rather than a flag on this one.
+    /// around it -- see `WinitWindow::new_for_testing` for the Linux-only,
+    /// test-only exception, and why it has to be a separate, clearly-labeled
+    /// entry point rather than a flag on this one. (Deliberately not an
+    /// intra-doc link: that item is `cfg(target_os = "linux")`, so a link
+    /// breaks `cargo doc --all-features -D warnings` on macOS and Windows.)
     ///
     /// Known limitation: if the OS window itself fails to create inside
     /// `resumed`, that failure is recorded as `close_requested` (and
