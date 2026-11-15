@@ -90,10 +90,10 @@ impl<B: UiBackend> FrameDriver<B> {
         }
     }
 
-    /// Total UI intents dropped because retained input exceeded
-    /// [`MAX_RETAINED_INTENTS`]. Zero on a well-behaved run; a nonzero
-    /// value means a producer flooded event-only frames faster than
-    /// simulation passes consumed them.
+    /// Total UI intents dropped because retained input exceeded the
+    /// 1,024-intent ceiling. Zero on a well-behaved run; a nonzero value
+    /// means a producer flooded event-only frames faster than simulation
+    /// passes consumed them.
     pub fn dropped_intents(&self) -> u64 {
         self.dropped_intents
     }
