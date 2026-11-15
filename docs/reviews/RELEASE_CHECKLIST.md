@@ -129,8 +129,8 @@ The `v0.1.0` bar is the integration proof in
 `docs/roadmap/v0.1.0-plan.md` WP4: a developer on the documented
 consumer path builds and plays `examples/collectathon/` without private
 harness APIs, and CI plus this checklist clearly distinguish automated
-evidence from required live-device evidence. `v0.1.0` is NOT released —
-rows below record the gate as documented, not as passed.
+evidence from required live-device evidence. `v0.1.0` was released on
+2026-11-15; the rows below record the gate as passed.
 
 ## A. Automated evidence (CI / deterministic local)
 
@@ -218,7 +218,9 @@ rows below record the gate as documented, not as passed.
 - [x] Windowed playthrough recorded 2026-10-21 Arch Linux Vulkan (`frame=1634 presented=1634 skipped=0 x=46.0 score=4`).
 - [x] Audio playback recorded with one transient `Buffer underrun/overrun` qualified as accepted observation.
 - [x] Manual window/audio re-evidence on the current candidate: two interactive playthroughs on Arch Linux 7.2.11-arch1-1 (Vulkan, audible backend) on 2026-10-24, at commit `5ee1b3f` — `frame=804 presented=804 skipped=0 x=48.0 score=4` and `frame=700 presented=700 skipped=0 x=-30.0 score=4`, each `4/4` collected with chime per collection and clean window-close exit; no underrun warnings. Recorded in `docs/release-notes/v0.1.0.md` (re-run rows). Only harmless `calloop: Received an event for non-existence source` log noise observed.
-- [x] Xvfb, llvmpipe Vulkan/render-ECS, and exact-commit evidence recorded on the release candidate: CI run 40108909162 on commit `19788af` (all 12 jobs success). Tag + stable-ancestry steps intentionally pending — no `v0.1.0` tag cut and nothing pushed to `stable` per maintainer direction; when cut, `v0.1.0` is the intended tag (existing `v0.0.1`/`v0.0.2` tags predate the release workflow). Do not cut `v0.1.0` until the maintainer gives the release go-ahead.
+- [x] Xvfb, llvmpipe Vulkan/render-ECS, and exact-commit evidence recorded on the release candidate: CI run 40108909162 on commit `19788af` (all 12 jobs success). Tag + stable-ancestry steps intentionally pending — no `v0.1.0` tag cut and nothing pushed to `stable` per maintainer direction; when cut, `v0.1.0` is the intended tag (existing `v0.0.1`/`v0.0.2` tags predate the release workflow). **Outcome (2026-11-15):** `v0.1.0` was cut from `b7d24dc`, `stable` was
+reset to it, the tag workflow passed all five jobs, and the release was
+published.
 - [x] Post-bump exact-commit evidence: CI run 43733761156 on `01a77a8`
   (all 13 jobs, including Windows, rustdoc, Xvfb windowing, Vulkan and
   render-ECS), Docs run 43733761194 (build + Pages deploy), Security,
@@ -240,12 +242,11 @@ tracked here; `docs/roadmap/status.md` carries the detail.
   four gates green on the bumped tree. The release commit's CI run and
   manual live-device evidence are recorded after the commit is pushed,
   before tagging.
-- [ ] **C3** Exercise the publish path once on a throwaway pre-release tag
-  in a scratch repository. The workflow uses a `release` environment and
-  a draft release, but the path has never run end to end. The environment
-  was created 2026-11-15 with `notthecloudy` as required reviewer
-  (self-review allowed) and a `v*` tag-only deployment policy; the
-  remaining work is the end-to-end dry run, not the settings.
+- [x] **C3** Publish path exercised end to end by the real `v0.1.0` tag
+  run (43743505387) rather than a throwaway tag: the `release`
+  environment (created 2026-11-15, required reviewer
+  `notthecloudy`, `v*` tag-only policy) waited for approval, then created
+  the draft; the draft was reviewed and published on 2026-11-15.
 - [x] **C4** Release notes state what the consumer supplies (sample-owned
   renderer/shader/HUD/loop glue; no facade crate).
 - [x] **C5** Release notes and `docs/architecture/networking.md` state the

@@ -26,8 +26,8 @@ feature counts. These are proposed planning rules, not accepted ADRs.
 
 ## The committed path comes first
 
-`v0.0.16` is the latest tagged release; the active target is the `v0.1.0`
-integration proof, closing on `dev` (see [`status.md`](status.md) and the
+`v0.1.0` is the latest release (2026-11-15); the integration proof is
+complete (see [`status.md`](status.md) and the
 [`v0.1.0` closure gates](v0.1.0-plan.md#status)). The completed
 dependency order that got here was:
 
