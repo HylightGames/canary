@@ -5,10 +5,11 @@
 # docs/decisions/architecture-decision-records/0002-primary-language-selection.md
 # for why Rust was chosen and how we intend to manage its upgrade cadence.
 #
-# This session's sandbox validated the workspace against the Ubuntu-packaged
-# rustc 1.75 toolchain (apt), since rustup's download host is not reachable in
-# this environment. That is a floor, not the target: real development and CI
-# should use current `stable`, which by mid-2026 is considerably newer.
+# The de-facto floor is set by the heaviest dependency, not by this file
+# (currently wasmtime 49.x, MSRV 1.95 as of 2026-11; re-check
+# `docs/development/build-system.md` when bumping it). CI and local
+# development deliberately use current `stable`, so the floor only matters
+# for distributions that ship an older compiler.
 
 [toolchain]
 channel = "stable"

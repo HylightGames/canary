@@ -14,10 +14,10 @@ readme = "README.md"
 workspace = true
 
 [dependencies]
-canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
-canary-scheduler = { path = "../canary-scheduler", version = "0.0.16" }
-canary-transform = { path = "../canary-transform", version = "0.0.16" }
-canary-assets = { path = "../canary-assets", version = "0.0.16" }
+canary-ecs = { path = "../canary-ecs", version = "0.1.0" }
+canary-scheduler = { path = "../canary-scheduler", version = "0.1.0" }
+canary-transform = { path = "../canary-transform", version = "0.1.0" }
+canary-assets = { path = "../canary-assets", version = "0.1.0" }
 glam = "0.33"
 thiserror = "2.0.19"
 

@@ -91,6 +91,24 @@ fn params<'a>(
 fn noop_build(_: &mut dyn UiBuilder) {}
 fn noop_schedule(_: &mut World) {}
 
+/// Emits one UI intent on every frame, forever: the flood case the
+/// retained-intent ceiling exists for.
+struct FloodingBackend;
+
+impl UiBackend for FloodingBackend {
+    fn run_frame(
+        &mut self,
+        _input: &UiFrameInput<'_>,
+        _build: &mut dyn FnMut(&mut dyn UiBuilder),
+    ) -> UiFrameOutput {
+        UiFrameOutput {
+            capture: CaptureResult::none(),
+            intents: vec![UiIntent::ButtonPressed(UiId::new("fire"))],
+            paint: UiPaint::default(),
+        }
+    }
+}
+
 #[test]
 fn event_only_frames_advance_neither_tick_nor_sim_time() {
     let mut runtime = runtime();
@@ -558,6 +576,53 @@ fn press_and_release_across_event_only_frames_both_survive() {
     assert!(
         observed[0].3.is_some(),
         "the retained snapshot is tick-stamped at delivery"
+    );
+}
+
+#[test]
+fn retained_ui_intents_are_bounded_and_drops_are_counted() {
+    // A producer that emits intents while no simulation pass runs must not
+    // grow the retained queue without bound (CANARY-REL-023). The cap
+    // keeps the most recent 1,024 activations and counts the rest.
+    let mut runtime = runtime();
+    let (mapper, _jump) = mapper_with_jump();
+    let mut driver = FrameDriver::new(FloodingBackend, mapper);
+    let mut input = HeadlessInput::new();
+    let mut build = noop_build;
+    let mut schedule = noop_schedule;
+
+    for _ in 0..2_000 {
+        runtime.drive_frame(
+            &mut driver,
+            params(&mut input, &mut build, &mut schedule, SimPasses::NONE),
+        );
+    }
+    assert_eq!(
+        driver.dropped_intents(),
+        2_000 - 1_024,
+        "only the overflow past the retained-intent ceiling is dropped"
+    );
+
+    let mut delivered = 0;
+    let mut schedule = |world: &mut World| {
+        delivered = world
+            .resource::<UiIntents>()
+            .expect("driver publishes intents before the schedule runs")
+            .intents
+            .len();
+    };
+    runtime.drive_frame(
+        &mut driver,
+        params(
+            &mut input,
+            &mut build,
+            &mut schedule,
+            SimPasses::fixed(Duration::from_millis(16), 1),
+        ),
+    );
+    assert_eq!(
+        delivered, 1_024,
+        "delivery is bounded to the retained ceiling"
     );
 }
 

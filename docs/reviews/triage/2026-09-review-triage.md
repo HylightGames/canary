@@ -94,7 +94,7 @@ in a bigger review.
 **#8, I'd push back on slightly.** The review frames this as still
 outstanding, but `canary-ecs` already ships a first cut of exactly this
 separation for one identity pair: [ADR
-0010](architecture-decision-records/0010-component-identity-across-language-boundary.md)'s
+0010](../../decisions/architecture-decision-records/0010-component-identity-across-language-boundary.md)'s
 `CanaryComponent::SCHEMA_ID` deliberately keeps `TypeId` host-internal and
 gives components a separate, stable, string-based identity for the
 plugin/language boundary — which is real, implemented, and has a real
@@ -166,7 +166,7 @@ since several cluster naturally.
 - **#9/#10 Schema-driven serialization + migrations** — `canary-state`
   doesn't exist yet; `docs/architecture/state-and-versioning.md` already
   frames project state as "a versionable graph" per [ADR
-  0012](architecture-decision-records/0012-project-state-as-a-versionable-graph.md),
+  0012](../../decisions/architecture-decision-records/0012-project-state-as-a-versionable-graph.md),
   which is directionally the same concern. Revisit when that crate is
   actually scoped.
 - **#11 Virtual filesystem** (`project://`, `cache://`, ...) — good idea,

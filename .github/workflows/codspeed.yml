@@ -30,13 +30,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         # No LFS checkout: every benchmark fixture is synthesized
         # in-process, so measurements never depend on external asset
         # objects.
 
       - name: Setup Rust toolchain, cache, and cargo-codspeed
-        uses: moonrepo/setup-rust@v1
+        uses: moonrepo/setup-rust@abb2d32350334249b178c401e5ec5836e0cd88d3 # v1
         with:
           channel: stable
           cache-target: release
@@ -58,7 +58,7 @@ jobs:
           -p canary-render-ecs
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@v5
+        uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5
         with:
           mode: simulation
           run: cargo codspeed run

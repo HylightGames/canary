@@ -15,7 +15,7 @@ workspace = true
 
 [dependencies]
 thiserror = "2.0.19"
-canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
+canary-ecs = { path = "../canary-ecs", version = "0.1.0" }
 
 # Host-only: the native (Tier B) and WASM (Tier A) plugin *loaders*
 # (loader.rs / tier_a.rs, cfg-gated the same way in lib.rs) run on the

@@ -32,6 +32,7 @@ pub mod authored;
 pub mod codec;
 pub mod error;
 pub mod identity;
+mod io;
 pub mod migration;
 pub mod revisions;
 pub mod schema;
@@ -39,7 +40,7 @@ pub mod snapshot;
 pub mod spawn_plan;
 pub mod value;
 
-pub use authored::{atomic_write, AuthoredChange, AuthoredDocument, Prefab};
+pub use authored::{atomic_write, AuthoredChange, AuthoredDocument, Prefab, MAX_PROJECT_BYTES};
 pub use codec::{AuthoredFormat, SnapshotFormat};
 pub use error::StateError;
 pub use identity::{ProjectId, ProjectRegistry};
@@ -53,7 +54,7 @@ pub use schema::{AuthoredEnvelope, EncodingVersion, SchemaId, SchemaVersion, Sna
 pub use snapshot::{
     decode_snapshot, encode_snapshot, load_snapshot, save_snapshot, snapshot_checksum, OwnedRng,
     RemapTable, SimStateSnapshot, Snapshot, SnapshotChecksum, SnapshotProfile, SnapshotRecord,
-    SIM_STATE_ID, SIM_STATE_SCHEMA,
+    MAX_SNAPSHOT_BYTES, SIM_STATE_ID, SIM_STATE_SCHEMA,
 };
 pub use spawn_plan::{PlannedComponent, PlannedEntity, SpawnPlan};
-pub use value::SnapshotValue;
+pub use value::{SnapshotValue, MAX_SNAPSHOT_VALUE_DEPTH};

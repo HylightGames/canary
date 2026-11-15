@@ -30,6 +30,18 @@ use crate::error::StateError;
 use crate::identity::ProjectId;
 use crate::schema::{AuthoredEnvelope, SchemaId, SchemaVersion, AUTHORED_ENCODING};
 
+/// Maximum size of an authored project file this build will read:
+/// 16 MiB.
+///
+/// A project file is untrusted input (a download, a mod, a shared
+/// project), so the size ceiling is enforced before the content is read
+/// — see [`AuthoredDocument::load`]. The ceiling is provisional pending
+/// calibration against a real project, matching
+/// `canary-assets`' 64 MiB asset cap and the Tier A loader's 16 MiB
+/// component cap; a project that outgrows it should be split rather
+/// than have the ceiling raised silently.
+pub const MAX_PROJECT_BYTES: u64 = 16 * 1024 * 1024;
+
 /// Schema of the project document itself.
 pub fn project_schema() -> (SchemaId, SchemaVersion) {
     (SchemaId::new("canary.project"), SchemaVersion(1))
@@ -143,10 +155,18 @@ impl AuthoredDocument {
 
     /// Reads and parses a document. Callers still owe the staged checks
     /// (encoding, schema, migration) before trusting the result.
+    ///
+    /// The file is bounded by [`MAX_PROJECT_BYTES`] before its content is
+    /// read: an oversized file fails as
+    /// [`StateError::InputTooLarge`](crate::StateError) from a metadata
+    /// pre-check, without allocating as much as the file claims. A file
+    /// that grows between the check and the read is caught by the capped
+    /// reader. Invalid UTF-8 reports [`StateError::File`].
     pub fn load(path: &Path) -> Result<Self, StateError> {
-        let text = std::fs::read_to_string(path).map_err(|e| StateError::File {
+        let bytes = crate::io::read_bounded(path, MAX_PROJECT_BYTES)?;
+        let text = String::from_utf8(bytes).map_err(|_| StateError::File {
             path: path.to_path_buf(),
-            reason: e.to_string(),
+            reason: "project file is not valid UTF-8".to_owned(),
         })?;
         Self::from_canonical_json(&text)
     }
@@ -831,6 +851,27 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Root bypasses permission bits, so a "permission denied" fixture
+    /// cannot be built there. Probe once and skip instead of failing:
+    /// CI also runs in root containers (final-review finding
+    /// `CANARY-REL-022`).
+    #[cfg(unix)]
+    fn permission_bits_are_enforced(dir: &std::path::Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+
+        let probe = dir.join("permission-probe");
+        if std::fs::write(&probe, b"probe").is_err() {
+            return false;
+        }
+        if std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o000)).is_err() {
+            let _ = std::fs::remove_file(&probe);
+            return false;
+        }
+        let denied = std::fs::File::open(&probe).is_err();
+        let _ = std::fs::remove_file(&probe);
+        denied
+    }
+
     #[cfg(unix)]
     #[test]
     fn dir_sync_failure_after_rename_reports_err_with_committed_bytes() {
@@ -841,6 +882,10 @@ mod tests {
         // sees `Err` for bytes that are already live. Retry is idempotent —
         // the same bytes save cleanly once the directory is readable again.
         let dir = scratch_dir("dirsync-ambiguity");
+        if !permission_bits_are_enforced(&dir) {
+            eprintln!("skipping: permission bits are not enforced (running as root)");
+            return;
+        }
         let path = dir.join("project.json");
         let mut first = doc();
         first

@@ -535,12 +535,37 @@ mod tests {
         assert_eq!(content, "k = V\n");
     }
 
+    /// Root bypasses permission bits, so a "permission denied" fixture
+    /// cannot be built there. Probe once and skip instead of failing:
+    /// CI also runs in root containers (final-review finding
+    /// `CANARY-REL-022`).
+    #[cfg(unix)]
+    fn permission_bits_are_enforced(dir: &std::path::Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+
+        let probe = dir.join("permission-probe");
+        if std::fs::write(&probe, b"probe").is_err() {
+            return false;
+        }
+        if std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o000)).is_err() {
+            let _ = std::fs::remove_file(&probe);
+            return false;
+        }
+        let denied = std::fs::File::open(&probe).is_err();
+        let _ = std::fs::remove_file(&probe);
+        denied
+    }
+
     #[cfg(unix)]
     #[test]
     fn unreadable_ftl_metadata_is_a_read_error_not_overbudget() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().expect("failed to create temp dir");
+        if !permission_bits_are_enforced(dir.path()) {
+            eprintln!("skipping: permission bits are not enforced (running as root)");
+            return;
+        }
         let locale_dir = dir.path().join("en-US");
         std::fs::create_dir(&locale_dir).expect("locale dir");
         std::fs::write(locale_dir.join("main.ftl"), "greeting = Hello!").expect("seed ftl");
@@ -570,6 +595,10 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().expect("failed to create temp dir");
+        if !permission_bits_are_enforced(dir.path()) {
+            eprintln!("skipping: permission bits are not enforced (running as root)");
+            return;
+        }
         let base = dir.path().join("packs");
         std::fs::create_dir(&base).expect("base dir");
         let locale_dir = base.join("en-US");
@@ -600,6 +629,10 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().expect("failed to create temp dir");
+        if !permission_bits_are_enforced(dir.path()) {
+            eprintln!("skipping: permission bits are not enforced (running as root)");
+            return;
+        }
         let base = dir.path().join("packs");
         std::fs::create_dir(&base).expect("base dir");
 

@@ -35,25 +35,30 @@ author → test → lint/compare → pseudo → Weblate → pull → resolve
    version (pinned with wheel hashes in
   `.github/moz-l10n-requirements.txt`, checked 2026-09-20 as latest on PyPI)
    with system `python3` — no third-party GitHub Actions involved — and
-   runs two gates over `locales/` once `.ftl` files exist:
-   - `moz-l10n lint 'locales/**/*.ftl'` fails the job if any file does
-     not parse. Note the quoted glob, expanded by `moz-l10n` itself:
-     passing a bare `locales/` directory only visits files mirroring
-     the reference locale's layout, so a broken extra file elsewhere is
-     silently skipped (verified directly against 0.14.2). The glob is
-     what makes this a real parse gate.
+   runs two gates over the shipped sample locales
+   (`examples/collectathon/assets/locales`, source `en`):
+   - `moz-l10n lint "$locale_root/**/*.ftl"` fails the job if any file
+     does not parse. Note the quoted glob, expanded by `moz-l10n`
+     itself: passing a bare `locale_root/` directory only visits files
+     mirroring the reference locale's layout, so a broken extra file
+     elsewhere is silently skipped (verified directly against 0.14.2).
+     The glob is what makes this a real parse gate.
    - `moz-l10n compare --json <each non-default locale> --source
-     locales/en-US`, with a small stdlib-`python3` check failing the
-     job on any key missing relative to `en-US` (or any per-file
-     error), surfaced as file-annotated `::error ::` lines. The wrapper
-     exists because `compare` itself only *reports* — it exits 0 even
-     with keys missing (verified) — so without enforcement it would be
-     a dashboard, not a gate.
-   - Until the first `.ftl` lands, the job installs the pinned tool,
-     proves it executes (`moz-l10n --version`), and echoes an explicit
-     `vacuous-active` note. Environment, pin, and invocation are
-     exercised on every run, so the first content commit inherits a
-     working gate with zero CI changes.
+     <locale_root>/en`, with a small stdlib-`python3` check failing the
+     job on any key missing relative to the source locale (or any
+     per-file error), surfaced as file-annotated `::error ::` lines. The
+     wrapper exists because `compare` itself only *reports* — it exits 0
+     even with keys missing (verified) — so without enforcement it would
+     be a dashboard, not a gate.
+   - Paths passed to `compare` must be **absolute**: 0.14.2 normalizes
+     the reference root as `join(source, source)`, so a relative
+     `--source` turns into `<source>/<source>` and discovery raises
+     `MissingSourceDirectoryError`. The job resolves `locale_root` with
+     `realpath`; verified by running the job's exact script locally
+     against the pinned 0.14.2 wheel.
+   - The job fails if `git ls-files '*.ftl'` finds content outside that
+     root, so it cannot pass vacuously while real locale files go
+     unchecked (final-review finding `CANARY-REL-010`).
 4. **Pseudo.** Before (or without) human translations, generated
    stand-in text proves the UI survives translation-shaped content —
    see "Pseudo-locales" below.
@@ -89,12 +94,14 @@ locales/
   locale directory, so splitting into more files later (per-feature,
   per-screen) needs no code or CI changes — but start with one file
   until there is enough content to justify the split.
-- `locales/` intentionally does not exist yet: with no `CanaryUI`
-  widgets there are no user-facing strings to translate, and an empty
-  `en-US/main.ftl` (or invented example strings) would either trip the
-  compare gate's source-empty check or, worse, look like real content.
-  The first UI string authored is the commit that creates
-  `locales/en-US/main.ftl` — and activates the CI gates above.
+- The engine-owned `locales/` directory does not exist yet: with no
+  `CanaryUI` widgets there are no engine user-facing strings to
+  translate. The only shipped content today is the collectathon HUD
+  under `examples/collectathon/assets/locales/{en,de}`, which follows
+  this layout and is what the CI gate actually checks. The first
+  engine UI string authored creates `locales/en-US/main.ftl`; the gate
+  already covers both roots (it fails on any `.ftl` outside the sample
+  root until that convention moves).
 - This layout is what the Weblate component's file mask
   (`locales/*/main.ftl`) and the CI compare step (`--source
   locales/en-US`) both assume. Changing it means changing all three

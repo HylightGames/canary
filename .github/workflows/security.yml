@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install cargo-audit
         # Pinned: the security gate's own tool must not float — a broken
         # audit release would red-block every PR. Bump deliberately.
@@ -36,13 +36,16 @@ jobs:
       - name: cargo audit
         # Accepted-warning baseline (zero errors required; warnings need a
         # written reason to stay): RUSTSEC-2026-0192 (`ttf-parser`
-        # unmaintained) via owned_ttf_parser <- parry2d <- rapier2d, the
-        # canonical 2D backend (ADR 0019). Not manifest-actionable -- only
-        # a rapier replacement would move it -- and not a vulnerability,
-        # so it stays visible rather than ignored. Revisit if a real
-        # advisory lands on this chain or rapier moves off it.
-        # `--deny warnings` with the single accepted `--ignore` makes
-        # the baseline mechanical: a *second* warning (yanked,
-        # unmaintained, unsound) fails loudly instead of passing
-        # silently next to the accepted one.
+        # unmaintained) via owned_ttf_parser <- ab_glyph <- sctk-adwaita
+        # <- winit, the Linux windowing backend. Not a vulnerability, and
+        # not manifest-actionable from this workspace -- only a winit /
+        # sctk-adwaita change moves the chain. Reviewed 2026-11-15; revisit
+        # if a real advisory lands on this chain or the backend moves off
+        # ab_glyph.
+        # `--deny warnings` with the single accepted `--ignore` makes the
+        # baseline mechanical: a *second* warning (yanked, unmaintained,
+        # unsound) fails loudly instead of passing silently next to the
+        # accepted one. RustSec 2026-10/11 advisories closed by the 0.1.0
+        # dependency pass: wasmtime 49.0.4 -> 49.0.5 (RUSTSEC-2026-0422/
+        # 0423/0424) and rustix 1.1.5 -> 1.1.6 (RUSTSEC-2026-0486).
         run: cargo audit --deny warnings --ignore RUSTSEC-2026-0192

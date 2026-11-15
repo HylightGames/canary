@@ -75,6 +75,7 @@
 mod budget;
 mod codec;
 mod instance;
+mod limits;
 mod slot;
 mod wasm_loader;
 
@@ -89,6 +90,8 @@ pub use wasm_loader::{PluginOutcome, WasmPluginLoader, MAX_PLUGIN_BYTES};
 // need a glob; the rest would be shadowed-unused.
 #[cfg(test)]
 pub(crate) use codec::*;
+#[cfg(test)]
+pub(crate) use limits::*;
 #[cfg(test)]
 pub(crate) use slot::*;
 

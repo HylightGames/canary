@@ -109,4 +109,30 @@ pub enum StateError {
         /// The snapshot-local ID no record provides.
         id: u32,
     },
+
+    /// An input file or buffer is past this build's documented size
+    /// budget. Checked before the content is read where the source is a
+    /// file, so an oversized file fails without allocating its contents.
+    #[error("input at {path} is {size} bytes, over the {max}-byte limit")]
+    InputTooLarge {
+        /// Where the input came from; a descriptive placeholder when the
+        /// caller supplied bytes rather than a path.
+        path: PathBuf,
+        /// The observed size in bytes.
+        size: u64,
+        /// The applicable inclusive ceiling.
+        max: u64,
+    },
+
+    /// A [`SnapshotValue`](crate::SnapshotValue) nests deeper than the
+    /// documented bound. Depth is counted from the outermost value (a
+    /// flat scalar is depth 1), so the first rejected value reports
+    /// `max + 1`.
+    #[error("snapshot value nesting depth {depth} exceeds the {max}-level limit")]
+    NestingTooDeep {
+        /// The depth the decode reached before it was refused.
+        depth: usize,
+        /// The deepest accepted level.
+        max: usize,
+    },
 }

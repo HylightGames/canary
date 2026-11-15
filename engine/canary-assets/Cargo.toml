@@ -14,7 +14,7 @@ readme = "README.md"
 workspace = true
 
 [dependencies]
-canary-ecs = { path = "../canary-ecs", version = "0.0.16" }
+canary-ecs = { path = "../canary-ecs", version = "0.1.0" }
 thiserror = "2.0.19"
 
 # Content-hash backend for `AssetId` (ADR 0018: opaque hash of file bytes +
