@@ -407,17 +407,25 @@ pub fn atomic_write(path: &Path, bytes: &[u8], temp_suffix: &str) -> Result<(), 
 /// idempotent. This leaf crate carries no logging facade (adding one
 /// would be a dependency decision, not a durability fix), so the notice
 /// goes to stderr in debug builds only; release builds stay silent.
-#[cfg(unix)]
+///
+/// The two definitions exist because a single debug-only call would leave
+/// the parameters unused in release, which `-D warnings` rejects (and the
+/// release workflow runs clippy with exactly that). The release version
+/// keeps the same signature and underscore-prefixes the intentionally
+/// unused parameters rather than adding a placeholder statement.
+#[cfg(all(unix, debug_assertions))]
 fn committed_but_unverified(path: &Path, error: &std::io::Error) {
-    // Function parameters (unlike locals) never trip `unused_variables`,
-    // so the release build needs no placeholder for the debug-only uses.
-    #[cfg(debug_assertions)]
     std::eprintln!(
         "canary-state: atomic_write committed {} but the post-rename directory sync failed \
          ({error}); bytes may be live, retry is idempotent",
         path.display()
     );
 }
+
+/// Release-build counterpart of the debug notice above (see that doc for
+/// why release stays silent). Both parameters are unused by design.
+#[cfg(all(unix, not(debug_assertions)))]
+fn committed_but_unverified(_path: &Path, _error: &std::io::Error) {}
 
 #[cfg(test)]
 mod tests {
