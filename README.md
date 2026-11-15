@@ -51,10 +51,10 @@ Image credits and licenses: [`misc/screenshots/CREDITS.md`](misc/screenshots/CRE
 
 ## Project status
 
-`v0.0.16` is the latest tag. The next milestone, `v0.1.0`, is implemented on
-`dev` but **not tagged yet**: `examples/collectathon/` is a small playable 2D
-game built only on Canary's public APIs, with a deterministic headless twin
-and the live-evidence checklist in its README. Two smaller runnable examples
+`v0.1.0` is the latest tag (released 2026-11-15).
+`examples/collectathon/` is a small playable 2D game built only on Canary's
+public APIs, with a deterministic headless twin and the live-evidence
+checklist in its README. Two smaller runnable examples
 ship alongside it: `examples/ui-game` (windowed rendering, HUD, mapped
 actions) and `examples/spinning-cube` (offscreen render to GIF).
 

@@ -6,12 +6,12 @@ Canary's version numbers follow the project's versioning scheme defined in [ADR 
 
 This file records **meaningful changes between released versions**. It intentionally does not reproduce the full development history of each release. For dated milestones, pre-releases, architecture reviews, and the work that led to each release, see [`docs/roadmap/milestones.md`](docs/roadmap/milestones.md).
 
-## [Unreleased] — post-`v0.0.16` toward `v0.1.0` (untagged draft)
+## [0.1.0] - 2026-11-15
 
-`v0.0.16` is the latest tagged release. This section tracks closure work
-toward the untagged `v0.1.0` draft (see
+`v0.1.0` is the latest release (tagged and published 2026-11-15; see
 [`docs/roadmap/status.md`](docs/roadmap/status.md) for current,
-authoritative status) and tagged — `v0.0.1`/`v0.0.2` by release cuts,
+authoritative status). This section records what shipped in it and the
+earlier tagged releases — `v0.0.1`/`v0.0.2` by release cuts,
 `v0.0.12`/`v0.0.13` by release cuts, `v0.0.3`–`v0.0.11` by backfill tags
 on their implementation records (2026-09-28; see `milestones.md`). Each
 has its own

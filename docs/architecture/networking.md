@@ -241,7 +241,7 @@ Scoped truths this slice holds (and stops at):
 
 ### Known limitations (`v0.1.0`)
 
-The untagged `v0.1.0` integration proof ships these networking limits;
+The `v0.1.0` integration proof ships these networking limits;
 they are also recorded in
 [`docs/release-notes/v0.1.0.md`](../release-notes/v0.1.0.md#known-limitations):
 

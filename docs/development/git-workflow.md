@@ -204,7 +204,10 @@ tag in a scratch repository before relying on it for a real release.
 `notthecloudy` as a required reviewer (self-review allowed) and a custom
 deployment policy limited to `v*` tags. Verify before tagging with
 `gh api repos/HylightGames/canary/environments/release --jq '.protection_rules'`.
-The dry run above is still outstanding.
+**Exercised 2026-11-15:** the `v0.1.0` tag run passed all five
+verification jobs (tag/version, integration gate, and release build on
+Ubuntu, macOS and Windows), created the draft, and the draft was
+reviewed and published.
 
 ## Why two branches
 

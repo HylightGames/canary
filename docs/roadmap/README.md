@@ -11,8 +11,8 @@ record is [`milestones.md`](milestones.md).
 
 ## Where to continue now
 
-`v0.0.16` is the latest tagged release. The active pre-cut target is
-**`v0.1.0`: integration proof** (untagged draft).
+`v0.1.0` is the latest release (tagged and published 2026-11-15). The
+**`v0.1.0`: integration proof** milestone is complete.
 The dependency-ordered release plan is [`v0.1.0-plan.md`](v0.1.0-plan.md);
 the live inventory is [`status.md`](status.md); the remaining gates are
 [`RELEASE_CHECKLIST.md`](../reviews/RELEASE_CHECKLIST.md). The
