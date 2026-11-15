@@ -193,6 +193,14 @@ rows below record the gate as documented, not as passed.
   observation (see `docs/release-notes/v0.1.0.md`).
   (decode-only `continuing headless` on silent machines is supported,
   not a failure).
+- [x] Final manual re-evidence on the `0.1.0` release commit `01a77a8`
+  (2026-11-15, Arch Linux Vulkan, audible PipeWire backend):
+  `cargo run --release -p collectathon --bin collectathon` finished at
+  `frame=2016 presented=2016 skipped=0 x=-30.0 score=4`; score reached
+  `4/4`, reset cycled it to 0 and back to 4, window closed cleanly,
+  chime per collection, no underrun warnings. Only the known harmless
+  `calloop` chatter. Validation layers were **not** installed on this
+  machine, so that sub-gate was not run.
 
 ## C. Release mechanics (policy stated, drift not resolved here)
 
@@ -211,6 +219,11 @@ rows below record the gate as documented, not as passed.
 - [x] Audio playback recorded with one transient `Buffer underrun/overrun` qualified as accepted observation.
 - [x] Manual window/audio re-evidence on the current candidate: two interactive playthroughs on Arch Linux 7.2.11-arch1-1 (Vulkan, audible backend) on 2026-10-24, at commit `5ee1b3f` — `frame=804 presented=804 skipped=0 x=48.0 score=4` and `frame=700 presented=700 skipped=0 x=-30.0 score=4`, each `4/4` collected with chime per collection and clean window-close exit; no underrun warnings. Recorded in `docs/release-notes/v0.1.0.md` (re-run rows). Only harmless `calloop: Received an event for non-existence source` log noise observed.
 - [x] Xvfb, llvmpipe Vulkan/render-ECS, and exact-commit evidence recorded on the release candidate: CI run 40108909162 on commit `19788af` (all 12 jobs success). Tag + stable-ancestry steps intentionally pending — no `v0.1.0` tag cut and nothing pushed to `stable` per maintainer direction; when cut, `v0.1.0` is the intended tag (existing `v0.0.1`/`v0.0.2` tags predate the release workflow). Do not cut `v0.1.0` until the maintainer gives the release go-ahead.
+- [x] Post-bump exact-commit evidence: CI run 43733761156 on `01a77a8`
+  (all 13 jobs, including Windows, rustdoc, Xvfb windowing, Vulkan and
+  render-ECS), Docs run 43733761194 (build + Pages deploy), Security,
+  Trivy, CodeQL and CodSpeed all green; manual window/audio run recorded
+  above on the same commit.
 
 ## E. Final-review conditions (2026-10-24 review; status 2026-11-15)
 

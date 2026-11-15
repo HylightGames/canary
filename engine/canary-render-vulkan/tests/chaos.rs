@@ -14,8 +14,14 @@
 //! `#[ignore]`d by default like `hello_triangle`: needs a real Vulkan ICD.
 //! Run explicitly via
 //! `cargo test -p canary-render-vulkan --test chaos -- --ignored`.
+//!
+//! `TextureDescriptor` is debug-gated because its only use here is the
+//! debug-only drop-order probe; an unconditional import is unused in
+//! release and fails the release clippy gate (`-D warnings`).
 
-use canary_render::{ColorTargetDescriptor, RenderDevice, TextureDescriptor};
+#[cfg(debug_assertions)]
+use canary_render::TextureDescriptor;
+use canary_render::{ColorTargetDescriptor, RenderDevice};
 use canary_render_vulkan::VulkanDevice;
 
 /// Creates a real Vulkan device, panicking with the ICD hint when none exists.
