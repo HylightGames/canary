@@ -117,7 +117,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libxrandr-dev libxi-dev libxcursor-dev pkg-config libasound2-dev
-      - name: cargo fmt --check
+      - name: cargo fmt --check (ubuntu only)
+        # Formatting is platform-independent, and Windows checkouts rewrite
+        # the tree to CRLF, which rustfmt reports as "incorrect newline
+        # style" for every file. CI's dedicated Format check job is also
+        # Linux-only; running it here on the other legs only produced
+        # false failures.
+        if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --all -- --check
       - name: cargo build --workspace --release
         run: cargo build --locked --workspace --all-targets --release
