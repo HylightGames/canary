@@ -6,22 +6,19 @@ machine-specific steps stay out of the repository.
 
 - Canonical source: <https://github.com/HylightGames/canary>
 - Publisher identity: HylightGames
-- Last checked: 2026-10-21
+- Last checked: 2026-11-16
 
 The ecosystem research and per-channel rationale live in
 [`docs/research/distribution-audit.md`](research/distribution-audit.md). This
 page records only the current plan and status.
 
-## Crates.io preparation checkpoint (2026-10-21)
+## Crates.io publication (2026-11-16)
 
-All 19 publishable `canary-*` crates now have registry dependency versions,
-repository/homepage/documentation metadata, and crate-specific READMEs. CI
-creates their `.crate` archives without publishing them. The first tier, which
-has no internal Canary dependencies, passes `cargo publish --dry-run`; later
-tiers need their lower-tier dependencies in the registry before a full dry-run
-can succeed. A dry-run does not reserve names or upload packages. No crate has
-been uploaded. The planned `canary-engine` package is still undefined: the name
-is chosen, but there is no package or public API contract for it.
+All 19 publishable `canary-*` crates were published to crates.io at `0.1.0`
+on 2026-11-16, in dependency order (T0 through T4), from the `v0.1.0` tag
+tree. docs.rs built documentation for all 19. The planned `canary-engine`
+package remains undefined: the name is chosen, but there is no package or
+public API contract for it.
 
 ## Naming
 
@@ -79,9 +76,9 @@ and manifest names do not need a global availability check.
 | Tier | Channel | Identifier | Status | Notes |
 | --- | --- | --- | --- | --- |
 | P0 | GitHub Releases | `HylightGames/canary` | Existing | Tag-triggered; publishes notes only, no archives or checksums yet. |
-| P0 | crates.io | 19 publishable `canary-*` crates | Prepared | Metadata and archive creation are checked in CI; T0 dry-run passes. Future channel, not part of the [`v0.1.0` consumer route](release-notes/v0.1.0.md); later tiers and publication remain pending. |
+| P0 | crates.io | 19 publishable `canary-*` crates | Published | All 19 at `0.1.0` published 2026-11-16 in dependency order; docs.rs builds succeeded. Library consumption is now `cargo add canary-*`. |
 | P0 | crates.io | `canary-engine` | Planned | Name chosen, but no package or public API contract exists. Not part of the [`v0.1.0` consumer route](release-notes/v0.1.0.md). |
-| P0 | docs.rs | `canary-*` packages | Automatic | Follows each crates.io publish. |
+| P0 | docs.rs | `canary-*` packages | Published | Built for all 19 `0.1.0` crates on 2026-11-16. |
 | P0 | cargo-binstall | `canary-cli` | Planned | Needs release archives plus package metadata. |
 | P0 | GHCR | `ghcr.io/hylightgames/canary` | Planned | Headless/server image; no image workflow exists yet. |
 | P1 | Homebrew tap | `HylightGames/homebrew-canary`, formula `canary` | Planned | Tap repository does not exist yet. |
@@ -108,7 +105,9 @@ Never publish an empty or placeholder package just to hold a name.
 
 ## Planned install targets
 
-None of these commands work yet; they are the target user experience.
+The engine crates are now usable as libraries (`cargo add canary-core`). None
+of the binary or installer commands below work yet; they are the target user
+experience.
 
 ```sh
 cargo install canary-cli

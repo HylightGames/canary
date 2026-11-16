@@ -8,7 +8,7 @@ reviews in [`docs/reviews/`](../reviews/), this is a living document, not
 a point-in-time record — the same convention as
 [`risk-register.md`](../reviews/risk-register.md).
 
-## Current handoff — `v0.0.16` latest tag, `v0.1.0` closure on `dev` (2026-10-24)
+## Current handoff — `v0.1.0` released (2026-11-15); `v0.2.0` proposed
 
 `v0.0.12` audio is released as tag `v0.0.12`, `v0.0.13` (`CanaryUI` + windowed presentation) is released as tag `v0.0.13`, `v0.0.14` (authored project state and simulation snapshots) is released as tag `v0.0.14`, `v0.0.15` (minimal server-authoritative networking) is released as tag `v0.0.15`, and `v0.0.16` (live collaboration) is cut as tag `v0.0.16`. `v0.1.0` is released as tag `v0.1.0` on `b7d24dc` (2026-11-15); the release note is `docs/release-notes/v0.1.0.md`. What is new since the `.16` cut: the one-room 2D collectathon integration-proof sample on `dev` covers WP1–WP3; WP4 live evidence recorded 2026-10-21 (Arch Linux Vulkan windowed run plus audio with one qualified underrun). Since then the readiness audit's two remaining code gaps closed on `dev`: event-only input/intent retention (`PendingFrame` + `SimulationInput::absorb_edges`, once-only delivery tested), presenter liveness lease (`WindowGone`) plus cross-device readback refusal, rustdoc as a `dev` CI gate, and a release-workflow candidate integration gate (Xvfb + llvmpipe enforced pre-publish). Since then the re-review's provider-trust follow-up closed on `dev` too: the provider trait is `unsafe` with a documented safety section and the lease is weak-only ([ADR 0030](../decisions/architecture-decision-records/0030-trusted-window-provider-contract.md)). Fresh candidate evidence landed 2026-10-24 (CI run 40108909162 on `19788af`, plus a manual window/audio re-run at `5ee1b3f` covering the collect-textured-drawable fix — two `4/4` playthroughs, `804/804` and `700/700` presented, zero skipped). That evidence predated the `0.1.0` version bump, so it was repeated on the release commit: CI run 43733761156 on `01a77a8` (all 13 jobs) plus a manual window/audio playthrough on 2026-11-15 (`frame=2016 presented=2016 skipped=0 x=-30.0 score=4`, audible backend, no underruns). See the final-review condition status below and [`v0.1.0-plan.md`](v0.1.0-plan.md). What `.13` landed: window
 presentation with live lifecycle gates (`present_clear.rs`: steady,
@@ -30,44 +30,41 @@ minimal server-authoritative networking is released as tag `v0.0.15` —
 see the `v0.0.15` section below. `.16` live collaboration is cut as
 tag `v0.0.16` — see the `v0.0.16` section below.
 
-With `.16` cut, the next milestone is `v0.1.0` integration in a small sample game. The detailed sequence
-and out-of-scope items are in [`v0.1.0-plan.md`](v0.1.0-plan.md); long-term
-editor, visual scripting, and ecosystem work is in
-[`future-roadmap.md`](future-roadmap.md).
+`v0.1.0` is released as tag `v0.1.0` on `b7d24dc` (2026-11-15) and published
+on GitHub; `stable` was reset to the same commit and verified tree-equal, so
+it contains only the `v0.1.0` history. The release note is
+[`docs/release-notes/v0.1.0.md`](../release-notes/v0.1.0.md); CI run
+43733761156 on `01a77a8` plus the manual window/audio/validation-layer
+evidence are recorded there, and the tag run (43743505387) exercised the
+`release` environment's approval gate before publishing. The collectathon
+sample below is the released integration proof. Crates.io publication followed
+on 2026-11-16: all 19 publishable `canary-*` crates are published at `0.1.0`
+and docs.rs built all 19; see [`docs/distribution.md`](../distribution.md).
 
-A final `v0.1.0` review (2026-10-24, audited commit `ebc8f7f`) and a proposed
-`v0.2.0` roadmap are recorded in
-[`2026-10-24-v0.1.0-final-review.md`](../reviews/2026-10-24-v0.1.0-final-review.md) and
-[`v0.2.0-roadmap.md`](v0.2.0-roadmap.md). They are proposals and findings; they do not
-change any status recorded below.
+Next is `v0.2.0`:
+[`v0.2.0-roadmap.md`](v0.2.0-roadmap.md) remains a proposal pending
+maintainer approval and is being re-audited against the released tree; no
+`v0.2.0` implementation has started. The historical `.13`–`.16` detail below
+records how `v0.1.0` was built. The final review and its findings are in
+[`2026-10-24-v0.1.0-final-review.md`](../reviews/2026-10-24-v0.1.0-final-review.md).
 
 ### Final-review condition status (2026-11-15)
 
-`v0.1.0` is still untagged. The 2026-10-24 final review's six conditions
-remain the gate; their current state on `dev` is:
+`v0.1.0` is tagged and published. The 2026-10-24 final review's six
+conditions closed on 2026-11-15:
 
-- **C1 (`stable` promotion)** — **decided**: reset `stable` once to the
-  evidenced release commit (option 1), so `stable` contains only the
-  `v0.1.0` history. The execution runbook (pre-checks, forced
-  `--force-with-lease` reset, tree-equality verification, ruleset
-  restore, annotated tag) is recorded in
-  `docs/development/git-workflow.md`; execute it after the release
-  commit is pushed and evidenced, not before.
-- **C2 (`0.1.0` version bump)** — **done in the working tree
-  (2026-11-15)**: `[workspace.package]` and all 31 path-dependency pins
-  are `0.1.0`, and `Cargo.lock` is refreshed. The four local gates pass
-  on the bumped tree. CI run 43733761156 and the manual live-device run
-  are recorded on `01a77a8`; a follow-up commit only fixes release-profile
-  warnings (unused parameters in a debug-only diagnostic and a
-  debug-gated test import), with no runtime change.
-- **C3 (publication approval)** — partially closed. `release.yml`'s
-  `publish` job targets the `release` environment and creates a **draft**
-  release. The environment was created 2026-11-15 with
-  `notthecloudy` as required reviewer (self-review allowed) and a
-  custom deployment policy limited to `v*` tags, so the approval gate now
-  exists. The publish path was exercised end to end by the `v0.1.0`
-  tag run (43743505387): all five verification jobs passed, the draft
-  was reviewed, and the release was published on 2026-11-15.
+- **C1 (`stable` promotion)** — **done (2026-11-15)**: `stable` was reset
+  to `b7d24dc`, verified tree-equal to the release commit, and the
+  temporary ruleset bypass was restored. The runbook remains in
+  `docs/development/git-workflow.md`.
+- **C2 (`0.1.0` version bump)** — **done**: `[workspace.package]` and all
+  31 path-dependency pins are `0.1.0` on the tag, and `Cargo.lock` is
+  refreshed. CI run 43733761156 on `01a77a8` and the manual live-device
+  run are recorded on the release commit.
+- **C3 (publication approval)** — **done**: the `release` environment has
+  `notthecloudy` as required reviewer (self-review allowed) and a `v*`
+  tag-only policy. The `v0.1.0` tag run (43743505387) waited for approval,
+  created the draft, and the reviewed draft was published on 2026-11-15.
 - **C4 (what the consumer supplies)** — documented in the release notes'
   "What the consumer supplies" section (the sample owns about 1,200
   lines of renderer, shader, HUD and loop glue; there is no facade).
@@ -75,7 +72,7 @@ remain the gate; their current state on `dev` is:
   limitations" and `docs/architecture/networking.md` (loopback only,
   one session, server-certificate pinning only, no client
   authentication).
-- **C6 (robustness gaps)** — **closed in code on `dev`**: snapshot
+- **C6 (robustness gaps)** — **closed on the release commit**: snapshot
   decode is depth-bounded (`MAX_SNAPSHOT_VALUE_DEPTH`, typed
   `NestingTooDeep`); project and snapshot loads/decodes carry 16 MiB
   budgets (`MAX_PROJECT_BYTES`/`MAX_SNAPSHOT_BYTES`, typed
@@ -92,9 +89,8 @@ remain the gate; their current state on `dev` is:
   `ttf-parser` unmaintained via the winit/ab_glyph chain, with the
   rationale corrected in `.github/workflows/security.yml`.
 
-No release blockers remain: `stable` was reset, `v0.1.0` was tagged on
-`b7d24dc`, and the GitHub release was published on 2026-11-15. CI and
-the manual live-device gates are recorded on the release commit.
+The release is published; no blockers remain. CI and the manual
+live-device gates are recorded on the release commit.
 
 ## `v0.0.1` — Released
 
@@ -780,14 +776,13 @@ history rewriting, gameplay `World` replication — see the exclusions in
 
 Full scope: [`docs/release-notes/v0.0.16.md`](../release-notes/v0.0.16.md).
 
-## `v0.1.0-proof` — Sample committed as `387ba00` on `dev` (NOT released, 2026-10-01)
+## `v0.1.0` — Released as tag `v0.1.0` (2026-11-15)
 
-The `v0.1.0` integration proof is a sample, not a release: no `v0.1.0`
-tag exists, no `docs/release-notes/v0.1.0.md` exists (deliberately — see
-below), and no engine code changed for it. The sample lives entirely in
-`examples/collectathon/` (committed as `387ba00`, unpushed): a one-room
-2D collectathon played only against documented public APIs, per
-[`v0.1.0-plan.md`](v0.1.0-plan.md#v010--integration-proof). Proof record:
+The `v0.1.0` integration proof is the collectathon sample, released with
+the tag. The sample lives in `examples/collectathon/` and was committed as
+`387ba00` on `dev`; it plays only against documented public APIs, per
+[`v0.1.0-plan.md`](v0.1.0-plan.md#v010--integration-proof). Integration gaps
+it exposed were fixed before the tag. Proof record:
 [`examples/collectathon/README.md`](../../examples/collectathon/README.md).
 
 - [x] WP1 (consumer project): `examples/collectathon/` builds and runs
@@ -841,8 +836,8 @@ below), and no engine code changed for it. The sample lives entirely in
       `frame=1634`, the HUD reached `4/4`, collected pickups despawned
       and reset restored them, and `pickup.wav` was audible on each
       collection. The headless deterministic run stays pinned by the CI
-      release gate; the tag remains subject to the final review's C1–C6
-      conditions (see
+      release gate; the tag was cut after the final review's C1–C6
+      conditions closed (see
       [`2026-10-24-v0.1.0-final-review.md`](../reviews/2026-10-24-v0.1.0-final-review.md)).
 
 **Explicitly untouched non-goals** (per
@@ -852,16 +847,11 @@ integration, client prediction/rollback netcode, full asset-cooking
 pipeline with hot reload, beginner-friendly tooling/workflow. None of
 these was started, and none gates the proof.
 
-**Remaining before push/release**: the user's own follow-up scope ("lot
-more") beyond this lane — this lane commits nothing and pushes nothing.
-When that scope lands: record the live-device evidence rows, re-run all
-four gates on the final tree, then cut `v0.1.0` (tag +
-`docs/release-notes/v0.1.0.md`) as a separate release action. No
-release-notes file is created for the proof itself: per the
-`docs/release-notes/` convention (one file per cut release, `v0.0.1.md`
-through `v0.0.16.md`), an uncut milestone gets no note, and there is no
-pre-release-evidence convention elsewhere in `docs/` to follow instead —
-the proof record is the sample README plus this section.
+**Released 2026-11-15.** The sample shipped with `v0.1.0`; the live-device
+rows are in the release notes, the four gates were re-run on the release
+tree, and the tag/release are recorded above. The proof record remains the
+sample README plus this section; the milestone's release note is
+[`docs/release-notes/v0.1.0.md`](../release-notes/v0.1.0.md).
 
 ## Full architecture-to-implementation map
 
@@ -880,7 +870,7 @@ about working code in `engine/`.
 | Scheduler (`canary-scheduler`) | ✅ | ✅ | `SystemAccess` + stage-based `Schedule`; real concurrent read-only stages, writes always solo (concurrent disjoint writes still open); `v0.0.8` |
 | Transform + hierarchy (`canary-transform`) | ✅ | ✅ | Single always-3D `Transform` (ADR 0017), `GlobalTransform` propagation via `canary-scheduler`; implemented; tagged `v0.0.9` (backfill 2026-09-28) |
 | Plugin system — Tier B (native) | ✅ | ✅ | Versioned ABI (ADR 0009), `v0.0.1`. Loading is confined to a canonical `PluginRoot` (relative entries only; absolute paths, `..`, symlink escapes, and non-file targets refused) with an optional `plugins.allowlist` manifest; signing/provenance remains open (R-09) |
-| Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, resource budget, ECS data ABI; `v0.0.3`. Active-World scoped lifecycle access is implemented for `on_load`/`on_unload` (R-34 mitigated); no per-frame hook |
+| Plugin system — Tier A (WASM) | ✅ | ✅ | Component loading, structural capability enforcement, store-wide memory/table budget with count caps (CANARY-REL-008 closed in `v0.1.0`), ECS data ABI; `v0.0.3`. Active-World scoped lifecycle access is implemented for `on_load`/`on_unload` (R-34 mitigated); no per-frame hook |
 | Rendering | ✅ | ✅ | RHI trait + native Vulkan backend; ECS-driven CPU bake and file-loaded mesh/texture sampling are proven. Window presentation with live lifecycle gates (steady/minimize/restore/resize→recreate/content/destruction in `present_clear.rs`; capability-rejection and fatal-error mappings unit-gated) and same-RHI scene/UI window rendering (`ui-game`, 600/600 presented) are implemented on `dev`. Depth/general materials remain open |
 | Localization (`canary-loc`) | ✅ | ✅ | ADR 0015 (Accepted); `.ftl`/Fluent, `LocKey` type; `v0.0.5` |
 | Physics | ✅ | ✅ (2D slice) | `PhysicsBackend` trait + private rapier2d 0.35.3 backend, fixed-step system with spiral guard, first-position registration, game-plus-pixel proof; determinism is single-machine repeatability; `v0.0.11`. 3D (Jolt canonical, Rapier3D alternative) still direction, post-`v0.1.0` |
