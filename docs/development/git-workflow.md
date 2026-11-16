@@ -65,10 +65,10 @@ in-progress work isolated, not to add ceremony to every change.
    and its own definition of done.
 2. Run through [`docs/reviews/RELEASE_CHECKLIST.md`](../reviews/RELEASE_CHECKLIST.md)
    (or the equivalent for the release in progress).
-3. Promote `dev` to `stable`. **This step is currently blocked** — see
-   [Current `stable` promotion blocker](#current-stable-promotion-blocker-2026-11-02)
-   before attempting it. Do not merge, force-push, or tag until the
-   promotion path is decided and rehearsed.
+3. Promote `dev` to `stable`. The one-time 2026-11-15 reset left `stable`
+   containing only the `v0.1.0` history, so later releases fast-forward it
+   to the release commit; do not repeat the reset. See
+   [the resolved blocker](#stable-promotion-blocker-2026-11-02--resolved-2026-11-15).
 4. Tag `stable` at that commit (`git tag -a vX.Y.Z`), push the tag — this
    triggers [`.github/workflows/release.yml`](../../.github/workflows/release.yml).
    The workflow verifies tag `vX.Y.Z` matches the workspace version, requires
@@ -77,14 +77,18 @@ in-progress work isolated, not to add ceremony to every change.
    The `publish` job runs behind the `release` GitHub environment and
    creates a **draft** release, so a human must approve the job and then
    publish the draft (see [Publication gate](#publication-gate)). The
-   publish path has still not been exercised end to end.
+   publish path was exercised end to end by the `v0.1.0` tag run.
 5. Continue on `dev` for the next release.
 
-## Current `stable` promotion blocker (2026-11-02)
+## `stable` promotion blocker (2026-11-02) — resolved 2026-11-15
+
+**Resolved:** option 1 below was executed on 2026-11-15; `stable` now
+contains only the `v0.1.0` history and later releases fast-forward it. The
+record is retained for the decision and runbook.
 
 The `feature/<name> --PR--> dev --release--> stable` model above is the
-policy, but **the `dev` → `stable` promotion is not executable as
-documented on the current repository.** Measured on 2026-11-02:
+policy, but at the time **the `dev` → `stable` promotion was not executable
+as documented.** Measured on 2026-11-02:
 
 - `stable` has 2 commits not on `dev`: `d89d6ff` ("Update Cargo.toml
   with homepage and readme") and `7176ed0` ("Add custom funding link to
@@ -104,7 +108,7 @@ documented on the current repository.** Measured on 2026-11-02:
   cannot pass until the promotion is performed, so tagging `v0.1.0`
   first would fail the release workflow.
 
-### Viable options — decision required before tagging `v0.1.0`
+### Options considered (option 1 chosen)
 
 1. **Admin-approved force-reset of `stable` (preferred).** Confirm the
    two `stable`-only commits are superseded, temporarily add the
@@ -125,17 +129,14 @@ documented on the current repository.** Measured on 2026-11-02:
    conflict but leaves `stable` non-linear at the boundary; a squash
    merge produces a new SHA, which breaks SHA-addressed release evidence.
 
-Whichever option is chosen, perform it as a reviewed, documented
-operation (not an improvised step during the release), record the
-ruleset change and resulting SHA, and rehearse it on a scratch repository
-with the same rulesets first (roadmap `V2-02`). **The decision is
-required before creating the `v0.1.0` tag.**
+Option 1 was chosen and executed as a reviewed, documented operation;
+see the runbook below and the release checklist. A scratch-repository
+rehearsal remains part of roadmap `V2-02`.
 
 ### Execution runbook (option 1: reset `stable` to the release commit)
 
-The owner has chosen to make `stable` contain only the released
-`v0.1.0` history. Execute this only after the release commit is pushed
-to `dev` and all gates and manual evidence are recorded on it.
+Executed on 2026-11-15 to make `stable` contain only the released
+`v0.1.0` history. The steps remain the record for that one-time operation.
 
 ```sh
 git fetch origin
@@ -196,10 +197,6 @@ file, and **not created by the workflow**):
 - Keep the `stable` ruleset and tag protection in place; the draft
   release is published manually after review.
 
-The publish path is still **unexercised** — this workflow has never
-produced a GitHub Release. Exercise it once on a throwaway pre-release
-tag in a scratch repository before relying on it for a real release.
-
 **Configured 2026-11-15:** the `release` environment exists with
 `notthecloudy` as a required reviewer (self-review allowed) and a custom
 deployment policy limited to `v*` tags. Verify before tagging with
@@ -207,7 +204,9 @@ deployment policy limited to `v*` tags. Verify before tagging with
 **Exercised 2026-11-15:** the `v0.1.0` tag run passed all five
 verification jobs (tag/version, integration gate, and release build on
 Ubuntu, macOS and Windows), created the draft, and the draft was
-reviewed and published.
+reviewed and published. Re-dry-run on a scratch repository after changing
+the release jobs; the `workflow_dispatch` dry run remains in roadmap
+`V2-02`.
 
 ## Why two branches
 

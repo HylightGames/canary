@@ -13,7 +13,7 @@
   <a href="https://github.com/HylightGames/canary/actions/workflows/codspeed.yml"><img alt="Benchmarks" src="https://github.com/HylightGames/canary/actions/workflows/codspeed.yml/badge.svg?branch=dev"></a>
 </p>
 
-Canary is a 2D and 3D game engine written in Rust. It is still being built: it is not ready for production games. There is no editor, no downloadable build, and no crates.io release yet.
+Canary is a 2D and 3D game engine written in Rust. It is still being built: it is not ready for production games. There is no editor, no downloadable build, and no facade crate or CLI yet; the engine library crates are published on crates.io.
 
 A minimal schedule is a few lines — [`examples/spinning-cube`](examples/spinning-cube) is the smallest real program:
 
@@ -64,8 +64,10 @@ presentation, server-authoritative networking, live collaboration, and native
 + WebAssembly plugins. Deliberately deferred: editor, asset cooking/hot
 reload, console support.
 
-There is no crates.io consumer release yet — depend on Canary through a
-pinned `git` (or local `path`) dependency, as shown in the
+The individual engine libraries are published on crates.io at `0.1.0`
+(`cargo add canary-core`). The consumer runtime (`canary-runtime`) and a
+facade or CLI are not published yet, so a runnable game still depends on
+Canary through a pinned `git` (or local `path`) dependency, as shown in the
 [collectathon README](examples/collectathon/README.md#depending-on-canary-from-your-own-crate-gitpath-route):
 
 ```toml

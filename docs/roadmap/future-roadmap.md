@@ -40,7 +40,7 @@ dependency order that got here was:
 4. `v0.0.16`: a first live-collaboration slice with explicit operation,
    history, authorization, conflict, and version-lineage rules (released).
 5. `v0.1.0`: prove the systems together in a real, small game using the
-   supported consumer API (active pre-cut target, untagged).
+   supported consumer API (released as tag `v0.1.0`, 2026-11-15).
 
 The milestones are intentionally integration-focused. The editor,
 beginner-friendly workflows, full asset cooking, visual scripting, marketplace,

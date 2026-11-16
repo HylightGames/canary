@@ -236,16 +236,14 @@ published.
 The final review's verdict is CONDITIONAL GO. Conditions C1–C6 are
 tracked here; `docs/roadmap/status.md` carries the detail.
 
-- [x] **C1** `stable` promotion decided: one-time reset of `stable` to
-  the evidenced release commit, so it contains only `v0.1.0`. The exact
-  runbook (pre-checks, `--force-with-lease`, tree equality, ruleset
-  restore, annotated tag) is in `docs/development/git-workflow.md`.
-  Execution is the maintainer's final release step.
+- [x] **C1** `stable` promotion executed 2026-11-15: one-time reset of
+  `stable` to the evidenced release commit (`b7d24dc`), tree equality
+  verified, ruleset bypass restored. Runbook in
+  `docs/development/git-workflow.md`.
 - [x] **C2** `0.1.0` version bump performed (2026-11-15): workspace
   version and all 31 path pins are `0.1.0`, `Cargo.lock` refreshed, all
   four gates green on the bumped tree. The release commit's CI run and
-  manual live-device evidence are recorded after the commit is pushed,
-  before tagging.
+  manual live-device evidence are recorded on the tagged commit.
 - [x] **C3** Publish path exercised end to end by the real `v0.1.0` tag
   run (43743505387) rather than a throwaway tag: the `release`
   environment (created 2026-11-15, required reviewer

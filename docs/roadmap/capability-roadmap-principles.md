@@ -130,7 +130,7 @@ declared performance budgets.
 | Transform hierarchy | 1 | Integrated | `canary-transform`, used by sample | Large-hierarchy benchmarks; world-origin strategy |
 | Frame driver and fixed-step contract | 1 | Integrated | Existing tests plus the proposed randomized frame-sequence test; accumulator is example-owned | Engine-owned fixed-step driver and interpolation |
 | World composition (authored docs, one-level prefabs) | 1 | Exists | `canary-state` authored documents; sample loads a room | Scenes, nested prefabs, spawn API, additive load |
-| Save/load and deterministic snapshots | 1 | Integrated | Snapshot round trip and determinism proofs | Load budgets, depth bound, migration tests |
+| Save/load and deterministic snapshots | 1 | Integrated | Snapshot round trip and determinism proofs; load budgets and depth bound (v0.1.0) | Stable `LogicalAssetId`, broader migration coverage |
 | Vulkan RHI and window presentation | 2 | Integrated | Real-window and llvmpipe proofs pass; lifecycle gates; one OS family only | Multi-OS evidence, validation-layer CI, device-loss tests |
 | Scene rendering | 2 | Exists | CPU-baked vertices; fixed virtual camera on the perspective path; `OrthoView` for 2D | GPU instancing, camera component, materials, lighting |
 | Shaders and materials | 2 | Not present | Sample owns `ScenePipeline` and WGSL compile via `naga` | Engine-owned pipelines and a shader asset path |
@@ -142,12 +142,12 @@ declared performance budgets.
 | Live collaboration operations | 5 | Exists | Server-authoritative first slice with permissions and conflict rules | An editor or tool consuming it |
 | Audio | 6 | Integrated | Rodio bootstrap backend, triggers, silent fallback | Buses, spatialization, streaming |
 | UI (egui adapter, capture routing) | 6 | Integrated | HUD in the sample; capture routing tests | Menu kit, focus navigation, accessibility |
-| Localization | 6 | Integrated | Fluent bundles with fallback; CI gate is vacuous for the real files (finding CANARY-REL-010) | A gate that checks the shipped locale files |
+| Localization | 6 | Integrated | Fluent bundles with fallback; CI gate lints and compares the shipped collectathon locales (CANARY-REL-010 closed in v0.1.0) | Translator tooling, more locales |
 | Input (actions, bindings, keyboard and mouse) | 6 | Integrated | Mapper, capture routing, edge retention tests | Gamepad, rebinding persistence, text input |
 | Networking | 6 | Integrated | QUIC server-authoritative replication, loopback only, no client authentication | Authenticated non-loopback sessions, prediction |
 | Plugins, native (Tier B) | 7 | Exists | Trusted loader with path confinement and ABI check | Capability surface, compatibility policy |
-| Plugins, WASM (Tier A) | 7 | Exists | Fuel and per-memory limits; aggregate and table limits missing (finding CANARY-REL-008) | Complete resource budget, host API growth |
-| CI and release engineering | 7 | Integrated | 12-job CI plus audit, Trivy and CodSpeed; publish path never exercised | Release dry run, approval gate, evidence check |
+| Plugins, WASM (Tier A) | 7 | Exists | Fuel plus store-wide memory/table accounting with count caps (CANARY-REL-008 closed in v0.1.0) | Epoch interruption, host API growth |
+| CI and release engineering | 7 | Integrated | CI matrix plus audit, Trivy and CodSpeed; approval-gated publish exercised by v0.1.0 | Machine-checked evidence record, dry-run automation |
 | Packaging and consumer API | 7 | Exists | Git or path dependency; no facade crate | Facade crate, template, crates.io readiness |
 | Performance budgets | 7 | Not present | Benchmarks exist and are informational only | Declared budgets with blocking thresholds |
 

@@ -11,39 +11,27 @@ record is [`milestones.md`](milestones.md).
 
 ## Where to continue now
 
-`v0.1.0` is the latest release (tagged and published 2026-11-15). The
-**`v0.1.0`: integration proof** milestone is complete.
-The dependency-ordered release plan is [`v0.1.0-plan.md`](v0.1.0-plan.md);
-the live inventory is [`status.md`](status.md); the remaining gates are
-[`RELEASE_CHECKLIST.md`](../reviews/RELEASE_CHECKLIST.md). The
-`v0.0.13`–`v0.0.16` milestone roadmaps are completed historical handoffs —
-do not work from their "continue here" sections.
+`v0.1.0` is released (tagged and published 2026-11-15), and the **`v0.1.0`:
+integration proof** milestone is complete. The live inventory is
+[`status.md`](status.md); the release note is
+[`docs/release-notes/v0.1.0.md`](../release-notes/v0.1.0.md); the historical
+plan is [`v0.1.0-plan.md`](v0.1.0-plan.md). The `v0.0.13`–`v0.0.16` milestone
+roadmaps are completed history — do not work from their "continue here"
+sections.
 
-Work through these closure gates in order:
+The closure gates are complete: the audit fixes are green, candidate evidence
+was collected, and the tag was published through the approval-gated workflow.
+Do not re-run the closure sequence unless the release tree changes.
 
-1. **Keep the audit-findings fixes green on `dev`.** Runtime multi-step
-   passes (`SimPasses`), loopback-only networking, physics structural
-   reconciliation, the localized collectathon HUD, Vulkan `DeviceId`
-   provenance (fatal RHI creation documented in ADR 0029), and the
-   hardened release workflow are implemented with tests. Hold them
-   through the four gates (`build`, `test`, `clippy -D warnings`,
-   `fmt --check`) plus `cargo doc` with warnings denied.
-2. **Collect candidate-level integration evidence.** On the exact release
-   candidate commit: collectathon headless, server/client replication,
-   two-client collaboration, Tier A guest probe, snapshot determinism,
-   Xvfb windowing, llvmpipe Vulkan/render-ECS legs, and the rustdoc gate.
-   Windowed/audio live evidence is recorded (2026-10-21 Arch Linux Vulkan
-   run, one qualified underrun); re-record only if the candidate differs
-   behaviorally.
-3. **Cut the release.** dev-to-stable promotion, tag `v0.1.0` matching the
-   workspace version, `docs/release-notes/v0.1.0.md` published by the
-   release workflow. `v0.1.0` is not releasable until every gate above
-   passes on the candidate.
+Next is the proposed [`v0.2.0` direction](v0.2.0-roadmap.md); it is pending
+maintainer approval and a re-audit against the released tree. No `v0.2.0`
+implementation has started.
 
-## Near-term order after the current milestone
+## Release order through `v0.1.0` (complete)
 
-The canonical plan defines acceptance for each step; this summary is only a
-navigation aid.
+All steps below are released; the table is retained as the dependency record.
+The canonical plan in [`v0.1.0-plan.md`](v0.1.0-plan.md) holds the acceptance
+detail.
 
 | Step | Work | Must prove |
 |---|---|---|
@@ -61,8 +49,9 @@ Do not turn the editor, visual scripting, marketplace, full cooking/hot reload,
 ## Planning after `v0.1.0` (proposed 2026-10-24)
 
 A final `v0.1.0` review recorded a release recommendation and a proposed `v0.2.0`
-direction. Both are **proposals awaiting maintainer approval**; they do not change
-the closure gates above or any accepted ADR.
+direction. The direction is **pending maintainer approval** and was re-audited
+against the released tree on 2026-11-15; closed work is annotated in the roadmap
+so it is not planned again. No `v0.2.0` implementation has started.
 
 - [`capability-roadmap-principles.md`](capability-roadmap-principles.md): every release
   must grow what developers can build, with reliability growing alongside; seven
