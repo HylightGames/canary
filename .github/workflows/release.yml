@@ -18,9 +18,9 @@ name: Release
 # GitHub environment (required reviewers) and creates the release as a
 # draft. The environment protection is configured in the repository
 # settings, not by this file -- if `release` does not exist there, GitHub
-# creates it unprotected and the job will not wait. The publish path has
-# not been exercised yet; dry-run it on a throwaway pre-release tag in a
-# scratch repository before relying on it. See
+# creates it unprotected and the job will not wait. The path was exercised
+# by the `v0.1.0` tag run on 2026-11-15; dry-run workflow changes on a
+# throwaway pre-release tag in a scratch repository. See
 # docs/development/git-workflow.md "Publication gate".
 
 on:
